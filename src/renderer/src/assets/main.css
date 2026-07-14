@@ -1190,6 +1190,116 @@ a {
   color: #e06c75;
 }
 
+/* Zaman şeridi ±10/±100 atlama butonları: dar, küçük yazı */
+.step-jump {
+  font-size: 10px;
+  padding: 2px 4px;
+  letter-spacing: -0.03em;
+}
+
+/* Katman menüsü: araç çubuğunda etiketli buton → açılır panel (LinearHistory deseni) */
+.layers-menu {
+  position: relative;
+  margin-left: auto;
+}
+
+.layers-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg3);
+  color: var(--fg);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.layers-btn:hover,
+.layers-btn.open {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.layers-count {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 1px 7px;
+}
+
+.layers-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+}
+
+.layers-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 901;
+  width: 260px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  padding: 6px;
+}
+
+.layers-panel-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 4px 8px 6px;
+}
+
+.layers-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.layers-row:hover {
+  background: var(--bg3);
+}
+
+.layers-row input {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  cursor: pointer;
+}
+
+.layers-icon {
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+  flex: none;
+}
+
+.layers-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.layers-name {
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.layers-desc {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .tag-add {
   display: flex;
   gap: 4px;

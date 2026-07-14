@@ -33,11 +33,14 @@ import { alertDialog } from './dialog'
 import { useT } from './i18n'
 import Timeline from './Timeline'
 import ToolPanel, {
+  ARROW_LABELS,
   DASH_LABELS,
   DEFAULT_DRAW,
   DrawSettings,
   FONTS,
+  LINE_ARROWS,
   LINE_DASHES,
+  LineArrow,
   LineDash,
   lineDashArray,
   Tool
@@ -58,6 +61,7 @@ interface FeatureStyle {
   to?: number
   opacity?: number // çizgi (yol) opaklığı
   dash?: LineDash // çizgi deseni (yol aracı)
+  arrow?: LineArrow // yön oku: yok / sonda / akış (göç, sefer, ticaret)
 }
 
 interface Props {
@@ -116,6 +120,7 @@ export default function MapView({
   // Harita modu (CK3 gibi): kademe → taban poligonlar o kademedeki ataya göre; boya → boyuta göre
   const [activeMode, setActiveMode] = useState<ActiveMode>(null)
   const activeModeRef = useRef<ActiveMode>(null)
+  const [layersOpen, setLayersOpen] = useState(false)
   // Zaman çizgisi: slider tikinde DB'siz aç/kapa için katman kayıt defteri
   const yearRef = useRef(0)
   // Haritada bir şeyin değiştiği yıllar (çizim başlar/biter/el değiştirir) — ray tikleri
@@ -124,6 +129,12 @@ export default function MapView({
   const [eventsToken, setEventsToken] = useState(0)
   const layerYears = useRef(new Map<number, { from?: number; to?: number }>())
   const allLayers = useRef(new Map<number, L.Layer[]>())
+  // Katman paneli: poligon/yol/pin/etiket aç-kapa (settings'te kalıcı, applyYear DB'siz uygular)
+  const [layersOn, setLayersOn] = useState({ polygon: true, line: true, pin: true, label: true })
+  const layersRef = useRef(layersOn)
+  const featKind = useRef(new Map<number, 'polygon' | 'line' | 'pin'>())
+  // Yol yön oku: fid → 'end'|'flow' (SVG marker-mid/end ile, applyYear'da elemana uygulanır)
+  const featArrow = useRef(new Map<number, LineArrow>())
   // Her çizimin tekil render stili — applyYear bunlarla DB'siz yeniden boyar
   const renderStyle = useRef(
     new Map<
@@ -454,6 +465,8 @@ export default function MapView({
     markerSize.current.clear()
     layerYears.current.clear()
     allLayers.current.clear()
+    featKind.current.clear()
+    featArrow.current.clear()
     renderStyle.current.clear()
     parentHist.current.clear()
     rungTargets.current.clear()
@@ -551,6 +564,9 @@ export default function MapView({
         },
         pointToLayer: (_gf, latlng) => L.marker(latlng, { icon: scaledIcon(style.size ?? 1) })
       })
+      featKind.current.set(f.id, isPolygon ? 'polygon' : isLine ? 'line' : 'pin')
+      // Yön oku (sonda): gerçek çizginin path'ine marker-end (applyYear'da uygulanır)
+      if (isLine && style.arrow === 'end') featArrow.current.set(f.id, 'end')
       if (style.from !== undefined || style.to !== undefined)
         layerYears.current.set(f.id, { from: style.from, to: style.to })
       if (f.entity_id !== null) {
@@ -810,6 +826,9 @@ export default function MapView({
     }
     for (const [fid, layers] of allLayers.current) {
       let visible = inYears(fid)
+      // Katman paneli: türü kapalıysa çizim hiç gösterilmez
+      const kind = featKind.current.get(fid)
+      if (kind && !layersRef.current[kind]) visible = false
       const eid = featEnt.current.get(fid)
       const isBase = eid !== undefined && baseSet.current.has(eid) && featArea.current.has(fid)
       let st = renderStyle.current.get(fid)
@@ -835,6 +854,7 @@ export default function MapView({
         const c = eid !== undefined ? rungColor(eid) : '#666666'
         st = { ...st, color: c }
       }
+      const arrow = featArrow.current.get(fid)
       for (const l of layers) {
         if (visible && !fg.hasLayer(l)) fg.addLayer(l)
         else if (!visible && fg.hasLayer(l)) fg.removeLayer(l)
@@ -850,30 +870,59 @@ export default function MapView({
             dashArray: st.dashArray
           })
         }
-        // Kök görünümünde taban etiketleri: taşıyıcı kökün adını taşır, diğerleri gizli
-        if (visible && labelRoot !== null) {
+        // 'end' oku: gerçek çizgi path'ine marker-end. Katman eklendikten sonra element var;
+        // ok rengi context-stroke ile çizgiyi izler. ('flow' overlay kendi markerlarını 'add'de kurar.)
+        if (visible && arrow === 'end') {
+          const el = (l as L.Path).getElement?.() as SVGElement | null
+          el?.setAttribute('marker-end', 'url(#worldArrow)')
+        }
+        // Kalıcı etiketler: katman paneli kapalıysa hepsi gizli; kök görünümünde taşıyıcı
+        // kökün adını taşır, diğer taban etiketleri gizli
+        if (visible) {
           const tt = l.getTooltip?.()
           const el = tt?.getElement()
-          if (tt && el) {
-            if (labelRoot === -1) el.style.display = 'none'
+          if (tt && el && tt.options.permanent) {
+            if (!layersRef.current.label || labelRoot === -1) el.style.display = 'none'
             else {
-              const name = entNames.current.get(labelRoot) ?? ''
-              tt.setContent(name)
+              if (labelRoot !== null) {
+                const name = entNames.current.get(labelRoot) ?? ''
+                tt.setContent(name)
+                const b = (l as L.Polygon).getBounds()
+                labelMeta.current.set(fid, {
+                  base: Math.min(
+                    200,
+                    Math.max(8, (b.getEast() - b.getWest()) / Math.max(4, name.length))
+                  ),
+                  font: labelMeta.current.get(fid)?.font ?? 'Cinzel'
+                })
+              }
               el.style.display = ''
-              const b = (l as L.Polygon).getBounds()
-              labelMeta.current.set(fid, {
-                base: Math.min(
-                  200,
-                  Math.max(8, (b.getEast() - b.getWest()) / Math.max(4, name.length))
-                ),
-                font: labelMeta.current.get(fid)?.font ?? 'Cinzel'
-              })
             }
           }
         }
       }
     }
     updateOverlaySizes(reposition) // geri eklenen etiket/pin boyutları güncel zoom'a otursun
+  }
+
+  // Katman panelini settings'ten yükle (kalıcı tercih); toggle anında DB'siz uygular
+  useEffect(() => {
+    api.getSetting('mapLayers').then((raw) => {
+      if (!raw) return
+      const v = { ...layersRef.current, ...(JSON.parse(raw) as Partial<typeof layersOn>) }
+      setLayersOn(v)
+      layersRef.current = v
+      applyYear(yearRef.current)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const toggleLayer = (k: keyof typeof layersOn): void => {
+    const v = { ...layersRef.current, [k]: !layersRef.current[k] }
+    layersRef.current = v
+    setLayersOn(v)
+    api.setSetting('mapLayers', JSON.stringify(v))
+    applyYear(yearRef.current)
   }
 
   // Fetih seçim vurguları: önce kanonik stile dön, sonra seçili maddelerin poligonlarını vurgula
@@ -1028,24 +1077,30 @@ export default function MapView({
     map.on('pm:create', async (e) => {
       const geometry = JSON.stringify((e.layer as L.Polygon).toGeoJSON().geometry)
       map.removeLayer(e.layer)
-      // O anki araç ayarlarının anlık görüntüsü çizimin kalıcı stili olur
+      // O anki araç ayarlarının anlık görüntüsü çizimin kalıcı stili olur.
+      // from = çizim anındaki slider yılı: çizim, var olmadığı tarihlerde görünmez
+      // (seçili çizim panelindeki "Zaman" bloğundan değiştirilebilir/temizlenebilir).
       const s = drawRef.current
       const shape = (e as { shape?: string }).shape
+      const from = yearRef.current
       const style = JSON.stringify(
         shape === 'Marker'
-          ? { size: s.marker.size }
+          ? { size: s.marker.size, from }
           : shape === 'Line'
             ? {
                 color: s.line.color,
                 weight: s.line.weight,
                 opacity: s.line.opacity,
-                dash: s.line.dash
+                dash: s.line.dash,
+                arrow: s.line.arrow,
+                from
               }
             : {
                 color: s.polygon.color,
                 fillOpacity: s.polygon.fillOpacity,
                 weight: s.polygon.weight,
-                font: s.polygon.font
+                font: s.polygon.font,
+                from
               }
       )
       const created = await api.createFeature({ map_id: id, geometry, style })
@@ -1262,9 +1317,62 @@ export default function MapView({
         <button className="mini" title={t('Export as image')} onClick={exportMap}>
           📷 {t('Export')}
         </button>
+        <div className="layers-menu">
+          <button
+            className={`layers-btn ${layersOpen ? 'open' : ''}`}
+            onClick={() => setLayersOpen((o) => !o)}
+          >
+            🗂 {t('Layers')}{' '}
+            <span className="layers-count">{Object.values(layersOn).filter(Boolean).length}/4</span>
+          </button>
+          {layersOpen && (
+            <>
+              <div className="layers-backdrop" onClick={() => setLayersOpen(false)} />
+              <div className="layers-panel">
+                <div className="layers-panel-head">{t('Show on map')}</div>
+                {(
+                  [
+                    ['polygon', '⬟', t('Polygons'), t('State / region borders')],
+                    ['line', '〰', t('Paths'), t('Roads, routes, rivers')],
+                    ['pin', '📍', t('Pins'), t('Markers on the map')],
+                    ['label', '🏷', t('Labels'), t('Names written on polygons')]
+                  ] as const
+                ).map(([k, icon, label, desc]) => (
+                  <label key={k} className="layers-row">
+                    <input type="checkbox" checked={layersOn[k]} onChange={() => toggleLayer(k)} />
+                    <span className="layers-icon">{icon}</span>
+                    <span className="layers-text">
+                      <span className="layers-name">{label}</span>
+                      <span className="layers-desc">{desc}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
       <div className="map-body">
         <div className="map-host-wrap">
+          {/* Yol yön oku için SVG marker tanımı (belge genelinde url(#worldArrow) ile referanslanır;
+              context-stroke ile ok rengi çizginin rengini izler, markerUnits=strokeWidth ile
+              kalınlıkla ölçeklenir → zoom'da ekran-sabit, hot-path yok) */}
+          <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden>
+            <defs>
+              <marker
+                id="worldArrow"
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="4"
+                markerHeight="4"
+                orient="auto"
+                markerUnits="strokeWidth"
+              >
+                <path d="M0,1 L9,5 L0,9 L3,5 z" fill="context-stroke" />
+              </marker>
+            </defs>
+          </svg>
           <div ref={divRef} className="leaflet-host" />
           {!exporting && (
             <>
@@ -1433,6 +1541,17 @@ export default function MapView({
                     {LINE_DASHES.map((d) => (
                       <option key={d} value={d}>
                         {t(DASH_LABELS[d])}
+                      </option>
+                    ))}
+                  </select>
+                  <label>{t('Direction arrow')}</label>
+                  <select
+                    value={selStyle.arrow ?? 'none'}
+                    onChange={(e) => editSelectedStyle({ arrow: e.target.value as LineArrow })}
+                  >
+                    {LINE_ARROWS.map((a) => (
+                      <option key={a} value={a}>
+                        {t(ARROW_LABELS[a])}
                       </option>
                     ))}
                   </select>

@@ -4,17 +4,25 @@ import { useT } from './i18n'
 export type Tool = 'polygon' | 'line' | 'marker' | 'edit' | 'drag' | 'remove'
 
 export type LineDash = 'solid' | 'dashed' | 'dotted'
+// Yol yön oku: yok / sonda (varış noktası — sefer/göç yönü)
+export type LineArrow = 'none' | 'end'
 
 export interface DrawSettings {
   marker: { size: number }
   polygon: { color: string; fillOpacity: number; weight: number; font: string }
-  line: { color: string; weight: number; opacity: number; dash: LineDash }
+  line: { color: string; weight: number; opacity: number; dash: LineDash; arrow: LineArrow }
 }
 
 export const DEFAULT_DRAW: DrawSettings = {
   marker: { size: 1 },
   polygon: { color: '#7bb3ff', fillOpacity: 0.25, weight: 2, font: 'Cinzel' },
-  line: { color: '#b08968', weight: 3, opacity: 0.9, dash: 'solid' }
+  line: { color: '#b08968', weight: 3, opacity: 0.9, dash: 'solid', arrow: 'none' }
+}
+
+export const LINE_ARROWS: LineArrow[] = ['none', 'end']
+export const ARROW_LABELS: Record<LineArrow, string> = {
+  none: 'No arrow',
+  end: 'Arrow at end'
 }
 
 // Çizgi desenini Leaflet dashArray'ine çevir (kalınlığa orantılı; dotted + round cap = nokta)
@@ -186,6 +194,22 @@ export default function ToolPanel({
               {LINE_DASHES.map((d) => (
                 <option key={d} value={d}>
                   {t(DASH_LABELS[d])}
+                </option>
+              ))}
+            </select>
+            <label>{t('Direction arrow')}</label>
+            <select
+              value={settings.line.arrow}
+              onChange={(e) =>
+                onSettings({
+                  ...settings,
+                  line: { ...settings.line, arrow: e.target.value as LineArrow }
+                })
+              }
+            >
+              {LINE_ARROWS.map((a) => (
+                <option key={a} value={a}>
+                  {t(ARROW_LABELS[a])}
                 </option>
               ))}
             </select>

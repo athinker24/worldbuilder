@@ -108,7 +108,9 @@ export default function Timeline({
       if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault()
-        step(e.key === 'ArrowLeft' ? -1 : 1)
+        // Shift = ±10, Ctrl = ±100 yıl
+        const mag = e.ctrlKey ? 100 : e.shiftKey ? 10 : 1
+        step(e.key === 'ArrowLeft' ? -mag : mag)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -170,6 +172,24 @@ export default function Timeline({
           }}
         >
           {speed}×
+        </button>
+        <button
+          className="mini step-jump"
+          title={t('-100 years (Ctrl+←)')}
+          onMouseDown={() => startHold(-100)}
+          onMouseUp={endHold}
+          onMouseLeave={endHold}
+        >
+          −100
+        </button>
+        <button
+          className="mini step-jump"
+          title={t('-10 years (Shift+←)')}
+          onMouseDown={() => startHold(-10)}
+          onMouseUp={endHold}
+          onMouseLeave={endHold}
+        >
+          −10
         </button>
         <button
           className="mini"
@@ -236,6 +256,24 @@ export default function Timeline({
           onMouseLeave={endHold}
         >
           ⏩
+        </button>
+        <button
+          className="mini step-jump"
+          title={t('+10 years (Shift+→)')}
+          onMouseDown={() => startHold(10)}
+          onMouseUp={endHold}
+          onMouseLeave={endHold}
+        >
+          +10
+        </button>
+        <button
+          className="mini step-jump"
+          title={t('+100 years (Ctrl+→)')}
+          onMouseDown={() => startHold(100)}
+          onMouseUp={endHold}
+          onMouseLeave={endHold}
+        >
+          +100
         </button>
         {editingYear ? (
           <input

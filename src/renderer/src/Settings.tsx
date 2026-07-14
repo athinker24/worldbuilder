@@ -35,6 +35,7 @@ export default function Settings({
   const [allTags, setAllTags] = useState<string[]>([])
   const [activeGov, setActiveGov] = useState<string | null>(null)
   const [tagInput, setTagInput] = useState('')
+  const [govInput, setGovInput] = useState('')
   const [modes, setModes] = useState<MapModes>({ dims: [], colors: {} })
   const [dimInput, setDimInput] = useState('')
   const [backupMsg, setBackupMsg] = useState('')
@@ -214,19 +215,52 @@ export default function Settings({
       </p>
       <div className="hier-tags" style={{ marginBottom: 8 }}>
         {hierCfg.govs.map((g) => (
-          <button
+          <span
             key={g.name}
             className={`tag-chip clickable ${activeGov === g.name ? 'active' : ''}`}
             onClick={() => setActiveGov(g.name)}
           >
             {g.name}
-          </button>
+            <button
+              className="tag-x"
+              title={t('Delete government form')}
+              onClick={async (e) => {
+                e.stopPropagation()
+                if (
+                  !(await confirmDialog(
+                    t('Delete government form "{name}" and its rank ladder?', { name: g.name })
+                  ))
+                )
+                  return
+                const next = { ...hierCfg, govs: hierCfg.govs.filter((x) => x.name !== g.name) }
+                updateHier(next)
+                if (activeGov === g.name) setActiveGov(next.govs[0]?.name ?? null)
+              }}
+            >
+              ×
+            </button>
+          </span>
         ))}
-        {hierCfg.govs.length === 0 && (
-          <p className="hint">
-            {t('No government forms yet. Write a government form on an entity (e.g. a county).')}
-          </p>
-        )}
+        <form
+          className="tag-add"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const name = govInput.trim()
+            setGovInput('')
+            if (!name || hierCfg.govs.some((g) => g.name === name)) return
+            updateHier({ ...hierCfg, govs: [...hierCfg.govs, { name, tags: [] }] })
+            setActiveGov(name)
+          }}
+        >
+          <input
+            placeholder={t('new government form (feudal, nomadic…)')}
+            value={govInput}
+            onChange={(e) => setGovInput(e.target.value)}
+          />
+          <button className="mini" type="submit">
+            +
+          </button>
+        </form>
       </div>
       {gov && (
         <>

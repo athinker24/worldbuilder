@@ -5,6 +5,7 @@ import {
   assetUrl,
   Entity,
   EntityRow,
+  getHierConfig,
   getMapModes,
   getParents,
   getYearRecs,
@@ -111,9 +112,10 @@ export default function EntityPage({
 
   // Etiket/yönetim/boyut datalist'lerini tazele (ilk açılışta ve her fields kaydında)
   const refreshHier = useCallback(async () => {
-    const [h, modes] = await Promise.all([api.hierarchy(), getMapModes()])
+    const [h, modes, cfg] = await Promise.all([api.hierarchy(), getMapModes(), getHierConfig()])
     setAllTags(h.tags)
-    setAllGovs(h.govs)
+    // Ayarlar'dan eklenmiş ama henüz hiçbir maddede kullanılmamış biçimler de önerilsin
+    setAllGovs([...new Set([...h.govs, ...cfg.govs.map((g) => g.name)])])
     setHierEntities(h.entities)
     setDims(modes.dims)
     const dv: Record<string, string[]> = {}
