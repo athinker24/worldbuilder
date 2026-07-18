@@ -142,6 +142,9 @@ const pinDivIcon = (m: {
 // kendini translate(-50%,-50%) ile ortalar → metin uzunluğuna göre genişlik matematiği gerekmez.
 // Font boyutu zoom'a göre updateOverlaySizes'ta yazılır (LABEL_BASE = zoom-0 taban, harita birimi).
 const LABEL_BASE = 16
+// Türetilmiş mod etiketi (kademe/boya): taban font (harita birimi) bunun altındaysa bölge çok
+// küçük demektir, etiket çizilmez (CK3 de küçük bölgeleri adlandırmaz)
+const LABEL_MIN = 5
 // Metin kullanıcı girdisi ve html string'ine gömülüyor → kaçırılmalı (paylaşılan world.db'den XSS
 // gelmesin; markdown'da ham HTML'in kapatılmasıyla aynı gerekçe).
 const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
@@ -201,6 +204,49 @@ const ringArea = (ring: number[][]): number => {
     s += x1 * y2 - x2 * y1
   }
   return Math.abs(s) / 2
+}
+// ponytail: köşe ortalaması — shoelace centroid değil, etiket çapası için yeterli
+const ringCentroid = (ring: number[][]): [number, number] => {
+  let sx = 0
+  let sy = 0
+  for (const [x, y] of ring) {
+    sx += x
+    sy += y
+  }
+  return [sx / ring.length, sy / ring.length]
+}
+// PCA ana ekseni: köşe bulutunun kovaryansından uzun eksen açısı (radyan) + o eksendeki genişlik.
+// CK3/kartografi medial-axis kullanır; kişisel ölçekte PCA yeterli (ponytail: medial axis overkill).
+const pcaAxis = (verts: number[][]): { theta: number; extent: number } => {
+  let mx = 0
+  let my = 0
+  for (const [x, y] of verts) {
+    mx += x
+    my += y
+  }
+  mx /= verts.length
+  my /= verts.length
+  let sxx = 0
+  let sxy = 0
+  let syy = 0
+  for (const [x, y] of verts) {
+    const dx = x - mx
+    const dy = y - my
+    sxx += dx * dx
+    sxy += dx * dy
+    syy += dy * dy
+  }
+  const theta = 0.5 * Math.atan2(2 * sxy, sxx - syy)
+  const c = Math.cos(theta)
+  const s = Math.sin(theta)
+  let min = Infinity
+  let max = -Infinity
+  for (const [x, y] of verts) {
+    const p = x * c + y * s
+    if (p < min) min = p
+    if (p > max) max = p
+  }
+  return { theta, extent: max - min }
 }
 const fmtDist = (v: number): string =>
   v >= 100 ? Math.round(v).toLocaleString() : v >= 10 ? v.toFixed(1) : v.toFixed(2)
@@ -473,6 +519,19 @@ export default function MapView({
   const entColors = useRef(new Map<number, string>())
   const entNames = useRef(new Map<number, string>())
   const featArea = useRef(new Map<number, number>())
+  // Türetilmiş mod etiketleri (kademe/boya, CK3 tarzı): DB feature değil, applyYear'da kurulan
+  // geçici marker'lar. labelGeo: taban poligon geometri özeti (reload neslinde sabit; keys =
+  // köşelerin EPS-grid hücre anahtarları — ortak köşe paylaşan poligonlar bitişik sayılır,
+  // geoman snapping komşu koordinatları birebir eşitler). dimValue: boya değer metni.
+  const labelGeo = useRef(
+    new Map<
+      number,
+      { keys: string[]; verts: number[][]; area: number; centroid: [number, number] }
+    >()
+  )
+  const dimValue = useRef(new Map<number, string>())
+  const derivedLabels = useRef<{ m: L.Marker; base: number }[]>([])
+  const derivedSig = useRef('') // fid:grup imzası — sahiplik değişmeyen yıl tiklerinde iş yok
   // Mozaikle yönetilen maddeler (yıldan bağımsız): haritadaki taban poligonların üst geçmişinde
   // HERHANGİ bir yıl geçenler. Kendi çizimleri varsayılan görünümde asla gösterilmez — tam
   // ilhakta (mozaiği o yıl boşalınca) eski elle çizilmiş poligon geri belirmesin.
@@ -856,6 +915,12 @@ export default function MapView({
         pinEl.style.fontFamily = `'${lt.font}', serif`
       }
     })
+    // Türetilmiş mod etiketleri (haritada, featureGroup dışında): serbest etiketle aynı desen —
+    // tek fontSize yazımı, DOM ölçümü yok (SVG em boyutlaması metni + yayı birlikte ölçekler)
+    for (const d of derivedLabels.current) {
+      const el = (d.m as unknown as { _icon?: HTMLElement })._icon
+      if (el) el.style.fontSize = `${d.base * scale}px`
+    }
   }
 
   // Sil + geri alma kaydı; hem geoman silme modu hem sağ tık menüsü kullanır
@@ -996,6 +1061,12 @@ export default function MapView({
     entColors.current.clear()
     entNames.current.clear()
     featArea.current.clear()
+    labelGeo.current.clear()
+    dimValue.current.clear()
+    // Türetilmiş etiketler haritada yaşar, featureGroup'ta değil — fg.clearLayers() sökmez
+    for (const d of derivedLabels.current) d.m.remove()
+    derivedLabels.current = []
+    derivedSig.current = ''
     for (const e of h.entities) {
       const recs = getParents(e.fields)
       if (recs.length) parentHist.current.set(e.id, recs)
@@ -1043,6 +1114,7 @@ export default function MapView({
         if (!baseSet.current.has(e.id)) continue
         const value = (JSON.parse(e.fields || '{}') as Record<string, string>)[mode.key]
         color.set(e.id, value ? (modes.colors[mode.key]?.[value] ?? autoColor(value)) : '#666666')
+        if (value) dimValue.current.set(e.id, value) // etiket metni; değersiz (gri) bölge etiketsiz
       }
       paint = { base: baseSet.current, color }
     } else if (mode?.kind === 'kademe') {
@@ -1138,6 +1210,22 @@ export default function MapView({
         if (isPolygon) {
           const b = (layer as L.Polygon).getBounds()
           featArea.current.set(f.id, (b.getEast() - b.getWest()) * (b.getNorth() - b.getSouth()))
+          if (derived) {
+            // Türetilmiş etiketler için geometri özeti. Grid yuvarlama (EPS=0.01) weld'in
+            // Chebyshev kıyasıyla aynı pay; snapping koordinatları birebir eşitlediği için
+            // hücreler tutar. ponytail: EPS-içi ama hücre sınırını aşan köşe çifti teorik
+            // olarak bileşeni bölebilir — görülürse 4 komşu hücreye de yazılır.
+            const geom = JSON.parse(f.geometry) as { type: string; coordinates: number[][][] }
+            if (geom.type === 'Polygon') {
+              const ring = geom.coordinates[0]
+              labelGeo.current.set(f.id, {
+                keys: ring.map(([x, y]) => `${Math.round(x / 0.01)}_${Math.round(y / 0.01)}`),
+                verts: ring,
+                area: ringArea(ring),
+                centroid: ringCentroid(ring)
+              })
+            }
+          }
         }
         // Pin rozet ölçeği YALNIZ pinlere; etiket de Point ama font ölçeklenir (labelText dalı)
         if (!isPolygon && !isLabel)
@@ -1336,6 +1424,123 @@ export default function MapView({
     if (toolRef.current === 'edit') mapRef.current?.pm.enableGlobalEditMode()
   }
 
+  // CK3 tarzı türetilmiş bölge etiketleri (kademe/boya): aynı gruptaki (o yılki kademe sahibi /
+  // boya değeri) BİTİŞİK taban poligonlar union-find ile tek bileşene toplanır (bitişiklik =
+  // ortak köşe grid hücresi, geoman snapping garantisi); her bileşen uzun eksenine (PCA) göre
+  // eğik + hafif kavisli bir ad etiketi alır, font bileşen genişliğiyle ölçekli, çok küçükte yok.
+  // Etiketler DB feature değil — doğrudan haritaya eklenen geçici marker'lar (featureGroup'a
+  // DEĞİL: fg.clearLayers churn'ü, updateOverlaySizes eachLayer'ı ve geoman edit modundan muaf).
+  // interactive:false kritik — fetih tıklamaları alttaki poligona düşmeli.
+  const rebuildDerivedLabels = (
+    year: number,
+    rungOwnerAt: (eid: number) => number | null
+  ): void => {
+    const map = mapRef.current
+    const mode = activeModeRef.current
+    const clear = (): void => {
+      for (const d of derivedLabels.current) d.m.remove()
+      derivedLabels.current = []
+      derivedSig.current = ''
+    }
+    if (!map || !mode || !layersRef.current.label) {
+      clear()
+      return
+    }
+    // 1. Görünür taban poligonlar + grup anahtarı + metin
+    const items: { fid: number; key: string }[] = []
+    const textOf = new Map<string, string>()
+    for (const [fid] of labelGeo.current) {
+      const y = layerYears.current.get(fid)
+      if (y && !((y.from ?? -Infinity) <= year && year <= (y.to ?? Infinity))) continue
+      const eid = featEnt.current.get(fid)
+      if (eid === undefined) continue
+      let key: string
+      let text: string
+      if (mode.kind === 'boya') {
+        const v = dimValue.current.get(eid)
+        if (!v) continue
+        key = 'b' + v
+        text = v
+      } else {
+        const o = rungOwnerAt(eid)
+        if (o === null) continue
+        key = 'k' + o
+        text = entNames.current.get(o) ?? ''
+      }
+      items.push({ fid, key })
+      textOf.set(key, text)
+    }
+    // 2. İmza: sahiplik değişmeyen tiklerde hiç dokunma (playback bedava)
+    const sig = items.map((i) => `${i.fid}:${i.key}`).join('|')
+    if (sig === derivedSig.current) return
+    clear()
+    derivedSig.current = sig
+    // 3. Union-find: aynı grup içinde köşe hücresi paylaşanlar tek bileşen
+    const parent = new Map<number, number>()
+    const find = (x: number): number => {
+      let r = x
+      while (parent.get(r) !== r) r = parent.get(r)!
+      let c = x
+      while (parent.get(c) !== c) {
+        const n = parent.get(c)!
+        parent.set(c, r)
+        c = n
+      }
+      return r
+    }
+    for (const { fid } of items) parent.set(fid, fid)
+    const seen = new Map<string, number>() // `${grup}|${hücre}` → ilk gören fid
+    for (const { fid, key } of items) {
+      for (const vk of labelGeo.current.get(fid)!.keys) {
+        const k = `${key}|${vk}`
+        const first = seen.get(k)
+        if (first === undefined) seen.set(k, fid)
+        else parent.set(find(fid), find(first))
+      }
+    }
+    // 4. Bileşen başına etiket
+    const comps = new Map<number, { key: string; fids: number[] }>()
+    for (const { fid, key } of items) {
+      const r = find(fid)
+      const c = comps.get(r)
+      if (c) c.fids.push(fid)
+      else comps.set(r, { key, fids: [fid] })
+    }
+    for (const { key, fids } of comps.values()) {
+      const text = textOf.get(key) ?? ''
+      if (!text) continue
+      let verts: number[][] = []
+      let cx = 0
+      let cy = 0
+      let totalArea = 0
+      for (const fid of fids) {
+        const g = labelGeo.current.get(fid)!
+        verts = verts.concat(g.verts)
+        // Çapa: alan ağırlıklı bileşen centroid'i — etiket TÜM bileşenin ortasına oturur,
+        // tek parçaya değil (kullanıcı geri bildirimi: yazı poligonların toplamına yayılmalı)
+        cx += g.centroid[0] * g.area
+        cy += g.centroid[1] * g.area
+        totalArea += g.area
+      }
+      cx /= totalArea
+      cy /= totalArea
+      const { theta, extent } = pcaAxis(verts)
+      // CRS.Simple'da lat (y) yukarı, CSS rotate saat yönü → açı ters; ±90'a normalize (ters metin yok)
+      let angle = (-theta * 180) / Math.PI
+      if (angle > 90) angle -= 180
+      if (angle < -90) angle += 180
+      // Metin ana eksenin ~%80'ine yayılsın: labelDivIcon harf başına ~0.62em genişlik tahmin eder
+      const base = Math.min(300, (extent * 0.8) / (0.62 * Math.max(4, text.length)))
+      if (base < LABEL_MIN) continue // çok küçük bölge etiketsiz
+      const m = L.marker([cy, cx], {
+        icon: labelDivIcon({ text, color: '#ffffff', angle, curve: 10 }),
+        interactive: false,
+        pmIgnore: true
+      } as L.MarkerOptions).addTo(map)
+      derivedLabels.current.push({ m, base })
+    }
+  }
+
   // Yıl uygulaması: (1) yıl aralığı dışındaki çizimleri gizle/geri getir, (2) kademe modunda
   // taban poligonları o yılki kademe atasının rengine, (3) varsayılan görünümde zincir tepesinin
   // rengine boya + kök etiketlerini yerleştir. Slider'ın her tikinde yalnız bu çalışır — DB yok.
@@ -1347,17 +1552,21 @@ export default function MapView({
     // Varsayılan (kök) görünümü: taban poligonlar o yılki zincirin TEPESİNDEKİ maddenin rengine
     // boyanır (üstü boş = en üst kabulü); kökün adı en büyük parçasının üzerine tek etiket olur.
     const topOnly = activeModeRef.current === null
-    // Üst zincirini yıla göre tırman, görüntülenen kademedeki atayı bul (döngü korumalı)
-    const rungColor = (eid: number): string => {
+    // Üst zincirini yıla göre tırman, görüntülenen kademedeki atayı bul (döngü korumalı).
+    // Sahip-ID ayrı çözülür: renk + türetilmiş etiket metni aynı tırmanışı paylaşır.
+    const rungOwnerAt = (eid: number): number | null => {
       let cur: number | undefined = eid
       const seen = new Set<number>()
       while (cur !== undefined && !seen.has(cur)) {
-        const hit = rungTargets.current.get(cur)
-        if (hit) return hit
+        if (rungTargets.current.has(cur)) return cur
         seen.add(cur)
         cur = parentAt(parentHist.current.get(cur) ?? [], year) ?? undefined
       }
-      return '#666666' // o yıl bu kademede sahibi yok
+      return null // o yıl bu kademede sahibi yok
+    }
+    const rungColor = (eid: number): string => {
+      const o = rungOwnerAt(eid)
+      return o !== null ? rungTargets.current.get(o)! : '#666666'
     }
     // Zincirin tepesi (döngü korumalı, applyYear başına memo'lu)
     const rootMemo = new Map<number, number>()
@@ -1484,6 +1693,7 @@ export default function MapView({
         }
       }
     }
+    rebuildDerivedLabels(year, rungOwnerAt) // mod yoksa kendini temizler
     updateOverlaySizes(reposition) // geri eklenen etiket/pin boyutları güncel zoom'a otursun
   }
 

@@ -5,6 +5,7 @@ import { alertDialog, confirmDialog, DialogHost } from './dialog'
 import EntityPage from './EntityPage'
 import { deleteEntitiesWithUndo, deleteEntityWithUndo } from './entityOps'
 import { LangContext, translate } from './i18n'
+import Kronoloji from './Kronoloji'
 import MapView from './MapView'
 import Palette from './Palette'
 import Settings from './Settings'
@@ -15,6 +16,7 @@ type View =
   | { kind: 'entity'; id: number }
   | { kind: 'map'; id: number }
   | { kind: 'settings' }
+  | { kind: 'kronoloji' }
 
 export default function App(): React.JSX.Element {
   const [entities, setEntities] = useState<EntityRow[]>([])
@@ -97,7 +99,26 @@ export default function App(): React.JSX.Element {
     [openMap, lang]
   )
 
-  // Global kısayollar: Ctrl+K palet, Ctrl+Z geri al, Alt+←/→ geçmiş, Esc kapat
+  // Dünyayı .dunya dosyası olarak kaydet / dosyadan aç (Wonderdraft modeli).
+  // Açma çalışma kopyasını ezer → kirliyse önce onay; sonra tam sayfa yeniden yükleme
+  // (tüm ref/undo/state temiz başlar).
+  const saveWorld = useCallback(
+    (as = false): Promise<string | null> => (as ? api.saveWorldAs() : api.saveWorld()),
+    []
+  )
+  const openWorld = useCallback(async (): Promise<void> => {
+    const info = await api.worldInfo()
+    if (
+      info.dirty &&
+      !(await confirmDialog(
+        translate(lang, 'Opening another world will discard unsaved changes. Continue?')
+      ))
+    )
+      return
+    await api.openWorld() // yenilemeyi main yapar (webContents.reload — will-navigate engeline takılmaz)
+  }, [lang])
+
+  // Global kısayollar: Ctrl+K palet, Ctrl+S kaydet, Ctrl+O aç, Ctrl+Z geri al, Alt+←/→ geçmiş
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const t = e.target as HTMLElement
@@ -105,6 +126,12 @@ export default function App(): React.JSX.Element {
       if (e.ctrlKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPalette((p) => !p)
+      } else if (e.ctrlKey && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        saveWorld(e.shiftKey)
+      } else if (e.ctrlKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault()
+        openWorld()
       } else if (e.key === 'Escape') {
         setPalette(false)
       } else if (
@@ -144,7 +171,7 @@ export default function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [refresh, deleteSelected])
+  }, [refresh, deleteSelected, saveWorld, openWorld])
 
   // Tipe göre grupla (tipsizler "—" altında)
   const groups = new Map<string, EntityRow[]>()
@@ -373,6 +400,18 @@ export default function App(): React.JSX.Element {
             })}
           </div>
 
+          <div className="side-item kron-btn" onClick={() => saveWorld()}>
+            💾 {t('Save World')}
+          </div>
+          <div className="side-item settings-btn" onClick={openWorld}>
+            📂 {t('Open World')}
+          </div>
+          <div
+            className={`side-item settings-btn ${view.kind === 'kronoloji' ? 'active' : ''}`}
+            onClick={() => setView({ kind: 'kronoloji' })}
+          >
+            {t('📜 Chronology')}
+          </div>
           <div className="side-item settings-btn" onClick={() => setView({ kind: 'settings' })}>
             {t('⚙ Settings')}
           </div>
@@ -414,6 +453,15 @@ export default function App(): React.JSX.Element {
           )}
           {view.kind === 'settings' && (
             <Settings types={types} onChanged={refresh} lang={lang} onLangChange={setLang} />
+          )}
+          {view.kind === 'kronoloji' && (
+            <Kronoloji
+              onOpenEntity={openEntity}
+              onLocateFeature={(mapId, featureId) => {
+                setFocus({ featureId, token: Date.now() })
+                openMap(mapId)
+              }}
+            />
           )}
         </div>
 

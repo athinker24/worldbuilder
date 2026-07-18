@@ -7,8 +7,11 @@ import {
   mkdtempSync,
   rmSync,
   readdirSync,
+  readFileSync,
+  renameSync,
   statSync,
-  unlinkSync
+  unlinkSync,
+  writeFileSync
 } from 'fs'
 import { tmpdir } from 'os'
 import assert from 'assert'
@@ -80,6 +83,74 @@ export function backupIfNeeded(): void {
   for (const name of readdirSync(backupsDir)) {
     const p = join(backupsDir, name)
     if (statSync(p).mtimeMs < cutoff) unlinkSync(p)
+  }
+}
+
+// --- .dunya dosya biçimi (Wonderdraft'ın kendi dosyası gibi): tek dosyada HER ŞEY ---
+// Biçim = aynı şemalı bir SQLite kopyası + ekstra `assets` tablosu (görseller BLOB olarak gömülü).
+// Çalışma kopyası (world.db + assets/) hiç değişmedi — Save paketler, Open paketi açar.
+// settings.worldFile dosyanın kendi yolunu taşır (Ctrl+S hedefi; açılınca gerçek yolla güncellenir).
+
+/** Çalışma kopyasını (db + assets/ görselleri) tek .dunya dosyasına paketle. */
+export function packWorld(targetPath: string): void {
+  const tmp = targetPath + '.tmp'
+  rmSync(tmp, { force: true })
+  db.exec(`VACUUM INTO '${tmp.replaceAll("'", "''")}'`) // temiz, atomik anlık kopya
+  const out = new DatabaseSync(tmp)
+  out.exec(`CREATE TABLE IF NOT EXISTS assets (name TEXT PRIMARY KEY, data BLOB NOT NULL)`)
+  const ins = out.prepare(`INSERT OR REPLACE INTO assets (name, data) VALUES (?, ?)`)
+  for (const name of readdirSync(assetsDir)) {
+    const p = join(assetsDir, name)
+    if (statSync(p).isFile()) ins.run(name, readFileSync(p))
+  }
+  out
+    .prepare(
+      `INSERT INTO settings (key, value) VALUES ('worldFile', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    )
+    .run(targetPath)
+  out.close()
+  renameSync(tmp, targetPath) // önce tmp'ye yaz sonra adlandır — yarım dosya kalmaz
+}
+
+/** Bir .dunya dosyasını çalışma kopyasının ÜZERİNE aç (mevcut çalışma kopyası ezilir —
+ *  çağıran taraf önce onay/yedek almalı). Gömülü görseller assets/ klasörüne çıkarılır. */
+export function unpackWorld(sourcePath: string): void {
+  db.close()
+  copyFileSync(sourcePath, dbFile)
+  db = new DatabaseSync(dbFile)
+  db.exec(SCHEMA)
+  const hasAssets = db
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assets'`)
+    .get()
+  if (hasAssets) {
+    for (const row of db.prepare(`SELECT name, data FROM assets`).all() as {
+      name: string
+      data: Uint8Array
+    }[])
+      writeFileSync(join(assetsDir, row.name), row.data)
+    db.exec(`DROP TABLE assets`) // çalışma kopyası yalın kalsın (görseller diskte)
+  }
+  api.setSetting('worldFile', sourcePath)
+}
+
+/** Çalışma kopyasında kayda değer içerik var mı? (boş açılışta gereksiz anlık paket alınmasın) */
+export function hasContent(): boolean {
+  return (
+    !!db.prepare(`SELECT 1 FROM entities LIMIT 1`).get() ||
+    !!db.prepare(`SELECT 1 FROM maps LIMIT 1`).get()
+  )
+}
+
+/** Çalışma kopyasını sıfırla: boş şema + boş assets/ (Photoshop'un boş belgeyle açılışı).
+ *  Çağıran taraf önce packWorld ile anlık paket almalı — burada yedek alınmaz. */
+export function resetWorld(): void {
+  db.close()
+  rmSync(dbFile, { force: true })
+  db = new DatabaseSync(dbFile)
+  db.exec(SCHEMA)
+  for (const name of readdirSync(assetsDir)) {
+    const p = join(assetsDir, name)
+    if (statSync(p).isFile()) rmSync(p)
   }
 }
 
@@ -587,6 +658,27 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.ok(readdirSync(join(dir, 'backups')).length >= 1)
   const manual = api.backupNow()
   assert.ok(existsSync(manual))
+  // .dunya paketle/aç gidiş-dönüşü: görsel gömülür, çalışma kopyası ezilip geri açılınca
+  // hem veri hem görsel aynen döner, assets tablosu çalışma kopyasında kalmaz
+  writeFileSync(join(dir, 'assets', 'test.png'), Buffer.from([1, 2, 3]))
+  const dunya = join(dir, 'test.dunya')
+  packWorld(dunya)
+  assert.ok(existsSync(dunya))
+  api.updateEntity(a.id, { name: 'Paketten Sonra Değişti' })
+  rmSync(join(dir, 'assets', 'test.png'))
+  unpackWorld(dunya)
+  assert.equal((api.getEntity(a.id) as { name: string }).name, 'Test Devleti') // paket anındaki hâl
+  assert.deepEqual([...readFileSync(join(dir, 'assets', 'test.png'))], [1, 2, 3]) // görsel geri çıktı
+  assert.equal(api.getSetting('worldFile'), dunya)
+  assert.ok(
+    !db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assets'`).get()
+  )
+  // Boş açılış: içerik algılanır, reset sonrası db + assets bomboş
+  assert.ok(hasContent())
+  resetWorld()
+  assert.ok(!hasContent())
+  assert.ok(!existsSync(join(dir, 'assets', 'test.png')))
+  assert.equal(api.getSetting('worldFile'), null)
   db.close()
   rmSync(dir, { recursive: true, force: true })
   console.log('db self-check OK')

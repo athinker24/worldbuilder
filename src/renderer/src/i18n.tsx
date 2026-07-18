@@ -18,6 +18,11 @@ const TR: Record<string, string> = {
   '📍 Show on map': '📍 Haritada göster',
   'Show on map': 'Haritada göster',
   '⚙ Settings': '⚙ Ayarlar',
+  '📜 Chronology': '📜 Kronoloji',
+  'Save World': 'Dünyayı Kaydet',
+  'Open World': 'Dünya Aç',
+  'Opening another world will discard unsaved changes. Continue?':
+    'Başka bir dünya açılınca kaydedilmemiş değişiklikler kaybolur. Devam edilsin mi?',
   World: 'Dünya',
   'Select an entity or map from the left, or search with Ctrl+K.':
     'Soldan bir madde ya da harita seç, ya da Ctrl+K ile ara.',
@@ -237,6 +242,11 @@ const TR: Record<string, string> = {
   'event name (no location)': 'olay adı (konumsuz)',
   year: 'yıl',
   '🕰 Time': '🕰 Zaman',
+
+  // Kronoloji.tsx
+  '{ruler} became ruler of {realm}': '{ruler}, {realm} yöneticisi oldu',
+  'No events or reigns recorded yet. Add events from the map timeline, or ruler reigns from an entity page.':
+    'Henüz olay ya da saltanat kaydı yok. Olayları harita zaman çizgisinden, yönetici geçmişini madde sayfasından ekleyebilirsin.',
 
   // MapView.tsx
   'The slider must be within the year range the drawing exists (after its start).':

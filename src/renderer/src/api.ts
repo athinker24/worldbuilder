@@ -162,6 +162,11 @@ export const api = {
 
   pickImage: () => inv<string | null>('pickImage'),
   backupNow: () => inv<string>('backupNow'),
+  // .dunya dosya modeli (Wonderdraft tarzı): kaydet/farklı kaydet/aç + kirli durum
+  saveWorld: () => inv<string | null>('saveWorld'),
+  saveWorldAs: () => inv<string | null>('saveWorldAs'),
+  openWorld: () => inv<string | null>('openWorld'),
+  worldInfo: () => inv<{ file: string | null; dirty: boolean }>('worldInfo'),
   exportMapImage: (
     rect: { x: number; y: number; width: number; height: number },
     defaultName: string

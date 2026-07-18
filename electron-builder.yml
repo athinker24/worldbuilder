@@ -16,6 +16,11 @@ win:
   target:
     - nsis
     - portable
+# .dunya çift tıkla açılır (yalnız NSIS kurulumu kaydeder; portable/dev kaydedemez — Windows sınırı)
+fileAssociations:
+  - ext: dunya
+    name: Dünya
+    description: Dünya worldbuilding dosyası
 portable:
   artifactName: ${name}-${version}-portable.${ext}
 nsis:
