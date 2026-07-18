@@ -403,7 +403,7 @@ textarea,
   display: flex;
   justify-content: center;
   margin: 0;
-  padding: 20px 0 0;
+  padding: 30px 0 0;
   position: relative;
   list-style: none;
 }
@@ -419,7 +419,7 @@ textarea,
   flex-direction: column;
   align-items: center;
   position: relative;
-  padding: 20px 6px 0;
+  padding: 30px 11px 0;
 }
 
 .tree > li {
@@ -433,7 +433,7 @@ textarea,
   top: 0;
   right: 50%;
   width: 50%;
-  height: 20px;
+  height: 30px;
   border-top: 1px solid var(--border);
 }
 
@@ -470,7 +470,7 @@ textarea,
   top: 0;
   left: 50%;
   width: 0;
-  height: 20px;
+  height: 30px;
   border-left: 1px solid var(--border);
 }
 
@@ -490,12 +490,195 @@ textarea,
 .tree-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
+  gap: 8px;
+  padding: 7px 11px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
   cursor: pointer;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+/* Harita pini: renkli yuvarlak rozet + içinde beyaz kartografik ikon (divIcon) */
+.pin-marker {
+  background: transparent;
+  border: none;
+}
+
+.pin-badge {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+}
+
+/* Rozet içinde özel görsel: daireye kırpılır (her en-boy oranı kabul) */
+.pin-badge-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+/* Serbest özel görsel: çerçevesiz, en-boy korunur; boyutu updateOverlaySizes yazar */
+.pin-img-free {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+}
+
+/* Seçicideki kütüphane: görsel önizleme + üstünde kaldırma × */
+.pin-img-opt {
+  position: relative;
+}
+.pin-img-opt .pin-opt img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.pin-img-x {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  line-height: 1;
+  font-size: 11px;
+  border-radius: 50%;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  color: var(--muted, #aaa);
+  cursor: pointer;
+  display: none;
+}
+.pin-img-opt:hover .pin-img-x {
+  display: block;
+}
+.pin-img-x:hover {
+  color: #e06c5a;
+  border-color: #e06c5a;
+}
+.pin-upload {
+  font-size: 18px;
+  color: var(--muted, #aaa);
+}
+
+/* Serbest metin etiketi: renk + döndürme inline gelir (feature başına), font zoom'la ölçeklenir */
+.map-label {
+  background: transparent;
+  border: none;
+}
+
+/* Etiket = SVG textPath (düz metin dahil; bkz. labelDivIcon). overflow:visible — genişlik
+   tahmini şaşarsa metin kırpılmasın. drop-shadow okunurluk için (metnin text-shadow karşılığı).
+   TIKLAMA: SVG kök kutusu metinden çok büyük (yanlarda 1em pay + en az 3em yükseklik; ölçüldü:
+   566×314 kutu vs 314×93 metin) ve boyutla büyür → kök geçirgen olmalı. Metinde visiblePainted:
+   YALNIZ harflerin üstü tıklanır. Ölçüldü: metin hattı boyunca isabet %98-100, en uzun ardışık
+   ıska 0-1px (harf aralarına basmak da çalışır), kutunun boş kalan yerleri artık haritaya geçer. */
+.map-label-svg {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 6px rgba(0, 0, 0, 0.5));
+}
+
+.map-label-svg text {
+  pointer-events: visiblePainted;
+  cursor: pointer;
+}
+
+/* Görsel kütüphanesi ızgarası (ImageStrip — pin + poligon dolgusu) */
+.pin-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+
+.pin-opt {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pin-opt:hover {
+  border-color: var(--accent);
+}
+
+.pin-opt.selected {
+  border-color: var(--accent);
+  background: var(--bg);
+}
+
+.pin-opt svg {
+  width: 100%;
+  height: 100%;
+  fill: var(--fg);
+}
+
+/* Zengin kart: portre (sancak) + ad + alt satır (doğum–ölüm · unvan) */
+.tree-portrait {
+  width: 44px;
+  height: 44px;
+  border-radius: 5px;
+  object-fit: cover;
+  flex: none;
+}
+
+/* Portre yoksa siluet yer tutucu (kart hep portre yeri gösterir, CK3 deseni) */
+.tree-portrait.placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px dashed var(--border);
+  font-size: 22px;
+  color: var(--muted);
+}
+
+.tree-portrait.placeholder.male {
+  color: #5b8fd6;
+  border-color: #5b8fd6;
+}
+
+.tree-portrait.placeholder.female {
+  color: #d67ba8;
+  border-color: #d67ba8;
+}
+
+.tree-card-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  min-width: 0;
+}
+
+.tree-card-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.tree-card-sub {
+  font-size: 11px;
+  color: var(--muted);
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -506,6 +689,46 @@ textarea,
 .tree-chip.center {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* Dışarıdan evlenen eş: soluk + kesikli kenar (hane üyesi değil) */
+.tree-chip.spouse {
+  border-style: dashed;
+  opacity: 0.75;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Yönetici (herhangi bir maddede yönetici olmuş kişi): altın aksan + 👑 rozet */
+.tree-chip.ruler {
+  border-color: #d9a441;
+}
+
+.ruler-badge {
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* Cinsiyet: sol kenar rengi + ♂/♀ rozeti (ruler altın kenarını ezmesin diye sol kenar) */
+.tree-chip.male {
+  border-left: 3px solid #5b8fd6;
+}
+
+.tree-chip.female {
+  border-left: 3px solid #d67ba8;
+}
+
+.gender-badge {
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+.tree-chip.male .gender-badge {
+  color: #5b8fd6;
+}
+
+.tree-chip.female .gender-badge {
+  color: #d67ba8;
 }
 
 /* --- ilişkiler --- */
@@ -705,6 +928,15 @@ a {
 .palette-badge {
   color: var(--muted);
   font-size: 12px;
+}
+
+/* Tam metin eşleşmesinin bağlam parçası (madde adının altında) */
+.palette-sub {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* --- sağ araç paneli --- */
@@ -958,14 +1190,17 @@ a {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
+/* width (max-width değil): genişlik içerikten gelseydi şerit butonlara göre daralır, ray
+   kendine yer bulamazdı — kontroller ~400px yiyor. Gerçek genişlik → ray tam satırı alır. */
 .timeline-strip {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
   top: 12px;
   z-index: 1500;
-  min-width: 420px;
-  max-width: 70%;
+  width: 58%;
+  min-width: 480px;
+  max-width: 860px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -974,6 +1209,7 @@ a {
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   padding: 8px 10px;
+  box-sizing: border-box;
 }
 
 .timeline-row {
@@ -982,8 +1218,17 @@ a {
   gap: 6px;
 }
 
+/* Kontrol kümeleri: oynatma solda, adım+yıl ortada (margin auto), ayarlar sağda */
+.tl-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tl-group.tl-mid {
+  margin: 0 auto;
+}
+
 .timeline-rail {
-  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -991,6 +1236,7 @@ a {
 
 .timeline-rail input[type='range'] {
   width: 100%;
+  margin: 0;
 }
 
 .timeline-bands {
@@ -1094,6 +1340,129 @@ a {
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   padding: 6px 12px;
+}
+
+/* Ölçek çubuğu (sol alt): klasik harita cetveli — alt + yan kenarlıklı, üstünde mesafe yazısı */
+.scale-bar {
+  position: absolute;
+  left: 12px;
+  bottom: 14px;
+  z-index: 800;
+  pointer-events: none;
+  height: 7px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-top: none;
+  box-sizing: border-box;
+  text-align: center;
+  font-size: 11px;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+}
+.scale-bar span {
+  position: relative;
+  top: -18px;
+}
+
+.scale-info {
+  font-size: 12px;
+  color: var(--muted, #aaa);
+}
+
+/* Madde şablonu satırı (alan ekleme formunun altında) */
+.tpl-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+}
+.tpl-save {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex: 1;
+}
+.tpl-save input {
+  flex: 1;
+  min-width: 0;
+}
+
+.measure-btns {
+  display: flex;
+  gap: 4px;
+}
+.measure-btns .mini.active,
+.tool-settings .mini.active {
+  border-color: #ffd700;
+  color: #ffd700;
+}
+
+/* 🧭 Navigasyon paneli: seyahat modları + rota dökümü */
+.nav-mode-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+.nav-mode-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-mode-speed {
+  color: var(--muted, #aaa);
+  white-space: nowrap;
+}
+.nav-mode-add {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0;
+}
+.nav-mode-add input {
+  min-width: 0;
+  flex: 1;
+}
+.nav-mode-add input[type='number'] {
+  flex: 0 0 56px;
+}
+.nav-result {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+.nav-route-head {
+  font-size: 12px;
+  color: var(--muted, #aaa);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-total {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 2px 0 6px;
+}
+.nav-days {
+  font-weight: 400;
+  color: var(--muted, #aaa);
+}
+.nav-legs {
+  font-size: 12px;
+}
+.nav-leg {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 0;
+}
+.nav-leg-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-leg-px {
+  color: var(--muted, #aaa);
+  white-space: nowrap;
 }
 
 .hier-panel {

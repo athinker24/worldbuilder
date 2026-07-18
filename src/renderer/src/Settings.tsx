@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import {
   api,
+  EntityTemplate,
   getHierConfig,
   getMapModes,
+  getTemplates,
   HierConfig,
   Lang,
   MapModes,
@@ -10,6 +12,7 @@ import {
   saveHierConfig,
   saveLanguage,
   saveMapModes,
+  saveTemplates,
   saveTypes,
   TypeDef
 } from './api'
@@ -39,21 +42,37 @@ export default function Settings({
   const [modes, setModes] = useState<MapModes>({ dims: [], colors: {} })
   const [dimInput, setDimInput] = useState('')
   const [backupMsg, setBackupMsg] = useState('')
+  const [tpls, setTpls] = useState<EntityTemplate[]>([])
+  const [activeTpl, setActiveTpl] = useState<string | null>(null)
+  const [tplInput, setTplInput] = useState('')
 
   useEffect(() => {
-    Promise.all([getHierConfig(), api.hierarchy(), getMapModes()]).then(([cfg, h, m]) => {
-      const merged = mergeHierConfig(cfg, h.govs)
-      setHierCfg(merged)
-      setAllTags(h.tags)
-      setActiveGov(merged.govs[0]?.name ?? null)
-      setModes(m)
-    })
+    Promise.all([getHierConfig(), api.hierarchy(), getMapModes(), getTemplates()]).then(
+      ([cfg, h, m, tl]) => {
+        const merged = mergeHierConfig(cfg, h.govs)
+        setHierCfg(merged)
+        setAllTags(h.tags)
+        setActiveGov(merged.govs[0]?.name ?? null)
+        setModes(m)
+        setTpls(tl)
+        setActiveTpl(tl[0]?.name ?? null)
+      }
+    )
   }, [])
 
   const updateModes = (next: MapModes): void => {
     setModes(next)
     saveMapModes(next)
   }
+
+  const updateTpls = (next: EntityTemplate[]): void => {
+    setTpls(next)
+    saveTemplates(next)
+  }
+  const tpl = tpls.find((x) => x.name === activeTpl)
+  // Seçili şablonun alanlarını değiştir (liste bütün olarak yeniden yazılır — updateModes deseni)
+  const patchTpl = (patch: Partial<EntityTemplate>): void =>
+    updateTpls(tpls.map((x) => (x.name === activeTpl ? { ...x, ...patch } : x)))
 
   const update = async (next: TypeDef[]): Promise<void> => {
     await saveTypes(next)
@@ -353,6 +372,117 @@ export default function Settings({
           </button>
         </form>
       </div>
+
+      <h2>{t('Entity Templates')}</h2>
+      <p className="hint">
+        {t(
+          'A starting point, never a constraint: pick a template on a new entity and its fields arrive ready. Leave a value empty for a blank field, or fill it in as a default. Everything stays editable afterwards — on the entity and here.'
+        )}
+      </p>
+      <div className="hier-tags">
+        {tpls.map((x) => (
+          <span
+            className={`tag-chip clickable ${activeTpl === x.name ? 'active' : ''}`}
+            key={x.name}
+            onClick={() => setActiveTpl(x.name)}
+          >
+            📋 {x.name}
+            <button
+              className="tag-x"
+              title={t('Delete')}
+              onClick={async (e) => {
+                e.stopPropagation()
+                if (!(await confirmDialog(t('Delete template "{name}"?', { name: x.name })))) return
+                const next = tpls.filter((y) => y.name !== x.name)
+                updateTpls(next)
+                if (activeTpl === x.name) setActiveTpl(next[0]?.name ?? null)
+              }}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <form
+          className="tag-add"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const n = tplInput.trim()
+            setTplInput('')
+            if (!n || tpls.some((x) => x.name === n)) return
+            updateTpls([...tpls, { name: n, fields: {} }])
+            setActiveTpl(n)
+          }}
+        >
+          <input
+            placeholder={t('new template (city, dynasty…)')}
+            value={tplInput}
+            onChange={(e) => setTplInput(e.target.value)}
+          />
+          <button className="mini" type="submit">
+            +
+          </button>
+        </form>
+      </div>
+      {tpl && (
+        <>
+          <div className="field-row">
+            <span className="field-key">{t('type')}</span>
+            <input
+              list="tpl-types"
+              key={`tt-${tpl.name}`}
+              defaultValue={tpl.type ?? ''}
+              placeholder={t('(none)')}
+              onBlur={(e) => patchTpl({ type: e.target.value.trim() || undefined })}
+            />
+          </div>
+          <datalist id="tpl-types">
+            {types.map((ty) => (
+              <option key={ty.name} value={ty.name} />
+            ))}
+          </datalist>
+          {Object.entries(tpl.fields).map(([k, v]) => (
+            <div className="field-row" key={k}>
+              <span className="field-key">{k}</span>
+              <input
+                defaultValue={v}
+                placeholder={t('default value (optional)')}
+                onBlur={(e) =>
+                  e.target.value !== v &&
+                  patchTpl({ fields: { ...tpl.fields, [k]: e.target.value } })
+                }
+              />
+              <button
+                className="mini danger"
+                onClick={() => {
+                  const f = { ...tpl.fields }
+                  delete f[k]
+                  patchTpl({ fields: f })
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <form
+            className="field-row add"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const fd = new FormData(e.currentTarget)
+              const k = (fd.get('key') as string).trim()
+              if (k && !(k in tpl.fields)) {
+                patchTpl({ fields: { ...tpl.fields, [k]: (fd.get('value') as string) ?? '' } })
+                e.currentTarget.reset()
+              }
+            }}
+          >
+            <input name="key" placeholder={t('new field')} />
+            <input name="value" placeholder={t('default value (optional)')} />
+            <button className="mini" type="submit">
+              +
+            </button>
+          </form>
+        </>
+      )}
     </div>
   )
 }

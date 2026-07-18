@@ -104,6 +104,52 @@ export const api = {
       .prepare(`SELECT id, type, name FROM entities WHERE name LIKE ? ORDER BY type, name`)
       .all(`%${search}%`)
   },
+  // Tam metin arama: içerik + not sekmeleri + serbest alan değerlerinde geçen maddeler,
+  // eşleşme çevresinden kısa bir bağlam parçasıyla. Teknik alanlar (sancak dosya yolu,
+  // üst/yönetici/hane JSON geçmişleri, renk) aramaya girmez — snippet hep insan-okur metin.
+  // Türkçe büyük/küçük harf doğru katlansın diye filtre JS'te (SQLite LIKE/lower yalnız
+  // ASCII katlar). ponytail: kişisel ölçekte tüm satırları tarar, yavaşlarsa FTS5'e geçilir.
+  searchContent(q: string): unknown[] {
+    const needle = q.trim().toLocaleLowerCase('tr')
+    if (needle.length < 2) return []
+    const TECH = new Set(['sancak', 'üst', 'yönetici', 'hane', 'notlar', 'renk'])
+    const rows = db.prepare(`SELECT id, type, name, content, fields FROM entities`).all() as {
+      id: number
+      type: string
+      name: string
+      content: string
+      fields: string
+    }[]
+    const hits: { id: number; type: string; name: string; snippet: string }[] = []
+    for (const r of rows) {
+      if (r.name.toLocaleLowerCase('tr').includes(needle)) continue // isim eşleşmesi zaten listede
+      // Aranabilir metinler: içerik, not sekmeleri (başlık + metin), serbest alan değerleri
+      const texts: string[] = [r.content]
+      try {
+        const f = JSON.parse(r.fields || '{}') as Record<string, string>
+        for (const [k, v] of Object.entries(f))
+          if (!TECH.has(k) && typeof v === 'string') texts.push(`${k}: ${v}`)
+        const notes = JSON.parse(f['notlar'] ?? '[]') as { title?: string; content?: string }[]
+        if (Array.isArray(notes))
+          for (const n of notes) texts.push([n.title, n.content].filter(Boolean).join(': '))
+      } catch {
+        /* bozuk fields → yalnız içerikte ara */
+      }
+      for (const src of texts) {
+        const i = src.toLocaleLowerCase('tr').indexOf(needle)
+        if (i < 0) continue
+        const start = Math.max(0, i - 30)
+        const snippet =
+          (start > 0 ? '…' : '') +
+          src.slice(start, i + needle.length + 40).replace(/\s+/g, ' ') +
+          (i + needle.length + 40 < src.length ? '…' : '')
+        hits.push({ id: r.id, type: r.type, name: r.name, snippet })
+        break
+      }
+      if (hits.length >= 15) break
+    }
+    return hits
+  },
   getEntity(id: number): unknown {
     const entity = db.prepare(`SELECT * FROM entities WHERE id = ?`).get(id)
     if (!entity) return null
@@ -417,6 +463,25 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.equal(got.mentions.length, 1)
   api.retypeEntities('devlet', 'krallık')
   assert.equal((api.getEntity(a.id) as { type: string }).type, 'krallık')
+  // Tam metin arama: içerikte geçen (Türkçe küçük harfle) bulunur, isim eşleşmesi hariç tutulur
+  {
+    const hits = api.searchContent('test devleti') as { id: number; snippet: string }[]
+    assert.equal(hits.length, 1) // yalnız b (içeriğinde [[Test Devleti]]); a isim eşleşmesi sayılır
+    assert.equal(hits[0].id, b.id)
+    assert.ok(hits[0].snippet.includes('Test Devleti'))
+    assert.equal((api.searchContent('yokböylebirşey') as unknown[]).length, 0)
+    // Not sekmesinde geçen bulunur; teknik alan (sancak dosya yolu) aramaya girmez
+    api.updateEntity(b.id, {
+      fields: JSON.stringify({
+        sancak: 'assets/GIZLI-YOL-birkelime.png',
+        notlar: JSON.stringify([{ title: 'Savaşlar', content: 'Kuzey seferi başladı' }])
+      })
+    })
+    const noteHits = api.searchContent('kuzey seferi') as { id: number; snippet: string }[]
+    assert.equal(noteHits.length, 1)
+    assert.ok(noteHits[0].snippet.includes('Kuzey seferi'))
+    assert.equal((api.searchContent('GIZLI-YOL') as unknown[]).length, 0) // sancak yolu aranmaz
+  }
   api.updateEntity(a.id, {
     fields: JSON.stringify({
       hiyerarşi: '#krallık, #güney-dilleri',

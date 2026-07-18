@@ -100,6 +100,9 @@ export const api = {
   retypeEntities: (oldType: string, newType: string) =>
     inv<void>('retypeEntities', oldType, newType),
   hierarchy: () => inv<Hierarchy>('hierarchy'),
+  // Tam metin arama: içerik/alanlarda geçenler (isim eşleşmeleri hariç), bağlam parçasıyla
+  searchContent: (q: string) =>
+    inv<{ id: number; type: string; name: string; snippet: string }[]>('searchContent', q),
   restoreEntity: (
     row: Pick<Entity, 'id' | 'type' | 'name' | 'content' | 'fields' | 'created_at'>,
     links: { from_id: number; to_id: number; relation: string; notes: string }[],
@@ -221,6 +224,60 @@ export function getYearRecs(fieldsJson: string, key: string): ParentRec[] {
 
 export const getParents = (fieldsJson: string): ParentRec[] => getYearRecs(fieldsJson, 'üst')
 
+/**
+ * Cinsiyet çıkarımı (kişi id → 'M'|'F'). Öncelik:
+ *   1. açık `fields.cinsiyet` ('erkek'/'kadın')
+ *   2. rol: biri(leri)nin babası → erkek, annesi → kadın
+ *   3. eşin tersi: erkeğin eşi → kadın, kadının eşi → erkek (sabit noktaya kadar yayılır)
+ * Hem aile ağacı gösterimi hem çocuk-ekleme ilişkisi (anne/baba seçimi) bunu kullanır.
+ */
+export function inferGenders(
+  entities: { id: number; fields: string }[],
+  links: { from_id: number; to_id: number; relation: string }[]
+): Map<number, 'M' | 'F'> {
+  const fatherSet = new Set<number>()
+  const motherSet = new Set<number>()
+  const spousesOf = new Map<number, number[]>()
+  const pushSpouse = (a: number, b: number): void => {
+    const arr = spousesOf.get(a) ?? []
+    arr.push(b)
+    spousesOf.set(a, arr)
+  }
+  for (const l of links) {
+    if (l.relation === 'baba') fatherSet.add(l.to_id)
+    else if (l.relation === 'anne') motherSet.add(l.to_id)
+    else if (l.relation === 'eş') {
+      pushSpouse(l.from_id, l.to_id)
+      pushSpouse(l.to_id, l.from_id)
+    }
+  }
+  const g = new Map<number, 'M' | 'F'>()
+  for (const e of entities) {
+    const c = (JSON.parse(e.fields || '{}') as Record<string, string>)['cinsiyet']
+    if (c === 'erkek') g.set(e.id, 'M')
+    else if (c === 'kadın') g.set(e.id, 'F')
+    else if (fatherSet.has(e.id)) g.set(e.id, 'M')
+    else if (motherSet.has(e.id)) g.set(e.id, 'F')
+  }
+  // Eş tersinden yay: eşi bilinen ama kendisi bilinmeyenlere karşı cinsiyet ata (sabit nokta)
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const [pid, sps] of spousesOf) {
+      if (g.has(pid)) continue
+      for (const s of sps) {
+        const sg = g.get(s)
+        if (sg) {
+          g.set(pid, sg === 'M' ? 'F' : 'M')
+          changed = true
+          break
+        }
+      }
+    }
+  }
+  return g
+}
+
 /** Yıl Y'deki üst: from <= Y olan en büyük from'lu kayıt (null = -∞). */
 export function parentAt(recs: ParentRec[], year: number): number | null {
   let best: ParentRec | null = null
@@ -247,6 +304,55 @@ export async function getMapModes(): Promise<MapModes> {
 
 export const saveMapModes = (m: MapModes): Promise<void> =>
   api.setSetting('mapModes', JSON.stringify(m))
+
+// Madde şablonları (settings 'templates'): yeni bir maddeye hazır alan iskeleti uygular.
+// DAYATMA DEĞİL başlangıç noktası — uygulandıktan sonra her alan silinip değiştirilebilir,
+// şablonun kendisi de. Uygulama saveFields'tan geçtiği için Ctrl+Z ile geri alınır.
+export interface EntityTemplate {
+  name: string
+  type?: string // maddenin tipi boşsa atanır (TypeDef adı; tip silinse/yeniden adlandırılsa bile
+  // serbest metin olarak kalır — entities.type zaten serbest bir kolon)
+  fields: Record<string, string> // alan → varsayılan değer (boş değer = yalnız iskelet)
+}
+
+// Kendi bölümlerinde/mekanizmalarında yaşayan alanlar: şablona girmemeli (serbest metaveri değil).
+// db.ts'teki TECH kümesi (arama) ile EntityPage'in render filtresinin BİRLEŞİMİ + kişi alanları.
+// Harita modu boyutları (dims) çalışma anında gelir, çağıran ayrıca eler.
+export const RESERVED_FIELDS = [
+  'sancak',
+  'üst',
+  'notlar',
+  'hiyerarşi',
+  'yönetim',
+  'yönetici',
+  'hane',
+  'renk',
+  'cinsiyet',
+  'doğum',
+  'ölüm',
+  '_tpl' // uygulanan şablonun adı (salt bilgi, EntityPage'de select'i seçili göstermek için)
+]
+
+export const getTemplates = async (): Promise<EntityTemplate[]> =>
+  JSON.parse((await api.getSetting('templates')) || '[]')
+
+export const saveTemplates = (list: EntityTemplate[]): Promise<void> =>
+  api.setSetting('templates', JSON.stringify(list))
+
+// Özel pin görselleri kütüphanesi (settings 'pinImages', global): kullanıcının pin olarak
+// kullanmak üzere yüklediği görseller. path = assets/ göreli yolu, ar = en/boy oranı.
+// Yalnız seçici kolaylığı — pinin kendi style'ı img+imgAR'ı ayrıca taşır, bu yüzden buradan
+// bir kayıt silinse de o görseli kullanan pinler doğru çizilmeye devam eder.
+export interface PinImage {
+  path: string
+  ar: number
+}
+
+export const getPinImages = async (): Promise<PinImage[]> =>
+  JSON.parse((await api.getSetting('pinImages')) || '[]')
+
+export const savePinImages = (list: PinImage[]): Promise<void> =>
+  api.setSetting('pinImages', JSON.stringify(list))
 
 // Zaman çizgisi: dönüm noktası tamamen kullanıcı tanımlı (MÖ/MS dayatması yok).
 // Yıllar işaretli tamsayı: negatif = dönümden önce. year = slider'ın son konumu (kalıcı).

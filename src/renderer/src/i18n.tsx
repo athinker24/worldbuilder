@@ -46,6 +46,22 @@ const TR: Record<string, string> = {
   'Dimensions like religion, language, culture. Each dimension you add appears as a field on entity pages (e.g. "religion: Islam"); the map is painted by that dimension from the Hierarchy panel.':
     'Din, dil, kültür gibi boyutlar. Eklenen her boyut madde sayfasında bir alan olarak belirir (örn. "din: İslam"); haritada Hiyerarşi panelinden o boyuta göre boyama yapılır.',
   'religion, language, culture…': 'din, dil, kültür…',
+  // Madde şablonları
+  'Entity Templates': 'Madde Şablonları',
+  'A starting point, never a constraint: pick a template on a new entity and its fields arrive ready. Leave a value empty for a blank field, or fill it in as a default. Everything stays editable afterwards — on the entity and here.':
+    'Başlangıç noktası, dayatma değil: yeni bir maddede şablon seç, alanları hazır gelsin. Değeri boş bırakırsan alan boş gelir, doldurursan varsayılan olur. Sonrasında her şey değiştirilebilir — hem maddede hem burada.',
+  'new template (city, dynasty…)': 'yeni şablon (şehir, hanedan…)',
+  'Delete template "{name}"?': '"{name}" şablonu silinsin mi?',
+  '(none)': '(yok)',
+  'default value (optional)': 'varsayılan değer (isteğe bağlı)',
+  'Apply template…': 'Şablon uygula…',
+  'Apply a template (adds missing fields only)':
+    'Şablon uygula (yalnız eksik alanları ekler, mevcutları değiştirmez)',
+  'Save as template': 'Şablon olarak kaydet',
+  'Save this page’s fields as a reusable template':
+    'Bu sayfanın alanlarını yeniden kullanılabilir bir şablon olarak kaydet',
+  'template name': 'şablon adı',
+  Save: 'Kaydet',
   Language: 'Dil',
   'Interface language': 'Arayüz dili',
 
@@ -67,6 +83,18 @@ const TR: Record<string, string> = {
   'Clicked drawing is deleted (undo with Ctrl+Z).':
     'Tıkladığın çizim silinir (Ctrl+Z ile geri alınır).',
   Color: 'Renk',
+  Icon: 'İkon',
+  // Özel pin görselleri
+  'Upload image': 'Görsel yükle',
+  'Remove from library': 'Kütüphaneden çıkar',
+  'Removing only takes it out of this list; the file stays in your Dünya\\assets folder.':
+    'Çıkarmak yalnız bu listeden siler; dosya Dünya\\assets klasöründe kalır.',
+  'Image style': 'Görsel biçimi',
+  Badge: 'Rozet',
+  Free: 'Serbest',
+  'Fill image (click again to remove)': 'Dolgu görseli (kaldırmak için tekrar tıkla)',
+  'Remove fill image': 'Dolgu görselini kaldır',
+  'Pin image (click again to remove)': 'Pin görseli (kaldırmak için tekrar tıkla)',
   'Fill opacity: {val}': 'İç opaklık: {val}',
   'Outline thickness: {val}px': 'Dış hat kalınlığı: {val}px',
   'Label font': 'Etiket fontu',
@@ -79,6 +107,9 @@ const TR: Record<string, string> = {
   Dashed: 'Kesikli',
   Dotted: 'Noktalı',
   '〰 Draw path': '〰 Yol çiz',
+  'Curviness: {val}': 'Eğrilik: {val}',
+  'Curve appears after drawing; the live preview stays straight.':
+    'Eğri çizim bittikten sonra belirir; canlı önizleme düz kalır.',
   'Direction arrow': 'Yön oku',
   'No arrow': 'Ok yok',
   'Arrow at end': 'Sonda ok (varış)',
@@ -96,7 +127,18 @@ const TR: Record<string, string> = {
   'State / region borders': 'Devlet / bölge sınırları',
   'Roads, routes, rivers': 'Yollar, rotalar, nehirler',
   'Markers on the map': 'Harita üzerindeki işaretçiler',
-  'Names written on polygons': 'Poligonların üzerine yazılan adlar',
+  'Names on polygons and free text': 'Poligon adları ve serbest yazılar',
+  // 🏷 Serbest metin etiketi
+  Label: 'Etiket',
+  'Free text on the map — name seas, mountain ranges, regions.':
+    'Harita üzerine serbest yazı — deniz, dağ sırası, bölge adlandır.',
+  Text: 'Metin',
+  'sea, mountain range…': 'deniz, dağ sırası…',
+  'Angle: {val}°': 'Açı: {val}°',
+  'Curve: {val}': 'Eğri: {val}',
+  'Gentle curves read best; sharp ones crowd the letters.':
+    'Hafif eğriler en okunaklısıdır; sert eğrilerde harfler sıkışır.',
+  '🏷 Add label': '🏷 Etiket ekle',
   'Exported to {path}': '{path} konumuna aktarıldı',
   Backup: 'Yedekleme',
   'A dated copy of world.db is made automatically once a day (last 30 days kept). Restoring is manual: with the app closed, copy a file from the backups folder over world.db.':
@@ -159,6 +201,16 @@ const TR: Record<string, string> = {
   'Family tree': 'Hanedan ağacı',
   Dynasty: 'Hanedan',
   'Click: center the tree on this person': 'Tıkla: ağacı bu kişiye merkezle',
+  'Ruled: {list}': 'Yönetti: {list}',
+  Gender: 'Cinsiyet',
+  Male: 'Erkek',
+  Female: 'Kadın',
+  '(auto from relations)': '(bağlardan otomatik)',
+  Life: 'Yaşam',
+  'birth year': 'doğum yılı',
+  'death year': 'ölüm yılı',
+  'child…': 'çocuk…',
+  'in content': 'içerikte',
 
   // HierarchyPanel.tsx
   All: 'Tümü',
@@ -223,6 +275,50 @@ const TR: Record<string, string> = {
   'Link to entity:': 'Maddeye bağla:',
   'search entity…': 'madde ara…',
   'Link / Create': 'Bağla / Oluştur',
+  Scale: 'Ölçek',
+  'Set the map scale; measure distance and area without drawing.':
+    'Harita ölçeğini ayarla; çizmeden mesafe ve alan ölç.',
+  Unit: 'Birim',
+  'km, miles, leagues…': 'km, mil, fersah…',
+  'Map width ({unit})': 'Harita genişliği ({unit})',
+  'e.g. 3000': 'örn. 3000',
+  'No base image — measure a known distance instead.':
+    'Zemin görseli yok — onun yerine bilinen bir mesafeyi ölç.',
+  'Measure known distance…': 'Bilinen mesafeyi ölç…',
+  'Remove scale': 'Ölçeği kaldır',
+  'Measure (not saved)': 'Ölç (kaydedilmez)',
+  Distance: 'Mesafe',
+  Area: 'Alan',
+  'Click to add points; Esc to finish. Measurements are not saved.':
+    'Tıklayarak nokta ekle; Esc bitirir. Ölçümler kaydedilmez.',
+  // 🧭 Navigasyon
+  Navigate: 'Rota',
+  'Pick two pins; the route follows your drawn paths.':
+    'İki pin seç; rota çizdiğin yollar üzerinden hesaplanır.',
+  'Navigation needs the default map view (turn off the rank/paint mode).':
+    'Rota için varsayılan harita görünümü gerekli (kademe/boya modunu kapat).',
+  'Travel modes': 'Seyahat modları',
+  day: 'gün',
+  'on foot': 'yaya',
+  Add: 'Ekle',
+  'Pick two pins': 'İki pin seç',
+  // ('Clear' ve 'Delete' anahtarları yukarıda zaten var)
+  '🧭 Click the START pin…': '🧭 Başlangıç pinine tıkla…',
+  '🧭 Now click the DESTINATION pin ({from} → …)': '🧭 Şimdi varış pinine tıkla ({from} → …)',
+  'Route: {a} → {b}': 'Rota: {a} → {b}',
+  '{val} days': '{val} gün',
+  '(off-road)': '(yol dışı)',
+  '(unnamed path)': '(adsız yol)',
+  'No route — make sure the paths meet at a shared point.':
+    'Rota yok — yolların ortak bir noktada birleştiğinden emin ol.',
+  '📏 Click the FIRST point of a known distance…': '📏 Bilinen bir mesafenin İLK noktasına tıkla…',
+  '📏 Now click the SECOND point…': '📏 Şimdi İKİNCİ noktaya tıkla…',
+  '📏 Real distance between the two points:': '📏 İki nokta arasındaki gerçek mesafe:',
+  Finish: 'Bitir',
+  'Distance: {val} {unit}': 'Mesafe: {val} {unit}',
+  'Length: {val} {unit}': 'Uzunluk: {val} {unit}',
+  'Area: {val} {unit}²': 'Alan: {val} {unit}²',
+  'Perimeter: {val} {unit}': 'Çevre: {val} {unit}',
   'Child map (door):': 'Çocuk harita (kapı):',
   '— none —': '— yok —',
   'Open map →': 'Haritayı aç →'

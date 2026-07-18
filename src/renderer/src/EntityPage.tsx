@@ -5,12 +5,17 @@ import {
   assetUrl,
   Entity,
   EntityRow,
+  EntityTemplate,
   getHierConfig,
   getMapModes,
   getParents,
+  getTemplates,
   getYearRecs,
   Hierarchy,
+  inferGenders,
   ParentRec,
+  RESERVED_FIELDS,
+  saveTemplates,
   saveTypes,
   TypeDef
 } from './api'
@@ -106,6 +111,10 @@ export default function EntityPage({
     { id: number; map_id: number; style: string; map_name: string }[]
   >([])
 
+  // Madde şablonları (settings 'templates') — uygula + bu sayfayı şablon olarak kaydet
+  const [tpls, setTpls] = useState<EntityTemplate[]>([])
+  const [tplDraft, setTplDraft] = useState<string | null>(null) // "şablon olarak kaydet" adı formu
+
   const reload = useCallback(async () => {
     setEntity(await api.getEntity(id))
   }, [id])
@@ -133,6 +142,7 @@ export default function EntityPage({
     api.listEntities().then(setAllEntities)
     api.listLinks().then(setAllLinks)
     api.featuresByEntity(id).then(setFeats)
+    getTemplates().then(setTpls)
     refreshHier()
   }, [id, reload, refreshHier])
 
@@ -151,6 +161,32 @@ export default function EntityPage({
 
   const saveFields = (f: Record<string, string>): Promise<void> =>
     save({ fields: JSON.stringify(f) })
+
+  // 📋 Şablon uygula: eksik alanları EKLER, mevcut değerlerin üstüne YAZMAZ (dayatma değil,
+  // başlangıç noktası). Tip yalnız madde tipsizken atanır. saveFields yolundan geçer → undo bedava.
+  // '_tpl' = uygulanan şablonun adı (salt bilgi — seçili göstermek için, kendisi de silinebilir/
+  // değiştirilebilir); RESERVED_FIELDS'te olduğu için serbest alan listesinde görünmez.
+  const applyTemplate = (tpl: EntityTemplate): void => {
+    const f = { ...fields }
+    for (const [k, v] of Object.entries(tpl.fields)) if (!(k in f)) f[k] = v
+    f['_tpl'] = tpl.name
+    const patch: Parameters<typeof api.updateEntity>[1] = { fields: JSON.stringify(f) }
+    if (tpl.type && !entity.type) patch.type = tpl.type
+    save(patch)
+  }
+
+  // 📋 Şablon olarak kaydet: bu maddenin SERBEST alanlarını (kendi bölümü olanlar hariç —
+  // sancak/üst/notlar/yönetici/hane/renk/kişi alanları + harita modu boyutları) ve tipini alır.
+  const saveAsTemplate = async (name: string): Promise<void> => {
+    const f: Record<string, string> = {}
+    for (const [k, v] of Object.entries(fields))
+      if (!RESERVED_FIELDS.includes(k) && !dims.includes(k)) f[k] = v
+    const next = tpls.filter((x) => x.name !== name) // aynı adlı şablonu güncelle
+    const list = [...next, { name, type: entity.type || undefined, fields: f }]
+    setTpls(list)
+    await saveTemplates(list)
+    setTplDraft(null)
+  }
 
   // De-jure üst geçmişi: fields'daki "üst" anahtarında JSON olarak durur
   const parents = getParents(entity.fields)
@@ -258,6 +294,20 @@ export default function EntityPage({
 
   const childLinks = entity.inLinks.filter((l) => l.relation === 'anne' || l.relation === 'baba')
 
+  // Aile bağı düzenlemesinden sonra global grafiği de tazele (cinsiyet çıkarımı canlı güncellensin)
+  const reloadFamily = async (): Promise<void> => {
+    await reload()
+    setAllLinks(await api.listLinks())
+    await refreshHier()
+  }
+
+  // Kişinin çıkarılan cinsiyeti: açık fields.cinsiyet > anne/baba rolü > eşin tersi (inferGenders).
+  // Cinsiyet kutusu açık değer yoksa bunu gösterir ("otomatik"); çocuk-ekleme ilişkisi de bunu kullanır.
+  const inferredGender = inferGenders(hierEntities, allLinks).get(id)
+  const genderValue =
+    fields['cinsiyet'] ?? (inferredGender === 'M' ? 'erkek' : inferredGender === 'F' ? 'kadın' : '')
+  const genderIsAuto = !fields['cinsiyet'] && !!inferredGender
+
   // Ortak çocuğu olanlar birbirinin eşi sayılır (çocuk tek yandan yapıştırılsa bile
   // iki ebeveyn de eş olarak türetilir) — türetilmiş chip, silinmez (linkId yok)
   const coParents = (): { other: number; name: string }[] => {
@@ -316,7 +366,7 @@ export default function EntityPage({
                       redo: () => api.deleteLink(ref.id)
                     })
                     await api.deleteLink(c.linkId as number)
-                    reload()
+                    reloadFamily()
                   }}
                 >
                   ×
@@ -335,7 +385,7 @@ export default function EntityPage({
                 const target = await findOrCreate(nm)
                 if (target === null || target === id) return
                 await api.addLink(id, target, rel)
-                reload()
+                reloadFamily()
               }}
             >
               <input name="name" list="person-list" placeholder={t('person…')} />
@@ -462,15 +512,7 @@ export default function EntityPage({
 
       <div className="fields">
         {Object.entries(fields)
-          .filter(
-            ([k]) =>
-              k !== 'hiyerarşi' &&
-              k !== 'yönetim' &&
-              k !== 'üst' &&
-              k !== 'notlar' &&
-              k !== 'sancak' &&
-              !dims.includes(k)
-          ) // kendi bölümlerinde gösterilir
+          .filter(([k]) => !RESERVED_FIELDS.includes(k) && !dims.includes(k)) // kendi bölümlerinde gösterilir
           .map(([k, v]) => (
             <div className="field-row" key={k}>
               <span className="field-key">{k}</span>
@@ -510,6 +552,61 @@ export default function EntityPage({
             +
           </button>
         </form>
+        {/* Şablon: eksik alanları ekler (mevcutların üstüne yazmaz), Ctrl+Z ile geri alınır.
+            Uygulanan şablonun adı fields['_tpl']'de — select seçili göstersin diye (salt bilgi). */}
+        <div className="tpl-row">
+          {tpls.length > 0 && (
+            <select
+              value={
+                fields['_tpl'] && tpls.some((x) => x.name === fields['_tpl']) ? fields['_tpl'] : ''
+              }
+              title={t('Apply a template (adds missing fields only)')}
+              onChange={(e) => {
+                const x = tpls.find((y) => y.name === e.target.value)
+                if (x) applyTemplate(x)
+              }}
+            >
+              <option value="">📋 {t('Apply template…')}</option>
+              {tpls.map((x) => (
+                <option key={x.name} value={x.name}>
+                  {x.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {tplDraft === null ? (
+            <button
+              className="mini"
+              title={t('Save this page’s fields as a reusable template')}
+              onClick={() => setTplDraft(entity.type || entity.name)}
+            >
+              {t('Save as template')}
+            </button>
+          ) : (
+            <form
+              className="tpl-save"
+              onSubmit={(e) => {
+                e.preventDefault()
+                const n = tplDraft.trim()
+                if (n) saveAsTemplate(n)
+              }}
+            >
+              <input
+                autoFocus
+                value={tplDraft}
+                placeholder={t('template name')}
+                onChange={(e) => setTplDraft(e.target.value)}
+                onKeyDown={(e) => e.key === 'Escape' && setTplDraft(null)}
+              />
+              <button className="mini" type="submit">
+                {t('Save')}
+              </button>
+              <button className="mini" type="button" onClick={() => setTplDraft(null)}>
+                {t('Cancel')}
+              </button>
+            </form>
+          )}
+        </div>
       </div>
 
       {editing ? (
@@ -938,25 +1035,95 @@ export default function EntityPage({
             )}
             {isPerson && (
               <>
+                <div className="tag-row">
+                  <span className="field-key">{t('Gender')}</span>
+                  <select
+                    value={genderValue}
+                    onChange={(e) => {
+                      const f = { ...fields }
+                      if (e.target.value) f['cinsiyet'] = e.target.value
+                      else delete f['cinsiyet']
+                      saveFields(f)
+                    }}
+                  >
+                    <option value="">—</option>
+                    <option value="erkek">♂ {t('Male')}</option>
+                    <option value="kadın">♀ {t('Female')}</option>
+                  </select>
+                  {genderIsAuto && <span className="hint">{t('(auto from relations)')}</span>}
+                </div>
+                <div className="tag-row">
+                  <span className="field-key">{t('Life')}</span>
+                  {(['doğum', 'ölüm'] as const).map((k) => (
+                    <input
+                      key={`${k}${fields[k] ?? ''}`}
+                      type="number"
+                      style={{ width: 110 }}
+                      placeholder={k === 'doğum' ? t('birth year') : t('death year')}
+                      defaultValue={fields[k] ?? ''}
+                      onBlur={(e) => {
+                        const f = { ...fields }
+                        const v = e.target.value.trim()
+                        if (v) f[k] = v
+                        else delete f[k]
+                        if ((fields[k] ?? '') !== v) saveFields(f)
+                      }}
+                    />
+                  ))}
+                </div>
                 {famRow(t('Mother'), 'anne', true)}
                 {famRow(t('Father'), 'baba', true)}
                 {famRow(t('Spouse'), 'eş', false)}
-                {childLinks.length > 0 && (
-                  <div className="tag-row">
-                    <span className="field-key">{t('Children')}</span>
-                    <span className="chrono-list">
-                      {childLinks.map((l) => (
-                        <button
-                          className="tag-chip clickable"
-                          key={l.id}
-                          onClick={() => onOpen(l.from_id)}
-                        >
+                {/* Çocuk = ters yönlü bağ (çocuk → bu kişi). İlişki bu kişinin cinsiyetine göre
+                    anne/baba olur (belirsizse baba varsayılır, cinsiyet atanınca sonrakiler düzelir). */}
+                <div className="tag-row">
+                  <span className="field-key">{t('Children')}</span>
+                  <span className="chrono-list">
+                    {childLinks.map((l) => (
+                      <span className="tag-chip" key={l.id}>
+                        <a href="#" onClick={(e) => (e.preventDefault(), onOpen(l.from_id))}>
                           {l.from_name}
+                        </a>
+                        <button
+                          className="tag-x"
+                          onClick={async () => {
+                            const ref = { id: l.id }
+                            pushUndo({
+                              undo: async () => {
+                                ref.id = (await api.addLink(l.from_id, id, l.relation)).id
+                              },
+                              redo: () => api.deleteLink(ref.id)
+                            })
+                            await api.deleteLink(l.id)
+                            reloadFamily()
+                          }}
+                        >
+                          ×
                         </button>
-                      ))}
-                    </span>
-                  </div>
-                )}
+                      </span>
+                    ))}
+                    <form
+                      className="tag-add"
+                      onSubmit={async (e) => {
+                        e.preventDefault()
+                        const form = e.currentTarget
+                        const nm = (new FormData(form).get('name') as string) ?? ''
+                        form.reset()
+                        const child = await findOrCreate(nm)
+                        if (child === null || child === id) return
+                        // İlişki bu kişinin (çıkarılan) cinsiyetine göre: kadın→anne, değilse baba
+                        const rel = inferredGender === 'F' ? 'anne' : 'baba'
+                        await api.addLink(child, id, rel)
+                        reloadFamily()
+                      }}
+                    >
+                      <input name="name" list="person-list" placeholder={t('child…')} />
+                      <button className="mini" type="submit">
+                        +
+                      </button>
+                    </form>
+                  </span>
+                </div>
               </>
             )}
           </>

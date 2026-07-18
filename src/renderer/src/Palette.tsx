@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api, EntityRow, MapRow, TypeDef, typeColor } from './api'
 import { useT } from './i18n'
 
@@ -7,6 +7,7 @@ interface Item {
   label: string
   badge: string
   color: string
+  sub?: string // içerik eşleşmesinin bağlam parçası (tam metin arama)
   open: () => void
 }
 
@@ -33,6 +34,20 @@ export default function Palette({
   const [sel, setSel] = useState(0)
   const t = useT()
 
+  // Tam metin: içerik/notlarda geçenler (IPC'ye hafif debounce)
+  const [contentHits, setContentHits] = useState<
+    { id: number; type: string; name: string; snippet: string }[]
+  >([])
+  useEffect(() => {
+    const q = query.trim()
+    if (q.length < 2) {
+      setContentHits([])
+      return
+    }
+    const timer = setTimeout(() => api.searchContent(q).then(setContentHits), 150)
+    return () => clearTimeout(timer)
+  }, [query])
+
   const items = useMemo<Item[]>(() => {
     const q = query.toLocaleLowerCase('tr')
     const ms: Item[] = maps
@@ -53,7 +68,16 @@ export default function Palette({
         color: typeColor(types, e.type),
         open: () => onOpenEntity(e.id)
       }))
-    const list = [...ms, ...es].slice(0, 12)
+    // İçerik eşleşmeleri isim eşleşmelerinin altında, bağlam parçasıyla
+    const cs: Item[] = contentHits.map((h) => ({
+      key: `c${h.id}`,
+      label: h.name,
+      badge: t('in content'),
+      color: typeColor(types, h.type),
+      sub: h.snippet,
+      open: () => onOpenEntity(h.id)
+    }))
+    const list = [...ms, ...es].slice(0, 12).concat(cs.slice(0, 8))
     const exact =
       query.trim() &&
       [...maps, ...entities].some((x) => x.name.toLocaleLowerCase('tr') === q.trim())
@@ -71,7 +95,7 @@ export default function Palette({
       })
     }
     return list
-  }, [query, entities, maps, types, onOpenEntity, onOpenMap, onChanged, t])
+  }, [query, entities, maps, types, contentHits, onOpenEntity, onOpenMap, onChanged, t])
 
   const pick = (i: Item): void => {
     i.open()
@@ -110,7 +134,10 @@ export default function Palette({
               onMouseEnter={() => setSel(i)}
             >
               <span className="dot" style={{ background: it.color }} />
-              <span className="palette-label">{it.label}</span>
+              <span className="palette-label">
+                {it.label}
+                {it.sub && <span className="palette-sub">{it.sub}</span>}
+              </span>
               <span className="palette-badge">{it.badge}</span>
             </div>
           ))}

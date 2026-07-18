@@ -154,166 +154,175 @@ export default function Timeline({
 
   return (
     <div className="timeline-strip">
+      {/* Kontroller ve ray AYRI satırlarda: tek satırdayken 11 kontrol ~400px yiyor, şeridin
+          genişliği içerikten geldiği için flex:1 olan raya birkaç piksel kalıyordu (kullanılamaz
+          hale gelmişti). Ray artık şeridin tam genişliğini alır. */}
       <div className="timeline-row">
-        <button
-          className="mini"
-          title={playing ? t('Pause') : t('Play')}
-          onClick={() => (playing ? stopPlay() : startPlay())}
-        >
-          {playing ? '⏸' : '▶'}
-        </button>
-        <button
-          className="mini"
-          title={t('Playback speed: {n} yr/s', { n: speed })}
-          onClick={() => {
-            const next = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]
-            setSpeed(next)
-            speedRef.current = next
-          }}
-        >
-          {speed}×
-        </button>
-        <button
-          className="mini step-jump"
-          title={t('-100 years (Ctrl+←)')}
-          onMouseDown={() => startHold(-100)}
-          onMouseUp={endHold}
-          onMouseLeave={endHold}
-        >
-          −100
-        </button>
-        <button
-          className="mini step-jump"
-          title={t('-10 years (Shift+←)')}
-          onMouseDown={() => startHold(-10)}
-          onMouseUp={endHold}
-          onMouseLeave={endHold}
-        >
-          −10
-        </button>
-        <button
-          className="mini"
-          onMouseDown={() => startHold(-1)}
-          onMouseUp={endHold}
-          onMouseLeave={endHold}
-        >
-          ⏪
-        </button>
-        <div className="timeline-rail">
-          <div className="timeline-events">
-            {cfg.events.map((e, i) => {
-              if (e.year < cfg.min || e.year > cfg.max) return null
-              return (
-                <div
-                  key={i}
-                  className={`timeline-evdot ${e.year === cfg.year ? 'active' : ''}`}
-                  title={`${e.name} (${formatYear(e.year, cfg)})`}
-                  style={{ left: `${((e.year - cfg.min) / range) * 100}%` }}
-                  onClick={() => jumpEvent(e)}
-                />
-              )
-            })}
-          </div>
-          <input
-            type="range"
-            list="year-ticks"
-            min={cfg.min}
-            max={cfg.max}
-            step={1}
-            value={cfg.year}
-            onChange={(e) => setYear(Number(e.target.value))}
-          />
-          <datalist id="year-ticks">
-            {ticks.map((y) => (
-              <option key={y} value={y} />
-            ))}
-          </datalist>
-          <div className="timeline-bands">
-            {cfg.periods.map((p, i) => {
-              const l = Math.max(0, ((p.from - cfg.min) / range) * 100)
-              const r = Math.min(100, ((p.to + 1 - cfg.min) / range) * 100)
-              if (r <= 0 || l >= 100) return null
-              return (
-                <div
-                  key={i}
-                  className="timeline-band"
-                  title={`${p.name} (${formatYear(p.from, cfg)} – ${formatYear(p.to, cfg)})`}
-                  style={{
-                    left: `${l}%`,
-                    width: `${Math.max(0.5, r - l)}%`,
-                    background: autoColor(p.name)
-                  }}
-                  onClick={() => setYear(p.from)}
-                />
-              )
-            })}
-          </div>
-        </div>
-        <button
-          className="mini"
-          onMouseDown={() => startHold(1)}
-          onMouseUp={endHold}
-          onMouseLeave={endHold}
-        >
-          ⏩
-        </button>
-        <button
-          className="mini step-jump"
-          title={t('+10 years (Shift+→)')}
-          onMouseDown={() => startHold(10)}
-          onMouseUp={endHold}
-          onMouseLeave={endHold}
-        >
-          +10
-        </button>
-        <button
-          className="mini step-jump"
-          title={t('+100 years (Ctrl+→)')}
-          onMouseDown={() => startHold(100)}
-          onMouseUp={endHold}
-          onMouseLeave={endHold}
-        >
-          +100
-        </button>
-        {editingYear ? (
-          <input
-            className="timeline-year-input"
-            type="number"
-            autoFocus
-            defaultValue={cfg.year}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur()
-            }}
-            onBlur={(e) => {
-              setEditingYear(false)
-              if (e.target.value !== '') setYear(Number(e.target.value))
-            }}
-          />
-        ) : (
-          <span
-            className="timeline-year clickable"
-            title={t('Click, type a year (negative = before epoch)')}
-            onClick={() => setEditingYear(true)}
+        <div className="tl-group">
+          <button
+            className="mini"
+            title={playing ? t('Pause') : t('Play')}
+            onClick={() => (playing ? stopPlay() : startPlay())}
           >
-            {formatYear(cfg.year, cfg)}
-          </span>
-        )}
-        <button
-          className="mini"
-          title={t('Calendar settings')}
-          onClick={() => setCfgOpen(!cfgOpen)}
-        >
-          ⚙
-        </button>
-        <button
-          className="mini"
-          onClick={() => {
-            stopPlay()
-            setOpen(false)
-          }}
-        >
-          ×
-        </button>
+            {playing ? '⏸' : '▶'}
+          </button>
+          <button
+            className="mini"
+            title={t('Playback speed: {n} yr/s', { n: speed })}
+            onClick={() => {
+              const next = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]
+              setSpeed(next)
+              speedRef.current = next
+            }}
+          >
+            {speed}×
+          </button>
+        </div>
+        <div className="tl-group tl-mid">
+          <button
+            className="mini step-jump"
+            title={t('-100 years (Ctrl+←)')}
+            onMouseDown={() => startHold(-100)}
+            onMouseUp={endHold}
+            onMouseLeave={endHold}
+          >
+            −100
+          </button>
+          <button
+            className="mini step-jump"
+            title={t('-10 years (Shift+←)')}
+            onMouseDown={() => startHold(-10)}
+            onMouseUp={endHold}
+            onMouseLeave={endHold}
+          >
+            −10
+          </button>
+          <button
+            className="mini"
+            onMouseDown={() => startHold(-1)}
+            onMouseUp={endHold}
+            onMouseLeave={endHold}
+          >
+            ⏪
+          </button>
+          {editingYear ? (
+            <input
+              className="timeline-year-input"
+              type="number"
+              autoFocus
+              defaultValue={cfg.year}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur()
+              }}
+              onBlur={(e) => {
+                setEditingYear(false)
+                if (e.target.value !== '') setYear(Number(e.target.value))
+              }}
+            />
+          ) : (
+            <span
+              className="timeline-year clickable"
+              title={t('Click, type a year (negative = before epoch)')}
+              onClick={() => setEditingYear(true)}
+            >
+              {formatYear(cfg.year, cfg)}
+            </span>
+          )}
+          <button
+            className="mini"
+            onMouseDown={() => startHold(1)}
+            onMouseUp={endHold}
+            onMouseLeave={endHold}
+          >
+            ⏩
+          </button>
+          <button
+            className="mini step-jump"
+            title={t('+10 years (Shift+→)')}
+            onMouseDown={() => startHold(10)}
+            onMouseUp={endHold}
+            onMouseLeave={endHold}
+          >
+            +10
+          </button>
+          <button
+            className="mini step-jump"
+            title={t('+100 years (Ctrl+→)')}
+            onMouseDown={() => startHold(100)}
+            onMouseUp={endHold}
+            onMouseLeave={endHold}
+          >
+            +100
+          </button>
+        </div>
+        <div className="tl-group">
+          <button
+            className="mini"
+            title={t('Calendar settings')}
+            onClick={() => setCfgOpen(!cfgOpen)}
+          >
+            ⚙
+          </button>
+          <button
+            className="mini"
+            onClick={() => {
+              stopPlay()
+              setOpen(false)
+            }}
+          >
+            ×
+          </button>
+        </div>
+      </div>
+      <div className="timeline-rail">
+        <div className="timeline-events">
+          {cfg.events.map((e, i) => {
+            if (e.year < cfg.min || e.year > cfg.max) return null
+            return (
+              <div
+                key={i}
+                className={`timeline-evdot ${e.year === cfg.year ? 'active' : ''}`}
+                title={`${e.name} (${formatYear(e.year, cfg)})`}
+                style={{ left: `${((e.year - cfg.min) / range) * 100}%` }}
+                onClick={() => jumpEvent(e)}
+              />
+            )
+          })}
+        </div>
+        <input
+          type="range"
+          list="year-ticks"
+          min={cfg.min}
+          max={cfg.max}
+          step={1}
+          value={cfg.year}
+          onChange={(e) => setYear(Number(e.target.value))}
+        />
+        <datalist id="year-ticks">
+          {ticks.map((y) => (
+            <option key={y} value={y} />
+          ))}
+        </datalist>
+        <div className="timeline-bands">
+          {cfg.periods.map((p, i) => {
+            const l = Math.max(0, ((p.from - cfg.min) / range) * 100)
+            const r = Math.min(100, ((p.to + 1 - cfg.min) / range) * 100)
+            if (r <= 0 || l >= 100) return null
+            return (
+              <div
+                key={i}
+                className="timeline-band"
+                title={`${p.name} (${formatYear(p.from, cfg)} – ${formatYear(p.to, cfg)})`}
+                style={{
+                  left: `${l}%`,
+                  width: `${Math.max(0.5, r - l)}%`,
+                  background: autoColor(p.name)
+                }}
+                onClick={() => setYear(p.from)}
+              />
+            )
+          })}
+        </div>
       </div>
       {period && <div className="timeline-period">{period.name}</div>}
       {todayEvents.length > 0 && (
