@@ -243,6 +243,12 @@ const TR: Record<string, string> = {
   year: 'yıl',
   '🕰 Time': '🕰 Zaman',
 
+  // Diplomasi.tsx
+  '🕸 Diplomacy': '🕸 Diplomasi',
+  '🕸 Diplomacy Web': '🕸 Diplomasi Ağı',
+  'No relations between entities yet. Add links from the Relations tab of an entity page.':
+    'Maddeler arasında henüz ilişki yok. Madde sayfasının İlişkiler sekmesinden bağ ekleyebilirsin.',
+
   // Kronoloji.tsx
   '{ruler} became ruler of {realm}': '{ruler}, {realm} yöneticisi oldu',
   'No events or reigns recorded yet. Add events from the map timeline, or ruler reigns from an entity page.':

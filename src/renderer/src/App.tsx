@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, EntityRow, getLanguage, getTypes, Lang, MapRow, TypeDef, typeColor } from './api'
 import ContextMenu, { MenuState } from './ContextMenu'
 import { alertDialog, confirmDialog, DialogHost } from './dialog'
+import Diplomasi from './Diplomasi'
 import EntityPage from './EntityPage'
 import { deleteEntitiesWithUndo, deleteEntityWithUndo } from './entityOps'
 import { LangContext, translate } from './i18n'
@@ -17,6 +18,7 @@ type View =
   | { kind: 'map'; id: number }
   | { kind: 'settings' }
   | { kind: 'kronoloji' }
+  | { kind: 'diplomasi' }
 
 export default function App(): React.JSX.Element {
   const [entities, setEntities] = useState<EntityRow[]>([])
@@ -412,6 +414,12 @@ export default function App(): React.JSX.Element {
           >
             {t('📜 Chronology')}
           </div>
+          <div
+            className={`side-item settings-btn ${view.kind === 'diplomasi' ? 'active' : ''}`}
+            onClick={() => setView({ kind: 'diplomasi' })}
+          >
+            {t('🕸 Diplomacy')}
+          </div>
           <div className="side-item settings-btn" onClick={() => setView({ kind: 'settings' })}>
             {t('⚙ Settings')}
           </div>
@@ -463,6 +471,7 @@ export default function App(): React.JSX.Element {
               }}
             />
           )}
+          {view.kind === 'diplomasi' && <Diplomasi types={types} onOpenEntity={openEntity} />}
         </div>
 
         {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}

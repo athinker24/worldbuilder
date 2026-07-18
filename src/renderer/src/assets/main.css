@@ -208,6 +208,61 @@ textarea,
   color: var(--muted);
 }
 
+/* --- Diplomasi ağı --- */
+.diplo-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.diplo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border: 1px solid;
+  border-radius: 12px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.diplo-chip.off {
+  opacity: 0.35;
+}
+
+.diplo-svg {
+  width: 100%;
+  max-width: 760px;
+  display: block;
+}
+
+.diplo-edge {
+  fill: none;
+  stroke-width: 2;
+  opacity: 0.75;
+}
+
+.diplo-edge:hover {
+  stroke-width: 4;
+  opacity: 1;
+}
+
+.diplo-node {
+  cursor: pointer;
+}
+
+.diplo-node text {
+  fill: var(--text);
+  font-size: 13px;
+  dominant-baseline: central;
+}
+
+.diplo-node:hover text {
+  fill: var(--accent);
+}
+
 /* --- ana alan --- */
 .main {
   flex: 1;

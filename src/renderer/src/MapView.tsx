@@ -75,7 +75,6 @@ interface FeatureStyle {
   imgFree?: boolean // true = rozetsiz serbest görsel (en-boy korunur), false/boş = rozet içinde
   imgAR?: number // görselin en/boy oranı — serbest modda yükseklik buradan (kütüphaneden değil)
   fillImg?: string // poligon dolgu görseli (assets/ göreli yolu) — SVG pattern ile döşenir
-  fillImgAR?: number // dolgu görselinin en/boy oranı (desen karosunun yüksekliği için)
   text?: string // serbest metin etiketi (Point geometry + bu alan = etiket, pin değil)
   angle?: number // etiket döndürme açısı (derece)
   curve?: number // etiket eğriliği -100..100 (Wonderdraft curved text; 0 = düz)
@@ -1973,7 +1972,6 @@ export default function MapView({
                   weight: s.polygon.weight,
                   font: s.polygon.font,
                   fillImg: s.polygon.fillImg,
-                  fillImgAR: s.polygon.fillImgAR,
                   from
                 }
       )
@@ -2555,24 +2553,18 @@ export default function MapView({
                   <ImageStrip
                     img={selStyle.fillImg}
                     images={pinImages}
-                    onImg={(p, ar) =>
+                    onImg={(p) =>
                       editSelectedStyle(
-                        selStyle.fillImg === p
-                          ? { fillImg: undefined, fillImgAR: undefined }
-                          : { fillImg: p, fillImgAR: ar }
+                        selStyle.fillImg === p ? { fillImg: undefined } : { fillImg: p }
                       )
                     }
-                    onUpload={() =>
-                      uploadPinImage((p, ar) => editSelectedStyle({ fillImg: p, fillImgAR: ar }))
-                    }
+                    onUpload={() => uploadPinImage((p) => editSelectedStyle({ fillImg: p }))}
                     onRemoveImg={(path) => savePinLib(pinImages.filter((p) => p.path !== path))}
                   />
                   {selStyle.fillImg && (
                     <button
                       className="mini"
-                      onClick={() =>
-                        editSelectedStyle({ fillImg: undefined, fillImgAR: undefined })
-                      }
+                      onClick={() => editSelectedStyle({ fillImg: undefined })}
                     >
                       {t('Remove fill image')}
                     </button>

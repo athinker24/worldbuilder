@@ -52,7 +52,6 @@ export interface DrawSettings {
     weight: number
     font: string
     fillImg?: string
-    fillImgAR?: number
   }
   line: {
     color: string
@@ -282,18 +281,18 @@ export default function ToolPanel({
             <ImageStrip
               img={settings.polygon.fillImg}
               images={pinImages}
-              onImg={(fillImg, fillImgAR) =>
+              onImg={(fillImg) =>
                 onSettings({
                   ...settings,
                   polygon:
                     settings.polygon.fillImg === fillImg
-                      ? { ...settings.polygon, fillImg: undefined, fillImgAR: undefined }
-                      : { ...settings.polygon, fillImg, fillImgAR }
+                      ? { ...settings.polygon, fillImg: undefined }
+                      : { ...settings.polygon, fillImg }
                 })
               }
               onUpload={() =>
-                onUploadPinImage((fillImg, fillImgAR) =>
-                  onSettings({ ...settings, polygon: { ...settings.polygon, fillImg, fillImgAR } })
+                onUploadPinImage((fillImg) =>
+                  onSettings({ ...settings, polygon: { ...settings.polygon, fillImg } })
                 )
               }
               onRemoveImg={onRemovePinImage}
@@ -304,7 +303,7 @@ export default function ToolPanel({
                 onClick={() =>
                   onSettings({
                     ...settings,
-                    polygon: { ...settings.polygon, fillImg: undefined, fillImgAR: undefined }
+                    polygon: { ...settings.polygon, fillImg: undefined }
                   })
                 }
               >
