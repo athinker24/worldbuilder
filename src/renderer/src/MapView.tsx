@@ -195,7 +195,7 @@ const ringLen = (ring: number[][]): number => {
     s += Math.hypot(ring[i][0] - ring[i - 1][0], ring[i][1] - ring[i - 1][1])
   return s
 }
-const ringArea = (ring: number[][]): number => {
+export const ringArea = (ring: number[][]): number => {
   let s = 0
   for (let i = 0; i < ring.length; i++) {
     const [x1, y1] = ring[i]
@@ -538,10 +538,17 @@ export default function MapView({
   // Topolojik kaynak Ctrl ile açılır: Ctrl basılıyken köşe sürüklenirse, aynı noktayı paylaşan
   // komşu poligon köşeleri sürükleme SIRASINDA canlı olarak birlikte taşınır (Ctrl'süz tek taraflı)
   const ctrlRef = useRef(false)
-  // aktif sürüklemenin partner köşeleri (dragstart'ta bulunur, drag'de taşınır)
-  const dragPartners = useRef<{ layer: L.Polygon; fid: number; ring: number; idx: number }[]>([])
+  // aktif sürüklemenin partner köşeleri (dragstart'ta bulunur, drag'de taşınır).
+  // oldGeom: partnerin sürükleme ÖNCESİ geometrisi — undo'nun doğru noktaya dönmesi için
+  // bayat wm.features yerine burada, canlı katmandan yakalanır.
+  const dragPartners = useRef<
+    { layer: L.Polygon; fid: number; ring: number; idx: number; oldGeom: string }[]
+  >([])
   // bu düzenleme oturumunda kaynakla taşınan komşu katmanlar — pm:update'te DB'ye yazılır
-  const weldTouched = useRef(new Map<number, L.Polygon>())
+  const weldTouched = useRef(new Map<number, { layer: L.Polygon; oldGeom: string }>())
+  // Geometri yazımları seri: her weld kaydı reloadFeatures'ıyla birlikte tam bitmeden sonraki
+  // başlamaz — art arda iki komşu düzenlenince reload'lar birbirini ezmezdi (bilinen kaynak hatası).
+  const geomSaveChain = useRef<Promise<void>>(Promise.resolve())
   useEffect(() => {
     const down = (e: KeyboardEvent): void => {
       if (e.key === 'Control') ctrlRef.current = true
@@ -1301,20 +1308,36 @@ export default function MapView({
           }
           setSelected(f)
         })
-        const saveGeometry = async (e: { layer: L.Layer }, weld: boolean): Promise<void> => {
-          const oldGeometry = f.geometry
-          const newGeometry = JSON.stringify((e.layer as L.Polygon).toGeoJSON().geometry)
-          const updates = [{ id: f.id, old: oldGeometry, next: newGeometry }]
+        // saveGeometry iki aşamalı: (1) snapshotUpdates SENKRON çalışır — katman geometrilerini ve
+        // weldTouched'ı pm:update anında yakalar+temizler (ertelense sonraki gesture ile karışırdı);
+        // (2) commitGeometry ASYNC — seri zincirde DB'ye yazar + gerekiyorsa reload eder.
+        const snapshotUpdates = (
+          e: { layer: L.Layer },
+          weld: boolean
+        ): { id: number; old: string; next: string }[] => {
+          const updates = [
+            {
+              id: f.id,
+              old: f.geometry,
+              next: JSON.stringify((e.layer as L.Polygon).toGeoJSON().geometry)
+            }
+          ]
           if (weld) {
-            // Ctrl-kaynakla canlı taşınan komşular: katmandaki güncel geometri DB'ye yazılır
-            for (const [fid, ly] of weldTouched.current) {
+            for (const [fid, p] of weldTouched.current) {
               if (fid === f.id) continue
-              const dbOld = wm.features.find((x) => x.id === fid)?.geometry
-              if (dbOld)
-                updates.push({ id: fid, old: dbOld, next: JSON.stringify(ly.toGeoJSON().geometry) })
+              updates.push({
+                id: fid,
+                old: p.oldGeom, // sürükleme öncesi (dragstart'ta yakalandı) — bayat wm yok
+                next: JSON.stringify(p.layer.toGeoJSON().geometry)
+              })
             }
             weldTouched.current.clear()
           }
+          return updates
+        }
+        const commitGeometry = async (
+          updates: { id: number; old: string; next: string }[]
+        ): Promise<void> => {
           pushUndo({
             undo: async () => {
               for (const u of updates) await api.updateFeature(u.id, { geometry: u.old })
@@ -1325,6 +1348,11 @@ export default function MapView({
           })
           for (const u of updates) await api.updateFeature(u.id, { geometry: u.next })
           if (updates.length > 1) await reloadFeatures() // kaynaklanan komşular yeniden çizilsin
+        }
+        // Snapshot senkron, commit seri zincirde — reload'lar birbirini ezmez
+        const saveGeometry = (e: { layer: L.Layer }, weld: boolean): void => {
+          const updates = snapshotUpdates(e, weld)
+          geomSaveChain.current = geomSaveChain.current.then(() => commitGeometry(updates))
         }
         // Canlı kaynak: Ctrl basılıyken köşe sürüklemeye başlanınca aynı noktadaki komşu
         // köşeler bulunur, sürükleme boyunca birlikte taşınır (mıknatıs gibi tek nokta hissi).
@@ -1346,10 +1374,12 @@ export default function MapView({
             for (const ly of lys) {
               const poly = ly as L.Polygon
               if (!poly.getLatLngs) continue
+              // Partnerin sürükleme öncesi geometrisi bir kez yakalanır (mutasyon henüz olmadı)
+              const oldGeom = JSON.stringify(poly.toGeoJSON().geometry)
               partnerRings(poly).forEach((ring, ri) =>
                 ring.forEach((pt, vi) => {
                   if (Math.abs(pt.lat - ll.lat) < EPS && Math.abs(pt.lng - ll.lng) < EPS)
-                    dragPartners.current.push({ layer: poly, fid, ring: ri, idx: vi })
+                    dragPartners.current.push({ layer: poly, fid, ring: ri, idx: vi, oldGeom })
                 })
               )
             }
@@ -1367,7 +1397,9 @@ export default function MapView({
         })
         layer.on('pm:markerdragend', () => {
           for (const p of dragPartners.current) {
-            weldTouched.current.set(p.fid, p.layer)
+            // aynı partner birden çok köşede eşleşebilir — oldGeom ilk kaydedilen korunur (aynı zaten)
+            if (!weldTouched.current.has(p.fid))
+              weldTouched.current.set(p.fid, { layer: p.layer, oldGeom: p.oldGeom })
             // partnerin köşe marker'ları eski yerde kalır — düzenleme modunu tazele
             const pm = (
               p.layer as unknown as {

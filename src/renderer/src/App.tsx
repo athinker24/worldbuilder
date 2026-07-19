@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, EntityRow, getLanguage, getTypes, Lang, MapRow, TypeDef, typeColor } from './api'
+import Atlas from './Atlas'
 import ContextMenu, { MenuState } from './ContextMenu'
 import { alertDialog, confirmDialog, DialogHost } from './dialog'
 import Diplomasi from './Diplomasi'
@@ -19,6 +20,7 @@ type View =
   | { kind: 'settings' }
   | { kind: 'kronoloji' }
   | { kind: 'diplomasi' }
+  | { kind: 'atlas' }
 
 export default function App(): React.JSX.Element {
   const [entities, setEntities] = useState<EntityRow[]>([])
@@ -420,6 +422,12 @@ export default function App(): React.JSX.Element {
           >
             {t('🕸 Diplomacy')}
           </div>
+          <div
+            className={`side-item settings-btn ${view.kind === 'atlas' ? 'active' : ''}`}
+            onClick={() => setView({ kind: 'atlas' })}
+          >
+            {t('📊 Atlas')}
+          </div>
           <div className="side-item settings-btn" onClick={() => setView({ kind: 'settings' })}>
             {t('⚙ Settings')}
           </div>
@@ -472,6 +480,7 @@ export default function App(): React.JSX.Element {
             />
           )}
           {view.kind === 'diplomasi' && <Diplomasi types={types} onOpenEntity={openEntity} />}
+          {view.kind === 'atlas' && <Atlas onOpenEntity={openEntity} />}
         </div>
 
         {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}

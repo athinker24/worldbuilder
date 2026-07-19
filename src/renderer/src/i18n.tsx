@@ -243,6 +243,15 @@ const TR: Record<string, string> = {
   year: 'yıl',
   '🕰 Time': '🕰 Zaman',
 
+  // Atlas.tsx ('📊 Atlas' iki dilde aynı)
+  Year: 'Yıl',
+  Realms: 'Devletler',
+  'mapped area': 'haritalanmış alan',
+  'mu²': 'hb²', // harita birimi² (ölçek yokken)
+  'no scale set — 📏 tool on the map': 'ölçek atanmamış — haritada 📏 aracı',
+  'No measurable regions yet. Draw base-rank polygons on a map (and set a map scale with the 📏 tool for real areas).':
+    'Henüz ölçülebilir bölge yok. Bir haritaya taban kademe poligonları çiz (gerçek alanlar için 📏 aracıyla harita ölçeği ata).',
+
   // Diplomasi.tsx
   '🕸 Diplomacy': '🕸 Diplomasi',
   '🕸 Diplomacy Web': '🕸 Diplomasi Ağı',

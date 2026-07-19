@@ -1,5 +1,13 @@
-import { useEffect, useState } from 'react'
-import { api, autoColor, formatYear, getTimeline, getYearRecs, TimelineConfig } from './api'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  api,
+  autoColor,
+  formatYear,
+  getTimeline,
+  getYearRecs,
+  Hierarchy,
+  TimelineConfig
+} from './api'
 import { useT } from './i18n'
 
 interface Props {
@@ -19,42 +27,48 @@ interface Moment {
 export default function Kronoloji({ onOpenEntity, onLocateFeature }: Props): React.JSX.Element {
   const t = useT()
   const [cfg, setCfg] = useState<TimelineConfig | null>(null)
-  const [moments, setMoments] = useState<Moment[]>([])
+  const [ents, setEnts] = useState<Hierarchy['entities']>([])
 
+  // Ham veri mount'ta bir kez çekilir; sunum (çeviri + tıklama) render'da hesaplanır — yoksa
+  // effect `t`'ye bağımlı olurdu, `t` her render'da yeni fonksiyon → setMoments → sonsuz döngü.
   useEffect(() => {
     let alive = true
     Promise.all([getTimeline(), api.hierarchy()]).then(([c, h]) => {
       if (!alive) return
       setCfg(c)
-      const nameOf = new Map(h.entities.map((e) => [e.id, e.name]))
-      const list: Moment[] = c.events.map((e) => ({
-        year: e.year,
-        text: e.name,
-        onClick:
-          e.fid !== undefined && e.mid !== undefined
-            ? () => onLocateFeature(e.mid!, e.fid!)
-            : undefined
-      }))
-      for (const e of h.entities) {
-        for (const r of getYearRecs(e.fields, 'yönetici')) {
-          if (r.from === null) continue // belirsiz başlangıç — zaman çizgisinde gösterilemez
-          list.push({
-            year: r.from,
-            text: t('{ruler} became ruler of {realm}', {
-              ruler: nameOf.get(r.id) ?? '?',
-              realm: e.name
-            }),
-            onClick: () => onOpenEntity(r.id)
-          })
-        }
-      }
-      list.sort((a, b) => a.year - b.year)
-      setMoments(list)
+      setEnts(h.entities)
     })
     return () => {
       alive = false
     }
-  }, [onLocateFeature, onOpenEntity, t])
+  }, [])
+
+  const moments: Moment[] = useMemo(() => {
+    if (!cfg) return []
+    const nameOf = new Map(ents.map((e) => [e.id, e.name]))
+    const list: Moment[] = cfg.events.map((e) => ({
+      year: e.year,
+      text: e.name,
+      onClick:
+        e.fid !== undefined && e.mid !== undefined
+          ? () => onLocateFeature(e.mid!, e.fid!)
+          : undefined
+    }))
+    for (const e of ents) {
+      for (const r of getYearRecs(e.fields, 'yönetici')) {
+        if (r.from === null) continue // belirsiz başlangıç — zaman çizgisinde gösterilemez
+        list.push({
+          year: r.from,
+          text: t('{ruler} became ruler of {realm}', {
+            ruler: nameOf.get(r.id) ?? '?',
+            realm: e.name
+          }),
+          onClick: () => onOpenEntity(r.id)
+        })
+      }
+    }
+    return list.sort((a, b) => a.year - b.year)
+  }, [cfg, ents, t, onLocateFeature, onOpenEntity])
 
   if (!cfg) return <div className="page" />
 

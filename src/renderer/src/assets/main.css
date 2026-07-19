@@ -208,6 +208,76 @@ textarea,
   color: var(--muted);
 }
 
+/* --- Atlas --- */
+.atlas-year {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.atlas-year input {
+  width: 90px;
+}
+
+.atlas-map {
+  margin-bottom: 22px;
+}
+
+.atlas-map h4 {
+  margin: 10px 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.atlas-row {
+  display: grid;
+  grid-template-columns: 180px 1fr 170px;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.atlas-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atlas-name.clickable {
+  cursor: pointer;
+}
+
+.atlas-name.clickable:hover {
+  color: var(--accent);
+}
+
+.atlas-bar-track {
+  background: var(--bg3);
+  border-radius: 4px;
+  height: 14px;
+  overflow: hidden;
+}
+
+.atlas-bar {
+  height: 100%;
+  border-radius: 4px;
+  min-width: 2px;
+}
+
+.atlas-num {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+
 /* --- Diplomasi ağı --- */
 .diplo-legend {
   display: flex;

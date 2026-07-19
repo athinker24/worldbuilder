@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { marked } from 'marked'
 import {
   api,
@@ -54,6 +54,7 @@ interface NoteTab {
   title: string
   content: string
   collapsed: boolean
+  height?: number // metin kutusunun elle ayarlanmış yüksekliği (px) — CSS resize: vertical'ın hatırlanması
 }
 
 function getNoteTabs(fieldsJson: string): NoteTab[] {
@@ -106,6 +107,10 @@ export default function EntityPage({
   // Not bölgesi: sağ tık menüsü + düzenleme modundaki sekmelerin indeksleri (yerel, kalıcı değil)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [noteEdit, setNoteEdit] = useState<Set<number>>(new Set())
+  // Not metin kutusu resize (CSS resize: vertical) öncesi yüksekliği — yalnız gerçek sürüklemede
+  // (mousedown≠mouseup) kaydetmek için; tek başına 'height değişti mi' kıyası ilk tıklamada da
+  // (n.height henüz yoksa) yanlışlıkla tetiklenirdi.
+  const noteResizeStart = useRef<number | null>(null)
   // Harita geçmişi (OHM chronology deseni): maddenin çizimleri yıl aralıklarıyla
   const [feats, setFeats] = useState<
     { id: number; map_id: number; style: string; map_name: string }[]
@@ -693,11 +698,23 @@ export default function EntityPage({
                   className="note-body-edit"
                   defaultValue={n.content}
                   key={`nb-${i}-${entity.updated_at}`}
+                  style={n.height ? { height: n.height } : undefined}
                   onBlur={(e) => {
                     if (e.target.value !== n.content)
                       saveNoteTabs(
                         notes.map((x, j) => (j === i ? { ...x, content: e.target.value } : x))
                       )
+                  }}
+                  onMouseDown={(e) => {
+                    noteResizeStart.current = e.currentTarget.offsetHeight
+                  }}
+                  onMouseUp={(e) => {
+                    // Native resize sürüklemesi mousedown→mouseup arası yükseklik değiştirir;
+                    // düz tıklama (imleç konumlandırma) hiç değiştirmez, o yüzden kaydetmez.
+                    const h = e.currentTarget.offsetHeight
+                    if (h !== noteResizeStart.current)
+                      saveNoteTabs(notes.map((x, j) => (j === i ? { ...x, height: h } : x)))
+                    noteResizeStart.current = null
                   }}
                   placeholder={t('Markdown content… link to other entities with [[Entity Name]].')}
                 />
