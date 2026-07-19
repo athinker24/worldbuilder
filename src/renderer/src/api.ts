@@ -293,6 +293,59 @@ export function parentAt(recs: ParentRec[], year: number): number | null {
   return best?.id ?? null
 }
 
+/** Bir çizim/olay yıl aralığında (from/to; boş = sınırsız) görünür mü. */
+export const inYearRange = (
+  from: number | undefined,
+  to: number | undefined,
+  year: number
+): boolean => (from ?? -Infinity) <= year && year <= (to ?? Infinity)
+
+/** Taban küme: her yönetim biçiminin merdivenindeki SON etikete sahip maddeler (harita taban
+ *  poligonları + Atlas bu kümeyi ortak kullanır — tek kaynak). */
+export function lowestRungSet(
+  cfg: HierConfig,
+  entities: { id: number; gov: string | null; tags: string[] }[]
+): Set<number> {
+  const s = new Set<number>()
+  for (const g of cfg.govs) {
+    const lowest = g.tags[g.tags.length - 1]
+    if (!lowest) continue
+    for (const e of entities)
+      if (e.tags.includes(lowest) && (!e.gov || e.gov === g.name)) s.add(e.id)
+  }
+  return s
+}
+
+/** O yılki üst zincirinin TEPESİ (döngü korumalı). parentsOf: madde id'sinden o maddenin
+ *  yıl bazlı üst kayıtları — çağıran ham fields'tan (Atlas) ya da önden ayrıştırılmış ref'ten
+ *  (MapView hot-path) besler. */
+export function rootAtYear(
+  eid: number,
+  year: number,
+  parentsOf: (id: number) => ParentRec[]
+): number {
+  let cur = eid
+  const seen = new Set<number>()
+  while (!seen.has(cur)) {
+    seen.add(cur)
+    const p = parentAt(parentsOf(cur), year)
+    if (p === null) break
+    cur = p
+  }
+  return cur
+}
+
+/** Poligon halkasının alanı (shoelace, işaretsiz). CRS.Simple düz düzlem — projeksiyon yok. */
+export function ringArea(ring: number[][]): number {
+  let s = 0
+  for (let i = 0; i < ring.length; i++) {
+    const [x1, y1] = ring[i]
+    const [x2, y2] = ring[(i + 1) % ring.length]
+    s += x1 * y2 - x2 * y1
+  }
+  return Math.abs(s) / 2
+}
+
 // Harita modları: kullanıcı tanımlı boyutlar (din, dil…) ve boyut+değer başına renkler.
 // Değer maddenin fields[dim] alanından okunur; renk atanmamışsa autoColor devreye girer.
 export interface MapModes {

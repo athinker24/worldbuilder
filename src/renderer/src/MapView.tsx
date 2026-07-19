@@ -17,11 +17,15 @@ import {
   getParents,
   getPinImages,
   getTimeline,
+  inYearRange,
+  lowestRungSet,
   MapRow,
   mergeHierConfig,
   ParentRec,
   parentAt,
   PinImage,
+  ringArea,
+  rootAtYear,
   savePinImages,
   saveTimeline,
   TypeDef,
@@ -195,15 +199,7 @@ const ringLen = (ring: number[][]): number => {
     s += Math.hypot(ring[i][0] - ring[i - 1][0], ring[i][1] - ring[i - 1][1])
   return s
 }
-export const ringArea = (ring: number[][]): number => {
-  let s = 0
-  for (let i = 0; i < ring.length; i++) {
-    const [x1, y1] = ring[i]
-    const [x2, y2] = ring[(i + 1) % ring.length]
-    s += x1 * y2 - x2 * y1
-  }
-  return Math.abs(s) / 2
-}
+// ringArea api.ts'te (Atlas ile ortak, saf geometri — ağır MapView modülüne bağlı olmasın)
 // ponytail: köşe ortalaması — shoelace centroid değil, etiket çapası için yeterli
 const ringCentroid = (ring: number[][]): [number, number] => {
   let sx = 0
@@ -1083,13 +1079,8 @@ export default function MapView({
       )
     }
     // En alt kademe gov-bazlıdır: her merdivenin SON etiketi o yönetim biçiminin taban
-    // kademesidir. Madde o biçime aitse (ya da yönetim biçimi boşsa) katılır.
-    for (const g of cfg.govs) {
-      const lowest = g.tags[g.tags.length - 1]
-      if (!lowest) continue
-      for (const e of h.entities)
-        if (e.tags.includes(lowest) && (!e.gov || e.gov === g.name)) baseSet.current.add(e.id)
-    }
+    // kademesidir (Atlas ile ortak lowestRungSet — tek kaynak).
+    for (const eid of lowestRungSet(cfg, h.entities)) baseSet.current.add(eid)
     // Mozaikle yönetilenler: bu haritada çizimi olan taban maddelerden başlayıp üst geçmişlerinin
     // kapanışını al (zincir: baronluk geçmişi kontlukları, kontluk geçmişi krallıkları verir)
     mosaicManaged.current.clear()
@@ -1349,10 +1340,13 @@ export default function MapView({
           for (const u of updates) await api.updateFeature(u.id, { geometry: u.next })
           if (updates.length > 1) await reloadFeatures() // kaynaklanan komşular yeniden çizilsin
         }
-        // Snapshot senkron, commit seri zincirde — reload'lar birbirini ezmez
+        // Snapshot senkron, commit seri zincirde — reload'lar birbirini ezmez. .catch şart:
+        // yoksa tek bir reddedilen commit zinciri kalıcı zehirler, sonraki tüm kayıtlar sessizce düşerdi.
         const saveGeometry = (e: { layer: L.Layer }, weld: boolean): void => {
           const updates = snapshotUpdates(e, weld)
-          geomSaveChain.current = geomSaveChain.current.then(() => commitGeometry(updates))
+          geomSaveChain.current = geomSaveChain.current
+            .then(() => commitGeometry(updates))
+            .catch((err) => console.error('geometri kaydı başarısız:', err))
         }
         // Canlı kaynak: Ctrl basılıyken köşe sürüklemeye başlanınca aynı noktadaki komşu
         // köşeler bulunur, sürükleme boyunca birlikte taşınır (mıknatıs gibi tek nokta hissi).
@@ -1374,12 +1368,15 @@ export default function MapView({
             for (const ly of lys) {
               const poly = ly as L.Polygon
               if (!poly.getLatLngs) continue
-              // Partnerin sürükleme öncesi geometrisi bir kez yakalanır (mutasyon henüz olmadı)
-              const oldGeom = JSON.stringify(poly.toGeoJSON().geometry)
+              // Partnerin sürükleme öncesi geometrisi YALNIZ eşleşen poligon için, bir kez yakalanır
+              // (mutasyon henüz olmadı) — eşleşmeyen yüzlerce poligonu boşuna stringify etme
+              let oldGeom: string | null = null
               partnerRings(poly).forEach((ring, ri) =>
                 ring.forEach((pt, vi) => {
-                  if (Math.abs(pt.lat - ll.lat) < EPS && Math.abs(pt.lng - ll.lng) < EPS)
+                  if (Math.abs(pt.lat - ll.lat) < EPS && Math.abs(pt.lng - ll.lng) < EPS) {
+                    if (oldGeom === null) oldGeom = JSON.stringify(poly.toGeoJSON().geometry)
                     dragPartners.current.push({ layer: poly, fid, ring: ri, idx: vi, oldGeom })
+                  }
                 })
               )
             }
@@ -1600,24 +1597,17 @@ export default function MapView({
       return o !== null ? rungTargets.current.get(o)! : '#666666'
     }
     // Zincirin tepesi (döngü korumalı, applyYear başına memo'lu)
-    const rootMemo = new Map<number, number>()
+    const rootMemo = new Map<number, number>() // applyYear başına memo; climb ortak rootAtYear
     const rootOf = (eid: number): number => {
       const hit = rootMemo.get(eid)
       if (hit !== undefined) return hit
-      let cur = eid
-      const seen = new Set<number>()
-      while (!seen.has(cur)) {
-        seen.add(cur)
-        const p = parentAt(parentHist.current.get(cur) ?? [], year)
-        if (p === null) break
-        cur = p
-      }
-      rootMemo.set(eid, cur)
-      return cur
+      const root = rootAtYear(eid, year, (id) => parentHist.current.get(id) ?? [])
+      rootMemo.set(eid, root)
+      return root
     }
     const inYears = (fid: number): boolean => {
       const y = layerYears.current.get(fid)
-      return !y || ((y.from ?? -Infinity) <= year && year <= (y.to ?? Infinity))
+      return !y || inYearRange(y.from, y.to, year)
     }
     // 1. geçiş (yalnız kök görünümü): görünür taban poligonları köke göre grupla,
     // her kökün etiket taşıyıcısını (en büyük parça) seç

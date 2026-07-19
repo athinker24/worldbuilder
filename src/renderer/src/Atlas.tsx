@@ -9,12 +9,14 @@ import {
   getTimeline,
   HierConfig,
   Hierarchy,
+  inYearRange,
+  lowestRungSet,
   MapModes,
-  parentAt,
+  ringArea,
+  rootAtYear,
   TimelineConfig,
   WorldMap
 } from './api'
-import { ringArea } from './MapView'
 import { MapScale } from './ToolPanel'
 import { useT } from './i18n'
 
@@ -78,29 +80,16 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
     const fieldsOf = new Map(
       ents.map((e) => [e.id, JSON.parse(e.fields || '{}') as Record<string, string>])
     )
-    // Taban küme: her yönetim biçiminin merdivenindeki SON etiket (MapView reloadFeatures deseni)
-    const baseSet = new Set<number>()
-    for (const g of cfg.govs) {
-      const lowest = g.tags[g.tags.length - 1]
-      if (!lowest) continue
-      for (const e of ents)
-        if (e.tags.includes(lowest) && (!e.gov || e.gov === g.name)) baseSet.add(e.id)
-    }
-    // O yılki zincir tepesi (MapView rootOf deseni, harita başına memo)
+    // Taban küme + zincir tepesi: MapView ile ORTAK yardımcılar (tek kaynak — kural değişirse ikisi
+    // birden güncellenir). rootAt harita başına değil çağrı başına memo'lu.
+    const baseSet = lowestRungSet(cfg, ents)
     const rootMemo = new Map<number, number>()
     const rootAt = (eid: number): number => {
       const hit = rootMemo.get(eid)
       if (hit !== undefined) return hit
-      let cur = eid
-      const seen = new Set<number>()
-      while (!seen.has(cur)) {
-        seen.add(cur)
-        const p = parentAt(getParents(byId.get(cur)?.fields ?? '{}'), year)
-        if (p === null || !byId.has(p)) break
-        cur = p
-      }
-      rootMemo.set(eid, cur)
-      return cur
+      const root = rootAtYear(eid, year, (id) => getParents(byId.get(id)?.fields ?? '{}'))
+      rootMemo.set(eid, root)
+      return root
     }
     const out: {
       map: WorldMap
@@ -120,7 +109,7 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
         if (f.entity_id === null || !baseSet.has(f.entity_id)) continue
         if (!f.geometry.includes('"Polygon"')) continue
         const style = JSON.parse(f.style || '{}') as { from?: number; to?: number }
-        if ((style.from ?? -Infinity) > year || year > (style.to ?? Infinity)) continue
+        if (!inYearRange(style.from, style.to, year)) continue
         const geom = JSON.parse(f.geometry) as { type: string; coordinates: number[][][] }
         if (geom.type !== 'Polygon') continue
         const area = ringArea(geom.coordinates[0]) * k
@@ -204,7 +193,10 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
               value={year}
               min={tl.min}
               max={tl.max}
-              onChange={(e) => setYear(Number(e.target.value))}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (Number.isFinite(v)) setYear(v) // '-'/boş → NaN, yıl'ı bozma
+              }}
             />
             <span className="hint">{formatYear(year, tl)}</span>
           </label>

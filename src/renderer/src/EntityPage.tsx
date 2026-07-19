@@ -713,7 +713,13 @@ export default function EntityPage({
                     // düz tıklama (imleç konumlandırma) hiç değiştirmez, o yüzden kaydetmez.
                     const h = e.currentTarget.offsetHeight
                     if (h !== noteResizeStart.current)
-                      saveNoteTabs(notes.map((x, j) => (j === i ? { ...x, height: h } : x)))
+                      // Yüksekliği kaydetmek save→reload→remount tetikler; textarea uncontrolled
+                      // olduğu için o anki metni de al, yoksa henüz blur olmamış yazı kaybolurdu.
+                      saveNoteTabs(
+                        notes.map((x, j) =>
+                          j === i ? { ...x, height: h, content: e.currentTarget.value } : x
+                        )
+                      )
                     noteResizeStart.current = null
                   }}
                   placeholder={t('Markdown content… link to other entities with [[Entity Name]].')}
