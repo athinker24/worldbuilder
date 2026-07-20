@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import '@geoman-io/leaflet-geoman-free'
 import 'leaflet/dist/leaflet.css'
@@ -14,11 +14,13 @@ import {
   Feature,
   getHierConfig,
   getMapModes,
+  getMapBoards,
   getParents,
   getPinImages,
   getTimeline,
   inYearRange,
   lowestRungSet,
+  MapBoards,
   MapRow,
   mergeHierConfig,
   ParentRec,
@@ -26,6 +28,7 @@ import {
   PinImage,
   ringArea,
   rootAtYear,
+  saveMapBoards,
   savePinImages,
   saveTimeline,
   TypeDef,
@@ -37,7 +40,7 @@ import ContextMenu, { MenuItem, MenuState } from './ContextMenu'
 import { ImageStrip } from './pinIcons'
 import EntityPage from './EntityPage'
 import HierarchyPanel, { ActiveMode } from './HierarchyPanel'
-import { alertDialog } from './dialog'
+import { alertDialog, confirmDialog } from './dialog'
 import { useT } from './i18n'
 import Timeline from './Timeline'
 import ToolPanel, {
@@ -82,6 +85,7 @@ interface FeatureStyle {
   text?: string // serbest metin etiketi (Point geometry + bu alan = etiket, pin değil)
   angle?: number // etiket döndürme açısı (derece)
   curve?: number // etiket eğriliği -100..100 (Wonderdraft curved text; 0 = düz)
+  board?: string // ait olduğu zemin (çizim katmanı) id'si — settings.mapBoards ile eşleşir
 }
 
 interface Props {
@@ -476,6 +480,17 @@ export default function MapView({
   const [activeMode, setActiveMode] = useState<ActiveMode>(null)
   const activeModeRef = useRef<ActiveMode>(null)
   const [layersOpen, setLayersOpen] = useState(false)
+  // Haritalar açılır menüsü (harita geçişi — kenar çubuğu listesinin yerini aldı)
+  const [mapsOpen, setMapsOpen] = useState(false)
+  const [newMapName, setNewMapName] = useState<string | null>(null)
+  const [editMapId, setEditMapId] = useState<number | null>(null) // satır içi ad düzenleme
+  // Zeminler (aynı harita üstünde çizim katmanları): liste + aktif; çizimler style.board ile bağlı
+  const [boards, setBoards] = useState<MapBoards>({ list: [], active: '' })
+  const boardsRef = useRef<MapBoards>(boards)
+  const [boardsOpen, setBoardsOpen] = useState(false)
+  const [newBoardName, setNewBoardName] = useState<string | null>(null)
+  const [editBoardId, setEditBoardId] = useState<string | null>(null)
+  const featBoard = useRef(new Map<number, string>()) // fid → çizimin zemin id'si (style.board)
   // Zaman çizgisi: slider tikinde DB'siz aç/kapa için katman kayıt defteri
   const yearRef = useRef(0)
   // Haritada bir şeyin değiştiği yıllar (çizim başlar/biter/el değiştirir) — ray tikleri
@@ -488,6 +503,13 @@ export default function MapView({
   const [layersOn, setLayersOn] = useState({ polygon: true, line: true, pin: true, label: true })
   const layersRef = useRef(layersOn)
   const featKind = useRef(new Map<number, 'polygon' | 'line' | 'pin' | 'label'>())
+  // Haritada arama: sorgu boş değilken eşleşen çizimler açılır listede (focusFeature ile uçulur)
+  const [searchQ, setSearchQ] = useState('')
+  // Pin filtresi: gizlenen madde tipleri ('' = maddesiz pin). Oturumluk — tipler değişken,
+  // kalıcılaştırmak yeniden adlandırmada bayat kayıt bırakırdı.
+  const [pinHidden, setPinHidden] = useState<Set<string>>(new Set())
+  const pinHiddenRef = useRef(pinHidden)
+  const pinType = useRef(new Map<number, string>()) // fid → bağlı maddenin tipi
   // Yol yön oku: fid → 'end'|'flow' (SVG marker-mid/end ile, applyYear'da elemana uygulanır)
   const featArrow = useRef(new Map<number, LineArrow>())
   // Her çizimin tekil render stili — applyYear bunlarla DB'siz yeniden boyar.
@@ -1051,6 +1073,8 @@ export default function MapView({
     layerYears.current.clear()
     allLayers.current.clear()
     featKind.current.clear()
+    pinType.current.clear()
+    featBoard.current.clear()
     featArrow.current.clear()
     renderStyle.current.clear()
     parentHist.current.clear()
@@ -1163,6 +1187,8 @@ export default function MapView({
         f.id,
         isPolygon ? 'polygon' : isLine ? 'line' : isLabel ? 'label' : 'pin'
       )
+      if (!isPolygon && !isLine && !isLabel) pinType.current.set(f.id, f.entity_type ?? '')
+      if (style.board !== undefined) featBoard.current.set(f.id, style.board)
       // Yön oku (sonda): gerçek çizginin path'ine marker-end (applyYear'da uygulanır)
       if (isLine && style.arrow === 'end') featArrow.current.set(f.id, 'end')
       if (style.from !== undefined || style.to !== undefined)
@@ -1480,6 +1506,7 @@ export default function MapView({
     for (const [fid] of labelGeo.current) {
       const y = layerYears.current.get(fid)
       if (y && !((y.from ?? -Infinity) <= year && year <= (y.to ?? Infinity))) continue
+      if (!onActiveBoard(fid)) continue // aktif olmayan zemindeki poligon etikete katılmaz
       const eid = featEnt.current.get(fid)
       if (eid === undefined) continue
       let key: string
@@ -1616,6 +1643,7 @@ export default function MapView({
       for (const [fid] of allLayers.current) {
         const eid = featEnt.current.get(fid)
         if (eid === undefined || !baseSet.current.has(eid) || !inYears(fid)) continue
+        if (!onActiveBoard(fid)) continue // farklı zemindeki çizim etikete katılmaz
         if (!featArea.current.has(fid)) continue // yalnız poligonlar
         const root = rootOf(eid)
         const cur = carrier.get(root)
@@ -1628,9 +1656,14 @@ export default function MapView({
     }
     for (const [fid, layers] of allLayers.current) {
       let visible = inYears(fid)
+      // Zemin (çizim katmanı): aktif olmayan zemindeki çizim hiç gösterilmez
+      if (!onActiveBoard(fid)) visible = false
       // Katman paneli: türü kapalıysa çizim hiç gösterilmez
       const kind = featKind.current.get(fid)
       if (kind && !layersRef.current[kind]) visible = false
+      // Pin filtresi: gizlenen madde tipindeki pinler gösterilmez
+      if (kind === 'pin' && pinHiddenRef.current.has(pinType.current.get(fid) ?? ''))
+        visible = false
       const eid = featEnt.current.get(fid)
       const isBase = eid !== undefined && baseSet.current.has(eid) && featArea.current.has(fid)
       let st = renderStyle.current.get(fid)
@@ -1737,6 +1770,152 @@ export default function MapView({
     api.setSetting('mapLayers', JSON.stringify(v))
     applyYear(yearRef.current)
   }
+
+  // Harita geçişi: yeni harita oluştur (adı satır içi formdan) → App'i tazele + o haritaya git
+  const createMap = async (name: string): Promise<void> => {
+    if (!name.trim()) return
+    const { id: newId } = await api.createMap({ name: name.trim() })
+    setNewMapName(null)
+    onChanged()
+    onNavigate(newId)
+  }
+
+  // Harita yeniden adlandır (satır içi) — undo'ya girmez (eski kenar çubuğunda da rename yoktu)
+  const renameMap = (mapId: number, name: string): void => {
+    void api.updateMap(mapId, { name }).then(onChanged)
+  }
+
+  // Harita sil (undo ile — App'teki desenin kopyası). Yalnız AKTİF OLMAYAN haritalar silinir
+  // (aktif haritayı silince gidilecek görünüm belirsiz — önce ona geçmemek gerekir).
+  const deleteMapWithUndo = async (mapId: number): Promise<void> => {
+    const name = maps.find((m) => m.id === mapId)?.name ?? ''
+    if (!(await confirmDialog(t('Delete "{name}" and all drawings on it?', { name })))) return
+    const full = await api.getMap(mapId)
+    if (!full) return
+    const mapRow = {
+      id: full.id,
+      name: full.name,
+      parent_map_id: full.parent_map_id,
+      image_path: full.image_path,
+      width: full.width,
+      height: full.height,
+      layers: full.layers
+    }
+    const feats = full.features.map((f) => ({
+      id: f.id,
+      map_id: f.map_id,
+      entity_id: f.entity_id,
+      geometry: f.geometry,
+      style: f.style
+    }))
+    const childIds = maps.filter((x) => x.parent_map_id === mapId).map((x) => x.id)
+    pushUndo({
+      undo: () => api.restoreMap(mapRow, feats, childIds).then(onChanged),
+      redo: () => api.deleteMap(mapId).then(onChanged)
+    })
+    await api.deleteMap(mapId)
+    onChanged()
+  }
+
+  const togglePinType = (ty: string): void => {
+    const v = new Set(pinHiddenRef.current)
+    if (v.has(ty)) v.delete(ty)
+    else v.add(ty)
+    pinHiddenRef.current = v
+    setPinHidden(v)
+    applyYear(yearRef.current)
+  }
+
+  // --- Zeminler (çizim katmanları) ---
+  // Bir çizimin ait olduğu zemin: style.board; tanımsız ya da artık-olmayan id → İLK zemin
+  // (silme/rename çizimleri yetim bırakmaz — yeniden yazma yok, tek kaynak bu çözümleme).
+  const resolveBoard = (fid: number): string | undefined => {
+    const { list } = boardsRef.current
+    if (!list.length) return undefined
+    const b = featBoard.current.get(fid)
+    return b !== undefined && list.some((x) => x.id === b) ? b : list[0].id
+  }
+  const onActiveBoard = (fid: number): boolean => {
+    const { list, active } = boardsRef.current
+    return !list.length || resolveBoard(fid) === active
+  }
+
+  const persistBoards = (data: MapBoards): void => {
+    boardsRef.current = data
+    setBoards(data)
+    void saveMapBoards(id, data)
+  }
+  const switchBoard = (bid: string): void => {
+    if (bid === boardsRef.current.active) return
+    persistBoards({ ...boardsRef.current, active: bid })
+    applyYear(yearRef.current) // DB'siz yeniden filtrele
+  }
+  const addBoard = (name: string): void => {
+    if (!name.trim()) return
+    const bid = crypto.randomUUID()
+    const list = [...boardsRef.current.list, { id: bid, name: name.trim() }]
+    // İlk zemin oluşturulunca aktif olur (mevcut çizimler tanımsız→ilk zemin kuralıyla onda görünür)
+    persistBoards({ list, active: boardsRef.current.list.length ? boardsRef.current.active : bid })
+    setNewBoardName(null)
+  }
+  const renameBoard = (bid: string, name: string): void => {
+    if (!name.trim()) return
+    persistBoards({
+      ...boardsRef.current,
+      list: boardsRef.current.list.map((b) => (b.id === bid ? { ...b, name: name.trim() } : b))
+    })
+  }
+  const removeBoard = async (bid: string): Promise<void> => {
+    const b = boardsRef.current.list.find((x) => x.id === bid)
+    if (
+      !(await confirmDialog(
+        t('Delete board "{name}"? Its drawings move to the first board.', {
+          name: b?.name ?? ''
+        })
+      ))
+    )
+      return
+    const list = boardsRef.current.list.filter((x) => x.id !== bid)
+    // Aktif zemini sildiysek kalan ilkine geç; hepsi silindiyse filtre kapanır (tek tuval)
+    const active = bid === boardsRef.current.active ? (list[0]?.id ?? '') : boardsRef.current.active
+    persistBoards({ list, active })
+    applyYear(yearRef.current)
+  }
+
+  // Çizimin türü — arama listesi ikonu + pin filtresi chip'leri (state'ten saf türetme)
+  const kindOf = (f: WorldMap['features'][number]): 'polygon' | 'line' | 'pin' | 'label' => {
+    if (f.geometry.includes('"Polygon"')) return 'polygon'
+    if (f.geometry.includes('"LineString"')) return 'line'
+    return (JSON.parse(f.style || '{}') as FeatureStyle).text !== undefined ? 'label' : 'pin'
+  }
+
+  // Haritada arama: madde adı (bağlı çizimler) ya da serbest etiket metniyle eşleş.
+  // useMemo: zoom HUD her tikte render tetikler — feature başına JSON.parse hot-path'e girmesin.
+  const searchMatches = useMemo(() => {
+    const q = searchQ.trim().toLocaleLowerCase('tr')
+    if (!q) return []
+    return (worldMap?.features ?? [])
+      .map((f) => ({
+        f,
+        kind: kindOf(f),
+        name: f.entity_name ?? (JSON.parse(f.style || '{}') as FeatureStyle).text ?? ''
+      }))
+      .filter((m) => m.name.toLocaleLowerCase('tr').includes(q))
+      .slice(0, 12)
+  }, [worldMap, searchQ])
+
+  // Bu haritadaki pinlerin madde tipleri (filtre chip'leri; tek tipte filtre anlamsız)
+  const pinTypes = useMemo(
+    () => [
+      ...new Set(
+        (worldMap?.features ?? [])
+          .filter((f) => kindOf(f) === 'pin')
+          .map((f) => f.entity_type ?? '')
+      )
+    ],
+
+    [worldMap]
+  )
 
   // Fetih seçim vurguları: önce kanonik stile dön, sonra seçili maddelerin poligonlarını vurgula
   const highlightPicked = (picked: Set<number>): void => {
@@ -1958,7 +2137,7 @@ export default function MapView({
       // Etiket ve pin araçlarının ikisi de geoman'da 'Marker' → ayırt etmek için aktif araç okunur
       const isLabelDraw = toolRef.current === 'label'
       const from = yearRef.current
-      const style = JSON.stringify(
+      const styleObj =
         shape === 'Marker' && isLabelDraw
           ? {
               text: s.label.text,
@@ -1996,7 +2175,10 @@ export default function MapView({
                   fillImg: s.polygon.fillImg,
                   from
                 }
-      )
+      // Aktif zemine bağla (zemin tanımlıysa) → yalnız o zeminde görünür
+      if (boardsRef.current.list.length)
+        (styleObj as Record<string, unknown>).board = boardsRef.current.active
+      const style = JSON.stringify(styleObj)
       const created = await api.createFeature({ map_id: id, geometry, style })
       const ref = { id: created.id }
       pushUndo({
@@ -2023,6 +2205,11 @@ export default function MapView({
       setMapScale(sc)
     })
     api.getSetting('travelModes').then((raw) => setTravelModesState(JSON.parse(raw || '[]')))
+    getMapBoards(id).then((b) => {
+      boardsRef.current = b
+      setBoards(b)
+      applyYear(yearRef.current) // yüklenince zemin filtresini uygula
+    })
     getPinImages().then(setPinImages)
     api.getSetting('drawSettings').then((raw) => {
       if (!raw) return
@@ -2224,12 +2411,143 @@ export default function MapView({
             )}
           </span>
         ))}
+        <div className="map-search">
+          <input
+            placeholder={t('Search on map…')}
+            value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setSearchQ('')
+              if (e.key === 'Enter' && searchMatches.length) {
+                focusFeature(searchMatches[0].f.id)
+                setSearchQ('')
+              }
+            }}
+          />
+          {searchMatches.length > 0 && (
+            <div className="layers-panel">
+              {searchMatches.map(({ f, kind, name }) => (
+                <div
+                  key={f.id}
+                  className="layers-row"
+                  onClick={() => {
+                    focusFeature(f.id)
+                    setSearchQ('')
+                  }}
+                >
+                  <span className="layers-icon">
+                    {{ polygon: '⬟', line: '〰', pin: '📍', label: '🏷' }[kind]}
+                  </span>
+                  <span className="layers-text">
+                    <span className="layers-name">{name}</span>
+                    {f.entity_type && <span className="layers-desc">{f.entity_type}</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="layers-menu">
+          <button
+            className={`layers-btn ${mapsOpen ? 'open' : ''}`}
+            onClick={() => setMapsOpen((o) => !o)}
+          >
+            🗺 {t('Maps')}
+            {maps.length > 1 && <span className="layers-count">{maps.length}</span>}
+          </button>
+          {mapsOpen && (
+            <>
+              <div
+                className="layers-backdrop"
+                onClick={() => (setMapsOpen(false), setNewMapName(null))}
+              />
+              <div className="layers-panel">
+                <div className="layers-panel-head">{t('Maps')}</div>
+                {maps.map((m) =>
+                  editMapId === m.id ? (
+                    // Satır içi ad düzenleme (uncontrolled + onBlur — her tuşta updateMap+refresh titretirdi)
+                    <div key={m.id} className="base-row">
+                      <input
+                        className="base-name"
+                        autoFocus
+                        defaultValue={m.name}
+                        onBlur={(e) => {
+                          const v = e.target.value.trim()
+                          if (v && v !== m.name) renameMap(m.id, v)
+                          setEditMapId(null)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') e.currentTarget.blur()
+                          if (e.key === 'Escape') setEditMapId(null)
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      key={m.id}
+                      className="layers-row"
+                      style={{ paddingLeft: m.parent_map_id ? 26 : undefined }}
+                      onClick={() => m.id !== id && onNavigate(m.id)}
+                    >
+                      <span className="layers-icon">🗺</span>
+                      <span
+                        className="layers-name"
+                        style={
+                          m.id === id ? { color: 'var(--accent)', fontWeight: 600 } : undefined
+                        }
+                      >
+                        {m.name}
+                      </span>
+                      <button
+                        className="mini map-row-btn"
+                        title={t('Rename')}
+                        onClick={(e) => (e.stopPropagation(), setEditMapId(m.id))}
+                      >
+                        ✎
+                      </button>
+                      {m.id !== id && (
+                        <button
+                          className="mini danger map-row-btn"
+                          title={t('Remove')}
+                          onClick={(e) => (e.stopPropagation(), deleteMapWithUndo(m.id))}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  )
+                )}
+                {newMapName !== null ? (
+                  <form
+                    className="base-row"
+                    onSubmit={(e) => (e.preventDefault(), createMap(newMapName))}
+                  >
+                    <input
+                      className="base-name"
+                      autoFocus
+                      placeholder={t('map name')}
+                      value={newMapName}
+                      onChange={(e) => setNewMapName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Escape' && setNewMapName(null)}
+                    />
+                    <button className="mini" type="submit">
+                      ✓
+                    </button>
+                  </form>
+                ) : (
+                  <button className="mini base-add" onClick={() => setNewMapName('')}>
+                    ＋ {t('New map')}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
         {worldMap && !worldMap.image_path && (
           <button
             onClick={async () => {
               const path = await api.pickImage()
               if (!path) return
-              // Boyutları öğrenmek için görseli önce yükle; başarısız olursa kullanıcıyı uyar
               const img = new Image()
               img.onload = async () => {
                 await api.updateMap(id, {
@@ -2238,7 +2556,7 @@ export default function MapView({
                   height: img.naturalHeight,
                   layers: JSON.stringify([{ type: 'image', path }])
                 })
-                await reloadFeatures() // worldMap tazelenir → zemin görseli effect'i katmanı ekler
+                await reloadFeatures()
               }
               img.onerror = () =>
                 alertDialog(
@@ -2253,6 +2571,105 @@ export default function MapView({
         <button className="mini" title={t('Export as image')} onClick={exportMap}>
           📷 {t('Export')}
         </button>
+        <div className="layers-menu">
+          <button
+            className={`layers-btn ${boardsOpen ? 'open' : ''}`}
+            onClick={() => setBoardsOpen((o) => !o)}
+          >
+            📚 {t('Boards')}
+            {boards.list.length > 0 && (
+              <span className="layers-count">
+                {(boards.list.find((b) => b.id === boards.active)?.name ?? boards.list[0]?.name) ||
+                  boards.list.length}
+              </span>
+            )}
+          </button>
+          {boardsOpen && (
+            <>
+              <div
+                className="layers-backdrop"
+                onClick={() => (setBoardsOpen(false), setNewBoardName(null), setEditBoardId(null))}
+              />
+              <div className="layers-panel">
+                <div className="layers-panel-head">{t('Boards')}</div>
+                {boards.list.length === 0 && (
+                  <div className="layers-desc" style={{ padding: '4px 8px' }}>
+                    {t('Everything is on one board. Add a board to split drawings into layers.')}
+                  </div>
+                )}
+                {boards.list.map((b) =>
+                  editBoardId === b.id ? (
+                    <div key={b.id} className="base-row">
+                      <input
+                        className="base-name"
+                        autoFocus
+                        defaultValue={b.name}
+                        onBlur={(e) => {
+                          renameBoard(b.id, e.target.value)
+                          setEditBoardId(null)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') e.currentTarget.blur()
+                          if (e.key === 'Escape') setEditBoardId(null)
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div key={b.id} className="layers-row" onClick={() => switchBoard(b.id)}>
+                      <span className="layers-icon">{b.id === boards.active ? '◉' : '○'}</span>
+                      <span
+                        className="layers-name"
+                        style={
+                          b.id === boards.active
+                            ? { color: 'var(--accent)', fontWeight: 600 }
+                            : undefined
+                        }
+                      >
+                        {b.name}
+                      </span>
+                      <button
+                        className="mini map-row-btn"
+                        title={t('Rename')}
+                        onClick={(e) => (e.stopPropagation(), setEditBoardId(b.id))}
+                      >
+                        ✎
+                      </button>
+                      <button
+                        className="mini danger map-row-btn"
+                        title={t('Remove')}
+                        onClick={(e) => (e.stopPropagation(), removeBoard(b.id))}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )
+                )}
+                {newBoardName !== null ? (
+                  <form
+                    className="base-row"
+                    onSubmit={(e) => (e.preventDefault(), addBoard(newBoardName))}
+                  >
+                    <input
+                      className="base-name"
+                      autoFocus
+                      placeholder={t('board name')}
+                      value={newBoardName}
+                      onChange={(e) => setNewBoardName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Escape' && setNewBoardName(null)}
+                    />
+                    <button className="mini" type="submit">
+                      ✓
+                    </button>
+                  </form>
+                ) : (
+                  <button className="mini base-add" onClick={() => setNewBoardName('')}>
+                    ＋ {t('New board')}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
         <div className="layers-menu">
           <button
             className={`layers-btn ${layersOpen ? 'open' : ''}`}
@@ -2283,6 +2700,22 @@ export default function MapView({
                     </span>
                   </label>
                 ))}
+                {pinTypes.length > 1 && (
+                  <>
+                    <div className="layers-panel-head">{t('Pin types')}</div>
+                    <div className="tag-row pin-type-row">
+                      {pinTypes.map((ty) => (
+                        <span
+                          key={ty}
+                          className={`tag-chip clickable ${pinHidden.has(ty) ? '' : 'active'}`}
+                          onClick={() => togglePinType(ty)}
+                        >
+                          {ty || t('(no entity)')}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </>
           )}

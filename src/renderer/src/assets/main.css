@@ -815,7 +815,7 @@ h4 {
   border-radius: 50%;
   background: var(--bg2);
   border: 1px solid var(--border);
-  color: var(--muted, #aaa);
+  color: var(--muted);
   cursor: pointer;
   display: none;
 }
@@ -1649,7 +1649,7 @@ a {
 
 .scale-info {
   font-size: 12px;
-  color: var(--muted, #aaa);
+  color: var(--muted);
 }
 
 /* Madde şablonu satırı (alan ekleme formunun altında) */
@@ -1694,7 +1694,7 @@ a {
   white-space: nowrap;
 }
 .nav-mode-speed {
-  color: var(--muted, #aaa);
+  color: var(--muted);
   white-space: nowrap;
 }
 .nav-mode-add {
@@ -1716,7 +1716,7 @@ a {
 }
 .nav-route-head {
   font-size: 12px;
-  color: var(--muted, #aaa);
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1727,7 +1727,7 @@ a {
 }
 .nav-days {
   font-weight: 400;
-  color: var(--muted, #aaa);
+  color: var(--muted);
 }
 .nav-legs {
   font-size: 12px;
@@ -1744,7 +1744,7 @@ a {
   white-space: nowrap;
 }
 .nav-leg-px {
-  color: var(--muted, #aaa);
+  color: var(--muted);
   white-space: nowrap;
 }
 
@@ -1814,6 +1814,10 @@ a {
   border-radius: 12px;
   padding: 3px 10px;
   font-size: 12px;
+  transition:
+    background-color 0.1s,
+    border-color 0.1s,
+    color 0.1s;
 }
 
 .tag-chip.clickable {
@@ -1852,7 +1856,66 @@ a {
 /* Katman menüsü: araç çubuğunda etiketli buton → açılır panel (LinearHistory deseni) */
 .layers-menu {
   position: relative;
+}
+
+/* Haritada arama: sağ kümeyi (arama + dışa aktar + katmanlar) sağa iten öğe artık bu */
+.map-search {
+  position: relative;
   margin-left: auto;
+}
+
+.map-search input {
+  width: 180px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.map-search .layers-panel {
+  cursor: default;
+}
+
+/* Katman panelindeki pin tipi filtre chip'leri */
+.pin-type-row {
+  padding: 0 8px 6px;
+  margin-bottom: 0;
+}
+
+/* Haritalar açılır menüsü: satır içi ad düzenleme + yeni harita formu */
+.base-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px;
+}
+
+.base-name {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 8px;
+  font-size: 13px;
+}
+
+.base-add {
+  margin: 6px 8px 2px;
+}
+
+/* Harita satırı: ad esner, ✎/× butonları yalnız hover'da (temiz liste) */
+.layers-row > .layers-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-row-btn {
+  visibility: hidden;
+  flex: none;
+  padding: 2px 6px;
+}
+
+.layers-row:hover .map-row-btn {
+  visibility: visible;
 }
 
 .layers-btn {

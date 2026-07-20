@@ -22,7 +22,7 @@ import Kronoloji from './Kronoloji'
 import MapView from './MapView'
 import Palette from './Palette'
 import Settings from './Settings'
-import { pushUndo, redo, undo } from './undo'
+import { redo, undo } from './undo'
 
 type View =
   | { kind: 'empty' }
@@ -39,7 +39,6 @@ export default function App(): React.JSX.Element {
   const [types, setTypes] = useState<TypeDef[]>([])
   const [search, setSearch] = useState('')
   const [view, setView] = useState<View>({ kind: 'empty' })
-  const [newMapName, setNewMapName] = useState<string | null>(null) // null = form kapalı
   const [palette, setPalette] = useState(false)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [focus, setFocus] = useState<{ featureId: number; token: number } | null>(null)
@@ -94,6 +93,17 @@ export default function App(): React.JSX.Element {
 
   const openEntity = useCallback((id: number): void => navigate({ kind: 'entity', id }), [navigate])
   const openMap = useCallback((id: number): void => navigate({ kind: 'map', id }), [navigate])
+
+  // Kenar çubuğu "Haritalar" girişi: bir haritaya gir (ilk harita, yoksa oluştur). Haritalar arası
+  // geçiş artık harita araç çubuğundaki açılır menüden (kenar çubuğu listesi kaldırıldı).
+  const openMaps = useCallback(async (): Promise<void> => {
+    if (maps.length) openMap(maps[0].id)
+    else {
+      const { id } = await api.createMap({ name: translate(lang, 'New map') })
+      await refresh()
+      openMap(id)
+    }
+  }, [maps, openMap, refresh, lang])
 
   // Seçili maddeleri sil (buton + Del kısayolu ortak) — tek onay + tek undo
   const deleteSelected = useCallback(async (): Promise<void> => {
@@ -231,102 +241,6 @@ export default function App(): React.JSX.Element {
             onChange={(e) => setSearch(e.target.value)}
           />
 
-          <div className="side-section">
-            <div className="side-head">
-              <span>{t('Maps')}</span>
-              <button
-                className="mini"
-                onClick={() => setNewMapName(newMapName === null ? '' : null)}
-              >
-                +
-              </button>
-            </div>
-            {newMapName !== null && (
-              <form
-                className="field-row add"
-                onSubmit={async (e) => {
-                  e.preventDefault()
-                  if (!newMapName.trim()) return
-                  const { id } = await api.createMap({ name: newMapName.trim() })
-                  setNewMapName(null)
-                  await refresh()
-                  openMap(id)
-                }}
-              >
-                <input
-                  autoFocus
-                  placeholder={t('map name')}
-                  value={newMapName}
-                  onChange={(e) => setNewMapName(e.target.value)}
-                />
-                <button className="mini" type="submit">
-                  ✓
-                </button>
-              </form>
-            )}
-            {maps.map((m) => (
-              <div
-                key={m.id}
-                className={`side-item ${view.kind === 'map' && view.id === m.id ? 'active' : ''}`}
-                style={{ paddingLeft: m.parent_map_id ? 22 : 8 }}
-                onClick={() => openMap(m.id)}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  setMenu({
-                    x: e.clientX,
-                    y: e.clientY,
-                    items: [
-                      { label: t('🗺 Open'), onClick: () => openMap(m.id) },
-                      {
-                        label: t('🗑 Delete'),
-                        danger: true,
-                        onClick: async () => {
-                          if (
-                            !(await confirmDialog(
-                              t('Delete "{name}" and all drawings on it?', { name: m.name })
-                            ))
-                          )
-                            return
-                          // Undo için satır + çizimleri (orijinal id) + alt harita bağlarını yakala
-                          const full = await api.getMap(m.id)
-                          if (!full) return
-                          const mapRow = {
-                            id: full.id,
-                            name: full.name,
-                            parent_map_id: full.parent_map_id,
-                            image_path: full.image_path,
-                            width: full.width,
-                            height: full.height,
-                            layers: full.layers
-                          }
-                          const feats = full.features.map((f) => ({
-                            id: f.id,
-                            map_id: f.map_id,
-                            entity_id: f.entity_id,
-                            geometry: f.geometry,
-                            style: f.style
-                          }))
-                          const childIds = maps
-                            .filter((x) => x.parent_map_id === m.id)
-                            .map((x) => x.id)
-                          pushUndo({
-                            undo: () => api.restoreMap(mapRow, feats, childIds),
-                            redo: () => api.deleteMap(m.id)
-                          })
-                          await api.deleteMap(m.id)
-                          if (view.kind === 'map' && view.id === m.id) setView({ kind: 'empty' })
-                          refresh()
-                        }
-                      }
-                    ]
-                  })
-                }}
-              >
-                🗺 {m.name}
-              </div>
-            ))}
-          </div>
-
           <div className="side-section grow">
             <div className="side-head">
               <span>{t('Entities')}</span>
@@ -422,7 +336,13 @@ export default function App(): React.JSX.Element {
             })}
           </div>
 
-          <div className="side-item kron-btn" onClick={() => saveWorld()}>
+          <div
+            className={`side-item kron-btn ${view.kind === 'map' ? 'active' : ''}`}
+            onClick={openMaps}
+          >
+            🗺 {t('Maps')}
+          </div>
+          <div className="side-item settings-btn" onClick={() => saveWorld()}>
             💾 {t('Save World')}
           </div>
           <div className="side-item settings-btn" onClick={openWorld}>
@@ -455,7 +375,7 @@ export default function App(): React.JSX.Element {
           {view.kind === 'empty' && (
             <div className="empty-state">
               <h2>{t('World')}</h2>
-              <p>{t('Select an entity or map from the left, or search with Ctrl+K.')}</p>
+              <p>{t('Pick an entity or 🗺 Maps from the left, or search with Ctrl+K.')}</p>
             </div>
           )}
           {view.kind === 'entity' && (

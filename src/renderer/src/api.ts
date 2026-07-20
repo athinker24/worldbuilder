@@ -412,6 +412,31 @@ export const getPinImages = async (): Promise<PinImage[]> =>
 export const savePinImages = (list: PinImage[]): Promise<void> =>
   api.setSetting('pinImages', JSON.stringify(list))
 
+// Zeminler (settings 'mapBoards', harita başına): aynı harita üzerinde birden çok çizim katmanı
+// (Photoshop mantığı). Her çizim, yapıldığı zemine (id) `style.board` ile bağlanır; zemin değişince
+// diğerlerininki gizlenir. Dış görsel YOK — yalnız aynı zemin görselinin üstündeki çizimleri gruplar.
+// Etiketlenmemiş/artık-olmayan zemin id'li çizimler ilk zemine düşer (silme/rename bozmaz — bkz. MapView).
+export interface BoardDef {
+  id: string
+  name: string
+}
+export interface MapBoards {
+  list: BoardDef[]
+  active: string
+}
+
+export const getMapBoards = async (mapId: number): Promise<MapBoards> => {
+  const all = JSON.parse((await api.getSetting('mapBoards')) || '{}') as Record<number, MapBoards>
+  return all[mapId] ?? { list: [], active: '' }
+}
+
+export const saveMapBoards = async (mapId: number, data: MapBoards): Promise<void> => {
+  const all = JSON.parse((await api.getSetting('mapBoards')) || '{}') as Record<number, MapBoards>
+  if (data.list.length) all[mapId] = data
+  else delete all[mapId]
+  await api.setSetting('mapBoards', JSON.stringify(all))
+}
+
 // Zaman çizgisi: dönüm noktası tamamen kullanıcı tanımlı (MÖ/MS dayatması yok).
 // Yıllar işaretli tamsayı: negatif = dönümden önce. year = slider'ın son konumu (kalıcı).
 export interface TimelineConfig {

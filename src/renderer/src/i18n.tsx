@@ -17,6 +17,9 @@ const TR: Record<string, string> = {
   '📖 Open': '📖 Aç',
   '📍 Show on map': '📍 Haritada göster',
   'Show on map': 'Haritada göster',
+  'Search on map…': 'Haritada ara…',
+  'Pin types': 'Pin tipleri',
+  '(no entity)': '(maddesiz)',
   '⚙ Settings': '⚙ Ayarlar',
   '📜 Chronology': '📜 Kronoloji',
   'Save World': 'Dünyayı Kaydet',
@@ -26,6 +29,8 @@ const TR: Record<string, string> = {
   World: 'Dünya',
   'Select an entity or map from the left, or search with Ctrl+K.':
     'Soldan bir madde ya da harita seç, ya da Ctrl+K ile ara.',
+  'Pick an entity or 🗺 Maps from the left, or search with Ctrl+K.':
+    'Soldan bir madde ya da 🗺 Haritalar seç, ya da Ctrl+K ile ara.',
   'This entity is not marked on any map yet.': 'Bu madde henüz hiçbir haritada işaretli değil.',
 
   // Settings.tsx
@@ -285,6 +290,16 @@ const TR: Record<string, string> = {
   'Could not load image. The file may be corrupt or in an unsupported format.':
     'Görsel yüklenemedi. Dosya bozuk ya da desteklenmeyen bir biçimde olabilir.',
   'Add base image': 'Zemin görseli ekle',
+  'New map': 'Yeni harita',
+  Rename: 'Yeniden adlandır',
+  Remove: 'Kaldır',
+  Boards: 'Zeminler',
+  'New board': 'Yeni zemin',
+  'board name': 'zemin adı',
+  'Everything is on one board. Add a board to split drawings into layers.':
+    'Her şey tek zeminde. Çizimleri katmanlara ayırmak için zemin ekle.',
+  'Delete board "{name}"? Its drawings move to the first board.':
+    '"{name}" zemini silinsin mi? Çizimleri ilk zemine taşınır.',
   "⚔ Click the conqueror's border polygon (receiver = its parent)…":
     '⚔ Fethedenin sınırdaki poligonuna tıkla (alıcı = onun üstü)…',
   cancel: 'iptal',
