@@ -95,6 +95,7 @@ export function backupIfNeeded(): void {
 
 /** Çalışma kopyasını (db + assets/ görselleri) tek .dunya dosyasına paketle. */
 export function packWorld(targetPath: string): void {
+  pruneUnusedAssets() // kaydetmeden önce kullanılmayan görselleri temizle → .dunya + çalışma kopyası yalın
   const tmp = targetPath + '.tmp'
   rmSync(tmp, { force: true })
   db.exec(`VACUUM INTO '${tmp.replaceAll("'", "''")}'`) // temiz, atomik anlık kopya
@@ -133,6 +134,7 @@ export function unpackWorld(sourcePath: string): void {
     db.exec(`DROP TABLE assets`) // çalışma kopyası yalın kalsın (görseller diskte)
   }
   api.setSetting('worldFile', sourcePath)
+  pruneUnusedAssets() // açılan dünyada kullanılmayan (önceki dünyadan kalan) görselleri temizle
 }
 
 /** Çalışma kopyasında kayda değer içerik var mı? (boş açılışta gereksiz anlık paket alınmasın) */
@@ -154,6 +156,42 @@ export function resetWorld(): void {
     const p = join(assetsDir, name)
     if (statSync(p).isFile()) rmSync(p)
   }
+}
+
+// Kullanılmayan görselleri assets/'ten sil ve silinen sayısını döndür. Bir dosya, adı veritabanı
+// METNİNDE hiçbir yerde geçmiyorsa (fields+content, features.style, maps.image_path+layers,
+// settings.value) kullanılmıyor sayılır. Ada göre eşleşme bilinçli KORUYUCU — alt-dize çakışması
+// yalnız fazla dosya TUTMAYA yol açar, asla kullanımdaki bir dosyayı silmez. packWorld (kaydet) ve
+// unpackWorld (aç) içinde otomatik çağrılır (undo yığınının önemsiz olduğu checkpoint/yeniden-yükleme
+// anları) + Ayarlar'daki elle butondan.
+function pruneUnusedAssets(): number {
+  const files = readdirSync(assetsDir).filter((f) => statSync(join(assetsDir, f)).isFile())
+  const texts: string[] = []
+  for (const r of db.prepare(`SELECT fields, content FROM entities`).all() as {
+    fields: string
+    content: string
+  }[])
+    texts.push(r.fields, r.content)
+  for (const r of db.prepare(`SELECT style FROM features`).all() as { style: string }[])
+    texts.push(r.style)
+  for (const r of db.prepare(`SELECT image_path, layers FROM maps`).all() as {
+    image_path: string | null
+    layers: string
+  }[]) {
+    if (r.image_path) texts.push(r.image_path)
+    texts.push(r.layers)
+  }
+  for (const r of db.prepare(`SELECT value FROM settings`).all() as { value: string }[])
+    texts.push(r.value)
+  const blob = texts.join('\n')
+  let removed = 0
+  for (const f of files) {
+    if (!blob.includes(f)) {
+      rmSync(join(assetsDir, f))
+      removed++
+    }
+  }
+  return removed
 }
 
 // Sadece izin verilen kolonlardan dinamik SET cümlesi kurar.
@@ -676,6 +714,14 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     existsSync(join(dir, 'notes', '(no map)', 'hanedan', 'Test Hanedanı', 'Savaşlar.txt')),
     'haritasız madde (no map) altında olmalı'
   )
+  // pruneUnusedAssets: adı DB metninde geçen görsel korunur, geçmeyen silinir
+  writeFileSync(join(dir, 'assets', 'used.png'), Buffer.from([9]))
+  writeFileSync(join(dir, 'assets', 'unused.png'), Buffer.from([9]))
+  api.updateEntity(a.id, { fields: JSON.stringify({ sancak: 'assets/used.png' }) })
+  assert.equal(pruneUnusedAssets(), 1)
+  assert.ok(existsSync(join(dir, 'assets', 'used.png')), 'kullanılan görsel kalmalı')
+  assert.ok(!existsSync(join(dir, 'assets', 'unused.png')), 'kullanılmayan görsel silinmeli')
+  rmSync(join(dir, 'assets', 'used.png')) // sonraki packWorld testini etkilemesin
   api.updateEntity(a.id, { fields: '{}' }) // sonraki testler için temizle
   const full = api.getEntity(a.id) as {
     id: number
@@ -759,6 +805,8 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   // .dunya paketle/aç gidiş-dönüşü: görsel gömülür, çalışma kopyası ezilip geri açılınca
   // hem veri hem görsel aynen döner, assets tablosu çalışma kopyasında kalmaz
   writeFileSync(join(dir, 'assets', 'test.png'), Buffer.from([1, 2, 3]))
+  // packWorld artık kullanılmayan görselleri temizler → test.png referanslı olmalı (yoksa silinir)
+  api.updateEntity(a.id, { fields: JSON.stringify({ sancak: 'assets/test.png' }) })
   const dunya = join(dir, 'test.dunya')
   packWorld(dunya)
   assert.ok(existsSync(dunya))
