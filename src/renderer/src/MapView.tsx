@@ -471,6 +471,7 @@ export default function MapView({
   const [worldMap, setWorldMap] = useState<WorldMap | null>(null)
   const worldMapRef = useRef<WorldMap | null>(null) // handler'lar (navigasyon) güncel feature'ları görsün
   const [selected, setSelected] = useState<Feature | null>(null)
+  const selectedRef = useRef<Feature | null>(null) // edit modu handler'ları güncel seçimi görsün
   const [allEntities, setAllEntities] = useState<EntityRow[]>([])
   // Kişi maddeleri haritaya bağlanamaz (bkz. EntityPage — aile/hanedan alanları içindir)
   const personTypeNames = types.filter((ty) => ty.isPerson).map((ty) => ty.name)
@@ -810,6 +811,35 @@ export default function MapView({
     cur = maps.find((m) => m.id === cur!.parent_map_id)
   }
 
+  // Edit modu YALNIZ seçili çizime uygulanır: geoman köşe marker'ları tüm poligon/yollarda
+  // açılınca (enableGlobalEditMode) yüzlerce nokta doğuyor ve harita kasıyordu. Onun yerine yalnız
+  // seçili çizimin katmanlarında pm.enable(); diğerlerinde pm.disable(). Sadece durum değişince
+  // enable/disable çağrılır (aksi no-op), ağır marker üretimi tek çizim için.
+  const syncEditMode = (): void => {
+    const editing = toolRef.current === 'edit'
+    const selFid = selectedRef.current?.id ?? null
+    for (const [fid, layers] of allLayers.current) {
+      const want = editing && fid === selFid
+      for (const l of layers) {
+        const pm = (
+          l as unknown as {
+            pm?: { enabled?: () => boolean; enable: () => void; disable: () => void }
+          }
+        ).pm
+        if (!pm) continue
+        const isOn = pm.enabled?.() ?? false
+        if (want && !isOn) pm.enable()
+        else if (!want && isOn) pm.disable()
+      }
+    }
+  }
+
+  // Seçim ya da araç değişince edit köşe marker'larını seçili çizime taşı (edit modu seçime bağlı)
+  useEffect(() => {
+    selectedRef.current = selected
+    syncEditMode()
+  }, [selected, tool])
+
   // Tüm geoman modlarını kapatıp istenen aracı aç; aynı araca ikinci basış kapatır
   const activateTool = (t: Tool): void => {
     const map = mapRef.current
@@ -817,16 +847,17 @@ export default function MapView({
     endMeasure() // araç değişimi aktif ölçüm/navigasyon oturumunu bitirir
     endNav()
     map.pm.disableDraw()
-    if (map.pm.globalEditModeEnabled()) map.pm.disableGlobalEditMode()
     if (map.pm.globalDragModeEnabled()) map.pm.disableGlobalDragMode()
     if (map.pm.globalRemovalModeEnabled()) map.pm.disableGlobalRemovalMode()
     if (toolRef.current === t) {
       toolRef.current = null
       setToolState(null)
+      syncEditMode() // edit'ten çıkılıyorsa seçili çizimin köşe marker'larını kapat
       return
     }
     toolRef.current = t
     setToolState(t)
+    syncEditMode() // edit'e girildiyse seçiliyi aç, başka araca geçildiyse eski edit'i kapat
     const s = drawRef.current
     if (t === 'polygon')
       map.pm.enableDraw('Polygon', {
@@ -856,7 +887,7 @@ export default function MapView({
       // önizleme gerçek metni gösterir (panelden girilen text/renk/açı)
       map.pm.enableDraw('Marker', { markerStyle: { icon: labelDivIcon(s.label) } })
     // 'scale' / 'nav': geoman modu yok — ayar dalı panelde açılır, oturumlar oradan başlatılır
-    else if (t === 'edit') map.pm.enableGlobalEditMode()
+    // 'edit': global mod yok — syncEditMode yalnız seçili çizimi düzenlenebilir yaptı (yukarıda)
     else if (t === 'drag') map.pm.enableGlobalDragMode()
     else if (t === 'remove') map.pm.enableGlobalRemovalMode()
   }
@@ -1482,10 +1513,9 @@ export default function MapView({
     // reposition=true: çizimler yeni kuruldu, tooltip'ler taban font'ta konumlandı; font ölçeklendikten
     // sonra bir kez yeniden ortalanmalı (ayar değişiminde etiket kayması buradan gelirdi). Nadir yol.
     applyYear(yearRef.current, true)
-    // Tam yeniden kurulum tüm katmanları yeniden yarattı; edit modundayken köşe marker'ları
-    // bu arada sökülüp yeniden doğar (flash). Yeni katmanlar global edit açıkken otomatik marker
-    // alır ama tutarlılık için modu bir kez tazeleyip TÜM katmanların köşe yuvarlaklarını garanti et.
-    if (toolRef.current === 'edit') mapRef.current?.pm.enableGlobalEditMode()
+    // Tam yeniden kurulum katmanları yeniden yarattı → seçili çizimin YENİ katmanlarında edit'i
+    // yeniden aç (yalnız seçili; global değil — lag bu yüzden vardı)
+    syncEditMode()
   }
 
   // CK3 tarzı türetilmiş bölge etiketleri (kademe/boya): aynı gruptaki (o yılki kademe sahibi /
@@ -1710,9 +1740,9 @@ export default function MapView({
         if (visible && !fg.hasLayer(l)) {
           fg.addLayer(l)
           // Edit modunda aynı katman nesnesini featureGroup'a geri eklemek geoman'ın köşe
-          // marker'larını geri GETİRMEZ (ölçüldü) → düzenleme modu açıksa elle tazele, yoksa
-          // yıl/katman değişiminde o poligonun köşe yuvarlakları kaybolurdu.
-          if (toolRef.current === 'edit')
+          // marker'larını geri GETİRMEZ (ölçüldü) → düzenleme modu açıksa elle tazele. YALNIZ
+          // seçili çizim için (global değil — lag'in kaynağı buydu).
+          if (toolRef.current === 'edit' && selectedRef.current?.id === fid)
             (l as unknown as { pm?: { enable: () => void } }).pm?.enable()
         } else if (!visible && fg.hasLayer(l)) fg.removeLayer(l)
         if (visible && st && (l as L.Path).setStyle) {
@@ -1848,7 +1878,7 @@ export default function MapView({
       for (const l of allLayers.current.get(fid) ?? []) {
         if (shown && !fg.hasLayer(l)) {
           fg.addLayer(l)
-          if (toolRef.current === 'edit')
+          if (toolRef.current === 'edit' && selectedRef.current?.id === fid)
             (l as unknown as { pm?: { enable: () => void } }).pm?.enable()
         } else if (!shown && fg.hasLayer(l)) fg.removeLayer(l)
       }
@@ -2087,18 +2117,48 @@ export default function MapView({
     const onUp = (): void => {
       panning = false
     }
-    // Sürekli tekerlek zoom: her tık imlecin altını sabit tutarak anında kesirli zoom uygular.
-    // Animasyonsuz olduğu için zoom akıcı ve etiketler (zoom olayında) her karede senkron ölçeklenir.
-    // ponytail: 0.0015 hassasiyet katsayısı — hızlı/yavaş gelirse tek sayı ayarı
+    // Sürekli/YUMUŞAK tekerlek zoom: her tık bir HEDEF zoom'a eklenir, rAF döngüsü mevcut zoom'u
+    // hedefe doğru kademe kademe (ease) taşır. Her kare animate:false setZoomAround → 'zoom' olayı →
+    // etiketler/pinler her karede senkron ölçeklenir (Leaflet'in kendi animasyonu bunu yapmaz, o
+    // yüzden manuel). Eskiden hedefe ANINDA atlanıyordu → tekerlek tıkı başına ~0.15 sıçrama = kademeli his.
+    // ponytail: 0.0015 hassasiyet, 0.2 ease — hızlı/yavaş/sert gelirse tek sayı ayarı.
+    // wheelZooming: rAF sürerken 'zoom' olayı YALNIZ DOM (etiket/pin ölçekleme) yapsın, React state
+    // (HUD/ölçek çubuğu) her karede güncellenmesin — 60fps React re-render'ı (Timeline/panel) kasardı.
+    // React durumu zoom oturunca (aşağıda, settle) bir kez güncellenir.
+    let wheelTarget: number | null = null
+    let wheelPt: L.Point | null = null
+    let wheelRaf: number | null = null
+    let wheelZooming = false
+    const wheelStep = (): void => {
+      if (wheelTarget === null) {
+        wheelRaf = null
+        return
+      }
+      const cur = map.getZoom()
+      const diff = wheelTarget - cur
+      if (Math.abs(diff) < 0.004) {
+        map.setZoomAround(wheelPt!, wheelTarget, { animate: false })
+        wheelTarget = null
+        wheelRaf = null
+        wheelZooming = false
+        showHud(map.getZoom()) // oturunca HUD + ölçek çubuğu tek React güncellemesi
+        setBarZoom(map.getZoom())
+        return
+      }
+      map.setZoomAround(wheelPt!, cur + diff * 0.2, { animate: false })
+      wheelRaf = requestAnimationFrame(wheelStep)
+    }
     const onWheel = (e: WheelEvent): void => {
       e.preventDefault()
       if (e.shiftKey && wheelAdjustRef.current) {
         wheelAdjustRef.current(e.deltaY) // Shift basılı: zoom yerine seçili çizimi büyüt/küçült
         return
       }
-      const next = map.getZoom() - e.deltaY * 0.0015
-      const clamped = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), next))
-      map.setZoomAround(map.mouseEventToContainerPoint(e), clamped, { animate: false })
+      const base = wheelTarget ?? map.getZoom()
+      wheelTarget = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), base - e.deltaY * 0.0015))
+      wheelPt = map.mouseEventToContainerPoint(e)
+      wheelZooming = true
+      if (wheelRaf === null) wheelRaf = requestAnimationFrame(wheelStep)
     }
     host.addEventListener('mousedown', onDown)
     host.addEventListener('wheel', onWheel, { passive: false })
@@ -2109,10 +2169,13 @@ export default function MapView({
     map.addLayer(fg)
 
     map.on('zoom zoomend', () => {
-      showHud(map.getZoom())
       refreshZoomVis() // zoom-sınırlı pin/etiketleri güncel zoom'a göre aç/kapat (boyutlamadan önce)
-      updateOverlaySizes()
-      setBarZoom(map.getZoom())
+      updateOverlaySizes() // DOM: her karede (yumuşak zoom) — etiket/pin senkron ölçeklenir
+      // React state (HUD + ölçek çubuğu) yalnız tekerlek-zoom DIŞINDA hemen; tekerlekte settle'da (yukarıda)
+      if (!wheelZooming) {
+        showHud(map.getZoom())
+        setBarZoom(map.getZoom())
+      }
     })
 
     // Ölçüm oturumu tıklamaları: calib 2 noktada forma geçer; dist/area nokta biriktirir
@@ -2272,6 +2335,7 @@ export default function MapView({
       navTemp.current = null
       setMeasure(null)
       setNav(null)
+      if (wheelRaf !== null) cancelAnimationFrame(wheelRaf)
       host.removeEventListener('mousedown', onDown)
       host.removeEventListener('wheel', onWheel)
       window.removeEventListener('mousemove', onMove)
@@ -2387,7 +2451,7 @@ export default function MapView({
               type="range"
               min={hudRange[0]}
               max={hudRange[1]}
-              step={0.25}
+              step="any"
               value={val}
               onChange={(e) => editSelectedStyle({ [key]: Number(e.target.value) })}
             />
@@ -3013,7 +3077,7 @@ export default function MapView({
                     type="range"
                     min={hudRange[0]}
                     max={hudRange[1]}
-                    step={0.25}
+                    step="any"
                     value={hudZoom}
                     onChange={(e) => mapRef.current?.setZoom(Number(e.target.value))}
                   />
