@@ -86,6 +86,8 @@ interface FeatureStyle {
   angle?: number // etiket döndürme açısı (derece)
   curve?: number // etiket eğriliği -100..100 (Wonderdraft curved text; 0 = düz)
   board?: string // ait olduğu zemin (çizim katmanı) id'si — settings.mapBoards ile eşleşir
+  minZoom?: number // bu zoom altında gizle (kalabalık haritada uzaklaşınca pin/etiket saklama)
+  maxZoom?: number // bu zoom üstünde gizle
 }
 
 interface Props {
@@ -491,6 +493,10 @@ export default function MapView({
   const [newBoardName, setNewBoardName] = useState<string | null>(null)
   const [editBoardId, setEditBoardId] = useState<string | null>(null)
   const featBoard = useRef(new Map<number, string>()) // fid → çizimin zemin id'si (style.board)
+  // Zoom'a göre görünürlük: fid → {min,max}; baseVisible = zoom DIŞI görünürlük (applyYear yazar,
+  // refreshZoomVis zoom'da yalnız sınırlı çizimleri açıp kapatmak için okur)
+  const zoomLimits = useRef(new Map<number, { min?: number; max?: number }>())
+  const baseVisible = useRef(new Map<number, boolean>())
   // Zaman çizgisi: slider tikinde DB'siz aç/kapa için katman kayıt defteri
   const yearRef = useRef(0)
   // Haritada bir şeyin değiştiği yıllar (çizim başlar/biter/el değiştirir) — ray tikleri
@@ -1075,6 +1081,8 @@ export default function MapView({
     featKind.current.clear()
     pinType.current.clear()
     featBoard.current.clear()
+    zoomLimits.current.clear()
+    baseVisible.current.clear()
     featArrow.current.clear()
     renderStyle.current.clear()
     parentHist.current.clear()
@@ -1189,6 +1197,8 @@ export default function MapView({
       )
       if (!isPolygon && !isLine && !isLabel) pinType.current.set(f.id, f.entity_type ?? '')
       if (style.board !== undefined) featBoard.current.set(f.id, style.board)
+      if (style.minZoom !== undefined || style.maxZoom !== undefined)
+        zoomLimits.current.set(f.id, { min: style.minZoom, max: style.maxZoom })
       // Yön oku (sonda): gerçek çizginin path'ine marker-end (applyYear'da uygulanır)
       if (isLine && style.arrow === 'end') featArrow.current.set(f.id, 'end')
       if (style.from !== undefined || style.to !== undefined)
@@ -1691,6 +1701,10 @@ export default function MapView({
         const c = eid !== undefined ? rungColor(eid) : '#666666'
         st = { ...st, color: c, fillColor: c }
       }
+      // Zoom kapısı en sonda: baseVisible = zoom DIŞI görünürlük (refreshZoomVis bunu okur),
+      // sonra zoom aralığı dışındaysa gizle
+      baseVisible.current.set(fid, visible)
+      if (!zoomOk(fid)) visible = false
       const arrow = featArrow.current.get(fid)
       for (const l of layers) {
         if (visible && !fg.hasLayer(l)) {
@@ -1815,6 +1829,30 @@ export default function MapView({
     })
     await api.deleteMap(mapId)
     onChanged()
+  }
+
+  // Zoom görünürlüğü: çizimin min/max zoom aralığında olup olmadığı
+  const zoomOk = (fid: number): boolean => {
+    const z = zoomLimits.current.get(fid)
+    if (!z) return true
+    const cur = mapRef.current?.getZoom() ?? 0
+    return (z.min == null || cur >= z.min) && (z.max == null || cur <= z.max)
+  }
+  // Zoom değişince: yalnız zoom-sınırlı çizimleri, zoom DIŞI görünürlüklerini (baseVisible) koruyarak
+  // aç/kapat. Tüm çizimleri taramaz (hot-path); marker'lar stil taşımaz, yeniden eklemek yeter.
+  const refreshZoomVis = (): void => {
+    const fg = featureGroupRef.current
+    if (!fg) return
+    for (const [fid] of zoomLimits.current) {
+      const shown = (baseVisible.current.get(fid) ?? true) && zoomOk(fid)
+      for (const l of allLayers.current.get(fid) ?? []) {
+        if (shown && !fg.hasLayer(l)) {
+          fg.addLayer(l)
+          if (toolRef.current === 'edit')
+            (l as unknown as { pm?: { enable: () => void } }).pm?.enable()
+        } else if (!shown && fg.hasLayer(l)) fg.removeLayer(l)
+      }
+    }
   }
 
   const togglePinType = (ty: string): void => {
@@ -2072,6 +2110,7 @@ export default function MapView({
 
     map.on('zoom zoomend', () => {
       showHud(map.getZoom())
+      refreshZoomVis() // zoom-sınırlı pin/etiketleri güncel zoom'a göre aç/kapat (boyutlamadan önce)
       updateOverlaySizes()
       setBarZoom(map.getZoom())
     })
@@ -2323,6 +2362,48 @@ export default function MapView({
     setSelected({ ...selected, style: nextStr })
     await reloadFeatures()
   }
+
+  // Zoom'a göre görünürlük (pin + etiket): kullanıcı eşiği kaydırıcıyla SEÇER (yüzde okunur).
+  // Kutu işaretlenince eşik o anki zoom'dan başlar, kaydırıcıyla ince ayar; minZoom = "bunun
+  // altında (daha uzakta) gizle", maxZoom = "bunun üstünde (daha yakında) gizle".
+  const zoomPct = (z: number): string => `%${Math.round(2 ** z * 100)}`
+  const zoomVisRow = (key: 'minZoom' | 'maxZoom', label: string): React.JSX.Element => {
+    const val = selStyle[key]
+    return (
+      <>
+        <label className="zoom-vis-head">
+          <input
+            type="checkbox"
+            checked={val != null}
+            onChange={(e) =>
+              editSelectedStyle({ [key]: e.target.checked ? mapRef.current?.getZoom() : undefined })
+            }
+          />
+          {label}
+        </label>
+        {val != null && (
+          <div className="zoom-vis-slider">
+            <input
+              type="range"
+              min={hudRange[0]}
+              max={hudRange[1]}
+              step={0.25}
+              value={val}
+              onChange={(e) => editSelectedStyle({ [key]: Number(e.target.value) })}
+            />
+            <span className="zoom-pct">{zoomPct(val)}</span>
+          </div>
+        )}
+      </>
+    )
+  }
+  const zoomVisControls = (): React.JSX.Element => (
+    <>
+      <label>{t('Hide by zoom — now {z}', { z: zoomPct(barZoom) })}</label>
+      {zoomVisRow('minZoom', t('Hide when zoomed out below'))}
+      {zoomVisRow('maxZoom', t('Hide when zoomed in above'))}
+    </>
+  )
 
   // Shift+tekerlek: seçili çizimin boyut/kalınlığını değiştir (Wonderdraft deseni) — zoom yerine.
   // onWheel bir kez kurulan useEffect closure'ında olduğu için taze seçim ref'ten okunur; ref her
@@ -3135,6 +3216,7 @@ export default function MapView({
                     value={selStyle.curve ?? 0}
                     onChange={(e) => editSelectedStyle({ curve: Number(e.target.value) })}
                   />
+                  {zoomVisControls()}
                 </>
               ) : (
                 <>
@@ -3190,6 +3272,7 @@ export default function MapView({
                     value={selStyle.size ?? 1}
                     onChange={(e) => editSelectedStyle({ size: Number(e.target.value) })}
                   />
+                  {zoomVisControls()}
                 </>
               )}
             </div>

@@ -1914,6 +1914,28 @@ a {
   padding: 2px 6px;
 }
 
+/* Zoom görünürlük kaydırıcısı (seçili pin/etiket paneli) */
+.zoom-vis-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.zoom-vis-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.zoom-vis-slider input[type='range'] {
+  flex: 1;
+  min-width: 0;
+}
+.zoom-vis-slider .zoom-pct {
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
 .layers-row:hover .map-row-btn {
   visibility: visible;
 }
