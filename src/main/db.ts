@@ -21,6 +21,7 @@ let db!: DatabaseSync
 let assetsDir: string
 let dbFile: string
 let backupsDir: string
+let notesDir: string
 const BACKUP_KEEP_DAYS = 30
 
 const SCHEMA = `
@@ -68,6 +69,7 @@ export function initDb(dataDir: string): void {
   mkdirSync(assetsDir, { recursive: true })
   dbFile = join(dataDir, 'world.db')
   backupsDir = join(dataDir, 'backups')
+  notesDir = join(dataDir, 'notes')
   db = new DatabaseSync(dbFile)
   db.exec(SCHEMA)
 }
@@ -514,6 +516,85 @@ export const api = {
     const target = join(backupsDir, `world-${stamp}.db`)
     copyFileSync(dbFile, target)
     return target
+  },
+
+  // Her maddenin not sekmelerini (fields['notlar']) okunabilir .txt ağacına döker:
+  //   notes/<harita adı>/<madde tipi>/<madde adı>/<not başlığı>.txt
+  // Bir maddenin çizimi hangi harita(lar)daysa o harita(lar)ın altında görünür; hiçbir haritada
+  // olmayanlar "(no map)", tipsizler "(no type)" altında (sistem klasör adları İngilizce). Tek yönlü
+  // dışa aktarım (app → .txt); ağaç her seferinde sıfırdan yeniden üretilir (rename/silme temiz yansır).
+  exportNotes(): { path: string; files: number } {
+    const ents = db.prepare(`SELECT id, type, name, fields FROM entities`).all() as {
+      id: number
+      type: string
+      name: string
+      fields: string
+    }[]
+    const maps = db.prepare(`SELECT id, name FROM maps`).all() as { id: number; name: string }[]
+    const feats = db
+      .prepare(`SELECT DISTINCT map_id, entity_id FROM features WHERE entity_id IS NOT NULL`)
+      .all() as { map_id: number; entity_id: number }[]
+
+    const mapName = new Map(maps.map((m) => [m.id, m.name]))
+    const entMaps = new Map<number, Set<number>>() // madde id → çizimi olan harita id'leri
+    for (const f of feats) {
+      if (!entMaps.has(f.entity_id)) entMaps.set(f.entity_id, new Set())
+      entMaps.get(f.entity_id)!.add(f.map_id)
+    }
+    const parseNotes = (fields: string): { title: string; content: string }[] => {
+      try {
+        const notlar = (JSON.parse(fields || '{}') as Record<string, string>)['notlar']
+        const arr = JSON.parse(notlar ?? '[]')
+        return Array.isArray(arr) ? arr : []
+      } catch {
+        return []
+      }
+    }
+    // Windows dosya adı güvenli: yasak karakterler → _, sondaki nokta/boşluk atılır, boşsa yedek
+    // (kontrol karakterleri not başlıklarında oluşmaz — sadece Windows'un yasak sembolleri elenir)
+    const safe = (name: string, fallback: string): string => {
+      const s = name
+        .replace(/[<>:"/\\|?*]/g, '_')
+        .replace(/[. ]+$/, '')
+        .trim()
+      return (s || fallback).slice(0, 120)
+    }
+
+    rmSync(notesDir, { recursive: true, force: true }) // eski ağacı temizle → yeniden üret
+    mkdirSync(notesDir, { recursive: true })
+
+    let files = 0
+    for (const ent of ents) {
+      const notes = parseNotes(ent.fields)
+      if (!notes.length) continue
+      const mids = entMaps.get(ent.id)
+      const mapFolders =
+        mids && mids.size
+          ? [...mids].map((mid) => safe(mapName.get(mid) ?? '', `map-${mid}`))
+          : ['(no map)']
+      const typeFolder = ent.type ? safe(ent.type, '(no type)') : '(no type)'
+      for (const mf of mapFolders) {
+        // Aynı ad/tip altında ad çakışırsa madde id'siyle benzersizleştir
+        let entDir = join(notesDir, mf, typeFolder, safe(ent.name, `entity-${ent.id}`))
+        if (existsSync(entDir)) entDir += ` (#${ent.id})`
+        mkdirSync(entDir, { recursive: true })
+        const used = new Set<string>()
+        notes.forEach((n, i) => {
+          const baseName = safe(n.title, `note-${i + 1}`)
+          let fname = baseName
+          for (let k = 2; used.has(fname.toLowerCase()); k++) fname = `${baseName} (${k})`
+          used.add(fname.toLowerCase())
+          // Windows Not Defteri uyumu için \r\n
+          writeFileSync(
+            join(entDir, `${fname}.txt`),
+            (n.content ?? '').replace(/\r?\n/g, '\r\n'),
+            'utf8'
+          )
+          files++
+        })
+      }
+    }
+    return { path: notesDir, files }
   }
 }
 
@@ -579,6 +660,23 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     geometry: '{"type":"Point","coordinates":[1,2]}'
   })
   assert.equal((api.getMap(m.id) as { features: unknown[] }).features.length, 1)
+  // exportNotes: a (tip 'krallık' — yukarıda retype edildi) Dünya haritasında →
+  // notes/Dünya/krallık/Test Devleti/…; b (tip 'hanedan') hiçbir haritada değil → notes/(no map)/hanedan/…
+  api.updateEntity(a.id, {
+    fields: JSON.stringify({
+      notlar: JSON.stringify([{ title: 'Kuruluş', content: 'satır1\nsatır2' }])
+    })
+  })
+  const exp = api.exportNotes()
+  assert.equal(exp.files, 2) // a (haritada) + b (haritasız)
+  const onMap = join(dir, 'notes', 'Dünya', 'krallık', 'Test Devleti', 'Kuruluş.txt')
+  assert.ok(existsSync(onMap), 'haritadaki maddenin notu yazılmalı')
+  assert.equal(readFileSync(onMap, 'utf8'), 'satır1\r\nsatır2') // \n → \r\n (Windows)
+  assert.ok(
+    existsSync(join(dir, 'notes', '(no map)', 'hanedan', 'Test Hanedanı', 'Savaşlar.txt')),
+    'haritasız madde (no map) altında olmalı'
+  )
+  api.updateEntity(a.id, { fields: '{}' }) // sonraki testler için temizle
   const full = api.getEntity(a.id) as {
     id: number
     type: string

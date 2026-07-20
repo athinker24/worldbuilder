@@ -34,6 +34,11 @@ const TR: Record<string, string> = {
   'This entity is not marked on any map yet.': 'Bu madde henüz hiçbir haritada işaretli değil.',
 
   // Settings.tsx
+  'Export notes': 'Notları dışa aktar',
+  'Write every entity’s notes to a readable .txt tree: notes/<map>/<type>/<entity>/<note>.txt. Entities appear under each map they’re drawn on; ones on no map go under “(no map)”. One-way export; the tree is rebuilt each time.':
+    'Her maddenin notlarını okunabilir bir .txt ağacına yazar: notes/<harita>/<tip>/<madde>/<not>.txt. Maddeler çizildikleri her haritanın altında görünür; hiçbir haritada olmayanlar “(no map)” altında. Tek yönlü; ağaç her seferinde yeniden üretilir.',
+  'Export notes to .txt': 'Notları .txt olarak aktar',
+  'Exported {n} note file(s); opening the folder…': '{n} not dosyası yazıldı; klasör açılıyor…',
   'Entity Types': 'Madde Tipleri',
   'Types are completely free: add, rename, delete. Renaming a type updates all entities of that type.':
     'Tipler tamamen serbesttir: ekle, yeniden adlandır, sil. Yeniden adlandırma o tipteki tüm maddeleri günceller.',

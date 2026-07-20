@@ -48,6 +48,7 @@ export default function Settings({
   const [modes, setModes] = useState<MapModes>({ dims: [], colors: {} })
   const [dimInput, setDimInput] = useState('')
   const [backupMsg, setBackupMsg] = useState('')
+  const [notesMsg, setNotesMsg] = useState('')
   const [tpls, setTpls] = useState<EntityTemplate[]>([])
   const [activeTpl, setActiveTpl] = useState<string | null>(null)
   const [tplInput, setTplInput] = useState('')
@@ -165,6 +166,25 @@ export default function Settings({
           {t('Back up now')}
         </button>
         {backupMsg && <span className="hint">{backupMsg}</span>}
+      </div>
+
+      <h2>{t('Export notes')}</h2>
+      <p className="hint">
+        {t(
+          'Write every entity’s notes to a readable .txt tree: notes/<map>/<type>/<entity>/<note>.txt. Entities appear under each map they’re drawn on; ones on no map go under “(no map)”. One-way export; the tree is rebuilt each time.'
+        )}
+      </p>
+      <div className="field-row">
+        <button
+          className="mini"
+          onClick={async () => {
+            const { files } = await api.exportNotes()
+            setNotesMsg(t('Exported {n} note file(s); opening the folder…', { n: files }))
+          }}
+        >
+          {t('Export notes to .txt')}
+        </button>
+        {notesMsg && <span className="hint">{notesMsg}</span>}
       </div>
 
       <h2>{t('Entity Types')}</h2>

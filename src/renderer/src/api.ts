@@ -162,6 +162,8 @@ export const api = {
 
   pickImage: () => inv<string | null>('pickImage'),
   backupNow: () => inv<string>('backupNow'),
+  // Not sekmelerini okunabilir .txt ağacına döker (notes/<harita>/<tip>/<madde>/<not>.txt) + klasörü açar
+  exportNotes: () => inv<{ path: string; files: number }>('exportNotes'),
   // .dunya dosya modeli (Wonderdraft tarzı): kaydet/farklı kaydet/aç + kirli durum
   saveWorld: () => inv<string | null>('saveWorld'),
   saveWorldAs: () => inv<string | null>('saveWorldAs'),

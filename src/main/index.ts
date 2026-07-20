@@ -78,6 +78,12 @@ function openWorldFile(path: string): void {
 
 const mainApi = {
   ...dbApi,
+  // Notları .txt ağacına döker + gözat için klasörü açar (buton tetikli, tek yönlü)
+  exportNotes: async (): Promise<{ path: string; files: number }> => {
+    const r = dbApi.exportNotes()
+    await shell.openPath(r.path)
+    return r
+  },
   saveWorld: (): Promise<string | null> => saveWorld(false),
   saveWorldAs: (): Promise<string | null> => saveWorld(true),
   worldInfo: (): { file: string | null; dirty: boolean } => ({ file: currentFile, dirty }),
