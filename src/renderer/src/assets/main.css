@@ -2,14 +2,54 @@
   box-sizing: border-box;
 }
 
+/* Tema token katmanı: :root = koyu (teal, varsayılan), [data-theme='light'] = açık (turkuaz).
+   App.tsx document.documentElement.dataset.theme yazar (settings.theme). Harita İÇERİĞİ
+   (çizim renkleri, autoColor, renk seçici spektrumu, poly-label beyazı) temadan muaf. */
 :root {
-  --bg: #1e1f24;
-  --bg2: #26272e;
-  --bg3: #2f3038;
-  --text: #d8d9de;
-  --muted: #8a8c96;
-  --accent: #7bb3ff;
-  --border: #3a3b44;
+  --bg0: #0f1416; /* en derin: harita void'i, ağaç paneli */
+  --bg: #151a1c;
+  --bg2: #1b2225;
+  --bg3: #242d30;
+  --text: #d5dcdc;
+  --muted: #84928f;
+  --accent: #3ec4ad;
+  --accent-soft: rgba(62, 196, 173, 0.14); /* seçili zemin + focus halkası */
+  --border: #323d40;
+  --danger: #e06c75;
+  --gold: #d9a441; /* yönetici / ölçüm-aktif vurgusu */
+  --male: #5b8fd6;
+  --female: #d67ba8;
+  --overlay: rgba(0, 0, 0, 0.55); /* modal arkası karartma */
+  --tint-1: rgba(255, 255, 255, 0.03); /* hafif yüzey tonu */
+  --tint-2: rgba(255, 255, 255, 0.07);
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4); /* küçük öğe */
+  --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.4); /* yüzen panel */
+  --shadow-3: 0 12px 40px rgba(0, 0, 0, 0.55); /* diyalog / palet */
+  --r-s: 5px;
+  --r-m: 8px;
+  --r-l: 12px;
+}
+
+[data-theme='light'] {
+  --bg0: #d6e0e0;
+  --bg: #eef2f2;
+  --bg2: #ffffff;
+  --bg3: #e2eaea;
+  --text: #1d2a2a;
+  --muted: #5f7270;
+  --accent: #0d9488;
+  --accent-soft: rgba(13, 148, 136, 0.13);
+  --border: #c8d4d4;
+  --danger: #c4404b;
+  --gold: #a8761c;
+  --male: #3c6cb4;
+  --female: #b85583;
+  --overlay: rgba(20, 40, 40, 0.35);
+  --tint-1: rgba(15, 40, 40, 0.04);
+  --tint-2: rgba(15, 40, 40, 0.08);
+  --shadow-1: 0 1px 3px rgba(15, 40, 40, 0.12);
+  --shadow-2: 0 4px 16px rgba(15, 40, 40, 0.14);
+  --shadow-3: 0 12px 40px rgba(15, 40, 40, 0.22);
 }
 
 html,
@@ -34,6 +74,49 @@ textarea,
 .content-view,
 .content-edit {
   user-select: text;
+}
+
+/* --- tipografi hiyerarşisi (tek ölçek; yerel kurallar özgüllükle ezer) --- */
+h2 {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+h3 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* --- scrollbar (masaüstü hissi) --- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .app {
@@ -79,9 +162,12 @@ textarea,
   align-items: center;
   gap: 4px;
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--r-s);
   cursor: pointer;
   white-space: nowrap;
+  transition:
+    background-color 0.1s,
+    color 0.1s;
 }
 
 .side-item:hover {
@@ -107,8 +193,9 @@ textarea,
 }
 
 .side-item.active {
-  background: var(--bg3);
+  background: var(--accent-soft);
   color: var(--accent);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .group-head {
@@ -143,7 +230,7 @@ textarea,
 }
 
 .side-item.selected {
-  background: var(--bg3);
+  background: var(--accent-soft);
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
@@ -384,7 +471,7 @@ textarea,
 
 .type-input {
   width: 120px;
-  border-left: 3px solid #555;
+  border-left: 3px solid var(--border);
 }
 
 .hint {
@@ -507,7 +594,7 @@ textarea,
   gap: 6px;
   align-items: center;
   padding: 4px 6px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--tint-1);
 }
 
 .note-title {
@@ -540,7 +627,7 @@ textarea,
 .tree-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -548,9 +635,9 @@ textarea,
 }
 
 .tree-panel {
-  background: #1a1b21;
+  background: var(--bg0);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-l);
   width: 92vw;
   height: 86vh;
   display: flex;
@@ -668,7 +755,7 @@ textarea,
   padding: 7px 11px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--tint-1);
   cursor: pointer;
   white-space: nowrap;
   font-size: 14px;
@@ -736,12 +823,12 @@ textarea,
   display: block;
 }
 .pin-img-x:hover {
-  color: #e06c5a;
-  border-color: #e06c5a;
+  color: var(--danger);
+  border-color: var(--danger);
 }
 .pin-upload {
   font-size: 18px;
-  color: var(--muted, #aaa);
+  color: var(--muted);
 }
 
 /* Serbest metin etiketi: renk + döndürme inline gelir (feature başına), font zoom'la ölçeklenir */
@@ -793,13 +880,13 @@ textarea,
 
 .pin-opt.selected {
   border-color: var(--accent);
-  background: var(--bg);
+  background: var(--accent-soft);
 }
 
 .pin-opt svg {
   width: 100%;
   height: 100%;
-  fill: var(--fg);
+  fill: var(--text);
 }
 
 /* Zengin kart: portre (sancak) + ad + alt satır (doğum–ölüm · unvan) */
@@ -816,20 +903,20 @@ textarea,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--tint-2);
   border: 1px dashed var(--border);
   font-size: 22px;
   color: var(--muted);
 }
 
 .tree-portrait.placeholder.male {
-  color: #5b8fd6;
-  border-color: #5b8fd6;
+  color: var(--male);
+  border-color: var(--male);
 }
 
 .tree-portrait.placeholder.female {
-  color: #d67ba8;
-  border-color: #d67ba8;
+  color: var(--female);
+  border-color: var(--female);
 }
 
 .tree-card-text {
@@ -869,12 +956,12 @@ textarea,
 .tree-chip.spouse {
   border-style: dashed;
   opacity: 0.75;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--tint-1);
 }
 
 /* Yönetici (herhangi bir maddede yönetici olmuş kişi): altın aksan + 👑 rozet */
 .tree-chip.ruler {
-  border-color: #d9a441;
+  border-color: var(--gold);
 }
 
 .ruler-badge {
@@ -884,11 +971,11 @@ textarea,
 
 /* Cinsiyet: sol kenar rengi + ♂/♀ rozeti (ruler altın kenarını ezmesin diye sol kenar) */
 .tree-chip.male {
-  border-left: 3px solid #5b8fd6;
+  border-left: 3px solid var(--male);
 }
 
 .tree-chip.female {
-  border-left: 3px solid #d67ba8;
+  border-left: 3px solid var(--female);
 }
 
 .gender-badge {
@@ -898,11 +985,11 @@ textarea,
 }
 
 .tree-chip.male .gender-badge {
-  color: #5b8fd6;
+  color: var(--male);
 }
 
 .tree-chip.female .gender-badge {
-  color: #d67ba8;
+  color: var(--female);
 }
 
 /* --- ilişkiler --- */
@@ -968,7 +1055,7 @@ textarea,
 
 .leaflet-host {
   flex: 1;
-  background: #14151a;
+  background: var(--bg0);
 }
 
 .map-panel {
@@ -1011,15 +1098,28 @@ button {
   background: var(--bg3);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 5px 8px;
+  border-radius: var(--r-s);
+  padding: 6px 10px;
   font: inherit;
+  transition:
+    background-color 0.1s,
+    border-color 0.1s,
+    color 0.1s,
+    box-shadow 0.1s;
 }
 
 input:focus,
 textarea:focus,
 select:focus {
-  outline: 1px solid var(--accent);
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+input[type='checkbox'],
+input[type='radio'],
+input[type='range'] {
+  accent-color: var(--accent);
 }
 
 button {
@@ -1028,6 +1128,14 @@ button {
 
 button:hover {
   border-color: var(--accent);
+  /* koyuda hafif aydınlanır, açıkta hafif koyulaşır — tek kural iki tema */
+  background: color-mix(in srgb, var(--bg3), var(--text) 6%);
+}
+
+button:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 button.mini {
@@ -1036,8 +1144,8 @@ button.mini {
 }
 
 button.danger:hover {
-  border-color: #e06c75;
-  color: #e06c75;
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 a {
@@ -1048,7 +1156,7 @@ a {
 .palette-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -1061,12 +1169,12 @@ a {
   max-width: 90vw;
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-l);
   padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-3);
 }
 
 .palette input {
@@ -1084,12 +1192,13 @@ a {
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 4px;
+  border-radius: var(--r-s);
   cursor: pointer;
+  transition: background-color 0.1s;
 }
 
 .palette-item.selected {
-  background: var(--bg3);
+  background: var(--accent-soft);
 }
 
 .palette-label {
@@ -1163,7 +1272,7 @@ a {
 .tool-btn.active {
   border-color: var(--accent);
   color: var(--accent);
-  background: var(--bg);
+  background: var(--accent-soft);
 }
 
 .tool-settings {
@@ -1204,7 +1313,7 @@ a {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-2);
 }
 
 .cp-main {
@@ -1326,7 +1435,7 @@ a {
   border: 1px solid var(--border);
   border-radius: 20px;
   padding: 6px 14px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-2);
 }
 
 .zoom-hud input[type='range'] {
@@ -1351,7 +1460,7 @@ a {
   bottom: 16px;
   z-index: 1500;
   border-radius: 16px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-2);
 }
 
 .timeline-toggle {
@@ -1361,7 +1470,7 @@ a {
   top: 12px;
   z-index: 1500;
   border-radius: 16px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-2);
 }
 
 /* width (max-width değil): genişlik içerikten gelseydi şerit butonlara göre daralır, ray
@@ -1381,7 +1490,7 @@ a {
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-2);
   padding: 8px 10px;
   box-sizing: border-box;
 }
@@ -1418,7 +1527,7 @@ a {
   height: 6px;
   border-radius: 3px;
   overflow: hidden;
-  background: rgba(128, 128, 128, 0.15);
+  background: var(--tint-2);
 }
 
 .timeline-band {
@@ -1480,8 +1589,8 @@ a {
   height: 8px;
   margin-left: -4px;
   border-radius: 50%;
-  background: var(--accent, #7bb3ff);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: var(--accent);
+  border: 1px solid var(--bg); /* rayla kontrast halkası — iki temada da çalışır */
   cursor: pointer;
 }
 
@@ -1512,7 +1621,7 @@ a {
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-2);
   padding: 6px 12px;
 }
 
@@ -1567,8 +1676,8 @@ a {
 }
 .measure-btns .mini.active,
 .tool-settings .mini.active {
-  border-color: #ffd700;
-  color: #ffd700;
+  border-color: var(--gold);
+  color: var(--gold);
 }
 
 /* 🧭 Navigasyon paneli: seyahat modları + rota dökümü */
@@ -1653,7 +1762,7 @@ a {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-2);
 }
 
 .hier-head {
@@ -1718,7 +1827,7 @@ a {
 .tag-chip.active {
   border-color: var(--accent);
   color: var(--accent);
-  background: var(--bg);
+  background: var(--accent-soft);
 }
 
 .tag-x {
@@ -1730,7 +1839,7 @@ a {
 }
 
 .tag-x:hover {
-  color: #e06c75;
+  color: var(--danger);
 }
 
 /* Zaman şeridi ±10/±100 atlama butonları: dar, küçük yazı */
@@ -1754,7 +1863,7 @@ a {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg3);
-  color: var(--fg);
+  color: var(--text);
   font-size: 13px;
   cursor: pointer;
 }
@@ -1788,7 +1897,7 @@ a {
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-2);
   padding: 6px;
 }
 
@@ -1805,8 +1914,9 @@ a {
   align-items: center;
   gap: 10px;
   padding: 7px 8px;
-  border-radius: 6px;
+  border-radius: var(--r-s);
   cursor: pointer;
+  transition: background-color 0.1s;
 }
 
 .layers-row:hover {
@@ -1835,7 +1945,7 @@ a {
 
 .layers-name {
   font-size: 13px;
-  color: var(--fg);
+  color: var(--text);
 }
 
 .layers-desc {
@@ -1868,14 +1978,14 @@ a {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 4px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-2);
 }
 
 /* Uygulama-içi confirm/alert (yerli window.confirm yerine — odak kaybı olmaz) */
 .dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay);
   z-index: 4000;
   display: flex;
   align-items: center;
@@ -1887,9 +1997,9 @@ a {
   max-width: 440px;
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-l);
   padding: 18px 20px 14px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-3);
 }
 
 .dialog-msg {
@@ -1905,9 +2015,12 @@ a {
 
 .ctx-item {
   padding: 6px 10px;
-  border-radius: 4px;
+  border-radius: var(--r-s);
   cursor: pointer;
   white-space: nowrap;
+  transition:
+    background-color 0.1s,
+    color 0.1s;
 }
 
 .ctx-item:hover {
@@ -1915,7 +2028,7 @@ a {
 }
 
 .ctx-item.danger:hover {
-  color: #e06c75;
+  color: var(--danger);
 }
 
 /* leaflet koyu tema uyumu */

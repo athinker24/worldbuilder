@@ -69,6 +69,9 @@ const TR: Record<string, string> = {
   Save: 'Kaydet',
   Language: 'Dil',
   'Interface language': 'Arayüz dili',
+  Theme: 'Tema',
+  Dark: 'Koyu',
+  Light: 'Açık',
 
   // Palette.tsx
   '🗺 map': '🗺 harita',

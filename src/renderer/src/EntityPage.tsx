@@ -494,7 +494,9 @@ export default function EntityPage({
           defaultValue={entity.type}
           key={`type-${entity.id}-${entity.updated_at}`}
           onBlur={(e) => e.target.value !== entity.type && save({ type: e.target.value })}
-          style={{ borderLeftColor: types.find((ty) => ty.name === entity.type)?.color ?? '#555' }}
+          style={{
+            borderLeftColor: types.find((ty) => ty.name === entity.type)?.color ?? 'var(--border)'
+          }}
         />
         <datalist id="type-list">
           {types.map((ty) => (

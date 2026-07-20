@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, EntityRow, getLanguage, getTypes, Lang, MapRow, TypeDef, typeColor } from './api'
+import {
+  api,
+  EntityRow,
+  getLanguage,
+  getTheme,
+  getTypes,
+  Lang,
+  MapRow,
+  Theme,
+  TypeDef,
+  typeColor
+} from './api'
 import Atlas from './Atlas'
 import ContextMenu, { MenuState } from './ContextMenu'
 import { alertDialog, confirmDialog, DialogHost } from './dialog'
@@ -34,6 +45,7 @@ export default function App(): React.JSX.Element {
   const [focus, setFocus] = useState<{ featureId: number; token: number } | null>(null)
   const [bump, setBump] = useState(0) // undo sonrası açık sayfayı yeniden yüklet
   const [lang, setLang] = useState<Lang>('en')
+  const [theme, setTheme] = useState<Theme>('dark')
   const [selected, setSelected] = useState<Set<number>>(new Set()) // çoklu silme seçimi
   const histRef = useRef<{ stack: View[]; idx: number }>({ stack: [], idx: -1 })
   // Del kısayolu için güncel seçim/görünümü stale closure olmadan oku
@@ -48,7 +60,13 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     getLanguage().then(setLang)
+    getTheme().then(setTheme)
   }, [])
+
+  // Tema <html data-theme> ile uygulanır — CSS token'ları (main.css) oradan dallanır
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+  }, [theme])
 
   const refresh = useCallback(async () => {
     const [e, m, t] = await Promise.all([api.listEntities(search), api.listMaps(), getTypes()])
@@ -468,7 +486,14 @@ export default function App(): React.JSX.Element {
             />
           )}
           {view.kind === 'settings' && (
-            <Settings types={types} onChanged={refresh} lang={lang} onLangChange={setLang} />
+            <Settings
+              types={types}
+              onChanged={refresh}
+              lang={lang}
+              onLangChange={setLang}
+              theme={theme}
+              onThemeChange={setTheme}
+            />
           )}
           {view.kind === 'kronoloji' && (
             <Kronoloji

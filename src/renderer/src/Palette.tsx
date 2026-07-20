@@ -56,7 +56,7 @@ export default function Palette({
         key: `m${m.id}`,
         label: m.name,
         badge: t('🗺 map'),
-        color: '#8a8c96',
+        color: 'var(--muted)',
         open: () => onOpenMap(m.id)
       }))
     const es: Item[] = entities

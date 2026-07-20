@@ -457,6 +457,16 @@ export async function getLanguage(): Promise<Lang> {
 
 export const saveLanguage = (lang: Lang): Promise<void> => api.setSetting('language', lang)
 
+// Tema — koyu (teal) varsayılan; App.tsx <html data-theme> yazar, tüm renkler CSS token'larından.
+export type Theme = 'dark' | 'light'
+
+export async function getTheme(): Promise<Theme> {
+  const raw = await api.getSetting('theme')
+  return raw === 'light' ? 'light' : 'dark'
+}
+
+export const saveTheme = (theme: Theme): Promise<void> => api.setSetting('theme', theme)
+
 // Renk atanmamış değerler için string'den deterministik renk (hex — ColorPicker ile uyumlu)
 export function autoColor(seed: string): string {
   let hash = 0

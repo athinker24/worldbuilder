@@ -13,7 +13,9 @@ import {
   saveLanguage,
   saveMapModes,
   saveTemplates,
+  saveTheme,
   saveTypes,
+  Theme,
   TypeDef
 } from './api'
 import { confirmDialog } from './dialog'
@@ -24,13 +26,17 @@ interface Props {
   onChanged: () => void // tip listesi değişti → App yeniden yüklesin
   lang: Lang
   onLangChange: (l: Lang) => void
+  theme: Theme
+  onThemeChange: (th: Theme) => void
 }
 
 export default function Settings({
   types,
   onChanged,
   lang,
-  onLangChange
+  onLangChange,
+  theme,
+  onThemeChange
 }: Props): React.JSX.Element {
   const t = useT()
   const [newName, setNewName] = useState('')
@@ -125,6 +131,20 @@ export default function Settings({
         >
           <option value="en">English</option>
           <option value="tr">Türkçe</option>
+        </select>
+      </div>
+      <div className="field-row">
+        <span className="field-key">{t('Theme')}</span>
+        <select
+          value={theme}
+          onChange={(e) => {
+            const next = e.target.value as Theme
+            onThemeChange(next)
+            saveTheme(next)
+          }}
+        >
+          <option value="dark">{t('Dark')}</option>
+          <option value="light">{t('Light')}</option>
         </select>
       </div>
 
