@@ -36,6 +36,11 @@ interface Props {
   onLocateFeature?: (mapId: number, featureId: number) => void // harita geçmişinden çizime git
 }
 
+// Markdown'ın ÜRETTİĞİ bağlantı adreslerinde izin verilen şemalar. marked ham HTML'i değil ama
+// `[tıkla](javascript:…)` yazımını olduğu gibi <a href> içine koyuyor; tıklanınca kod renderer
+// bağlamında çalışırdı (window.api → tüm veritabanı). Paylaşılan bir .dunya bunu taşıyabileceği
+// için adres şeması beyaz listeye alınıyor — '#' wiki linklerinin kendi adresi.
+const SAFE_URL = /^(https?:|world:|mailto:|#)/i
 // [[Madde Adı]] → tıklanabilir wiki linki (markdown'dan önce dönüştürülür)
 // '<' önce kaçırılır: nota yazılan ham HTML (<img onerror=...> gibi) script olarak
 // çalışamaz — paylaşılan bir world.db'den gelen içerik de güvenli kalır.
@@ -46,7 +51,13 @@ function renderMarkdown(content: string): string {
       /\[\[([^\]]+)\]\]/g,
       (_, name: string) => `<a href="#" data-wiki="${name.replace(/"/g, '&quot;')}">${name}</a>`
     )
-  return marked.parse(withWiki, { async: false })
+  // Çıktıdaki TÜM etiketler marked'ın kendi ürettikleri (kullanıcının '<'leri yukarıda kaçırıldı),
+  // bu yüzden href/src üzerinde düz regex güvenli — kullanıcı metnine denk gelme ihtimali yok.
+  return marked
+    .parse(withWiki, { async: false })
+    .replace(/ (href|src)="([^"]*)"/gi, (m, attr: string, url: string) =>
+      SAFE_URL.test(url.trim()) ? m : ` ${attr}="#"`
+    )
 }
 
 // Sekmeli not bölgesi: fields['notlar'] JSON'unda durur (şema değişikliği yok, fields['üst'] deseni)
@@ -679,7 +690,10 @@ export default function EntityPage({
           className="content-edit"
           defaultValue={entity.content}
           key={`content-${entity.id}`}
-          onBlur={(e) => e.target.value !== entity.content && save({ content: e.target.value })}
+          onBlur={(e) => {
+            setWikiSug(null) // odak gidince öneri kutusu açık kalmasın
+            if (e.target.value !== entity.content) save({ content: e.target.value })
+          }}
           onInput={onNoteInput}
           onKeyDown={onNoteKeyDown}
           placeholder={t('Markdown content… link to other entities with [[Entity Name]].')}
@@ -762,6 +776,7 @@ export default function EntityPage({
                   key={`nb-${i}-${entity.updated_at}`}
                   style={n.height ? { height: n.height } : undefined}
                   onBlur={(e) => {
+                    setWikiSug(null) // odak gidince öneri kutusu açık kalmasın
                     if (e.target.value !== n.content)
                       saveNoteTabs(
                         notes.map((x, j) => (j === i ? { ...x, content: e.target.value } : x))

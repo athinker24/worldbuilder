@@ -86,8 +86,6 @@ const TR: Record<string, string> = {
   'File not found: {p}': 'Dosya bulunamadı: {p}',
   'Remove from list': 'Listeden çıkar',
   World: 'Dünya',
-  'Select an entity or map from the left, or search with Ctrl+K.':
-    'Soldan bir madde ya da harita seç, ya da Ctrl+K ile ara.',
   'Pick an entity or 🗺 Maps from the left, or search with Ctrl+K.':
     'Soldan bir madde ya da 🗺 Haritalar seç, ya da Ctrl+K ile ara.',
   'This entity is not marked on any map yet.': 'Bu madde henüz hiçbir haritada işaretli değil.',

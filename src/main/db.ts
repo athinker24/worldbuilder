@@ -129,8 +129,13 @@ export function unpackWorld(sourcePath: string): void {
     for (const row of db.prepare(`SELECT name, data FROM assets`).all() as {
       name: string
       data: Uint8Array
-    }[])
-      writeFileSync(join(assetsDir, row.name), row.data)
+    }[]) {
+      // .dunya PAYLAŞILAN bir dosya: gömülü ad güvenilmez girdi. basename olmadan
+      // `../../…` ya da `C:\…` biçiminde bir ad assets/ DIŞINA yazardı (dosya üzerine yazma).
+      // packWorld zaten yalnız basename yazar, bu yüzden kayıp yok.
+      const name = basename(row.name)
+      if (name && name !== '.' && name !== '..') writeFileSync(join(assetsDir, name), row.data)
+    }
     db.exec(`DROP TABLE assets`) // çalışma kopyası yalın kalsın (görseller diskte)
   }
   api.setSetting('worldFile', sourcePath)
@@ -825,6 +830,31 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.ok(
     !db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assets'`).get()
   )
+  // Kötü niyetli .dunya: gömülü görsel adı assets/ DIŞINA yazamamalı (paylaşılan dosya!)
+  {
+    const evil = join(dir, 'evil.dunya')
+    copyFileSync(dunya, evil)
+    const ev = new DatabaseSync(evil)
+    ev.exec(`CREATE TABLE IF NOT EXISTS assets (name TEXT PRIMARY KEY, data BLOB NOT NULL)`)
+    ev.prepare(`INSERT OR REPLACE INTO assets (name, data) VALUES (?, ?)`).run(
+      join('..', '..', 'kacti.png'),
+      Buffer.from([9])
+    )
+    // Referanslı olmalı, yoksa unpackWorld sonundaki pruneUnusedAssets onu silerdi ve
+    // "içeride kaldı" iddiası sınanamazdı
+    ev.prepare(`UPDATE entities SET fields = ? WHERE id = ?`).run(
+      JSON.stringify({ sancak: 'assets/kacti.png' }),
+      a.id
+    )
+    ev.close()
+    unpackWorld(evil)
+    // Adın işaret ettiği yer: assets/../../kacti.png (temp kökünün bir üstü) — orada OLMAMALI
+    assert.ok(
+      !existsSync(join(dir, 'assets', '..', '..', 'kacti.png')),
+      'gömülü ad assets/ dışına yazdı!'
+    )
+    assert.ok(existsSync(join(dir, 'assets', 'kacti.png'))) // basename'e indirgenip içeride kaldı
+  }
   // Boş açılış: içerik algılanır, reset sonrası db + assets bomboş
   assert.ok(hasContent())
   resetWorld()

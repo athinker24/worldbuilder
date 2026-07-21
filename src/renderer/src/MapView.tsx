@@ -2047,6 +2047,9 @@ export default function MapView({
         } else if (!shown && fg.hasLayer(l)) fg.removeLayer(l)
       }
     }
+    // Leaflet katmanı geri eklerken elemanı SIFIRDAN kuruyor (Marker._initIcon / Path._initPath)
+    // → seçim vurgusunun CSS sınıfı kayboluyordu. applyYear sonundakiyle aynı tazeleme.
+    markSelection()
   }
 
   const togglePinType = (ty: string): void => {
@@ -2171,6 +2174,10 @@ export default function MapView({
       const k = e.key.toLowerCase()
       if ((e.key === 'Delete' || e.key === 'Backspace') && has) {
         e.preventDefault()
+        // App'te de Del var (kenar çubuğunda seçili MADDELERİ siler). İkisi de window'a bağlı
+        // olduğu için haritada bir çizim seçiliyken Del HER İKİSİNİ birden siliyordu. Bu handler
+        // yakalama (capture) fazında kayıtlı → App'inkinden önce çalışır, burada zinciri keser.
+        e.stopImmediatePropagation()
         void removeFeature(...selIdsRef.current)
       } else if (e.ctrlKey && k === 'c' && has) copySelection()
       else if (e.ctrlKey && k === 'v' && getClipboard().length) {
@@ -2181,8 +2188,8 @@ export default function MapView({
         void duplicateSelection()
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true) // capture: App'in Del handler'ından önce
+    return () => window.removeEventListener('keydown', onKey, true)
   })
 
   // Esc: fetih akışını iptal et, seçim vurgularını temizle
@@ -2614,13 +2621,17 @@ export default function MapView({
       })
     }
     const items = styleEditRef.current.items
-    for (const it of items) {
-      it.latest = JSON.stringify({
-        ...(JSON.parse(it.latest || it.orig) as FeatureStyle),
-        ...patch
+    // Paralel: her çizimin yazımı bağımsız — çok seçimliyken kaydırıcı sürüklerken seri IPC
+    // gidiş-dönüşleri birikirdi (20 seçili = kaydırıcının her tikinde 20 sıralı tur).
+    await Promise.all(
+      items.map((it) => {
+        it.latest = JSON.stringify({
+          ...(JSON.parse(it.latest || it.orig) as FeatureStyle),
+          ...patch
+        })
+        return api.updateFeature(it.fid, { style: it.latest })
       })
-      await api.updateFeature(it.fid, { style: it.latest })
-    }
+    )
     setSelected({ ...selected, style: items[0].latest }) // items[0] = birincil (selIds sırası)
     await reloadFeatures()
   }
