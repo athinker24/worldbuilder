@@ -1,118 +1,119 @@
-# Dünya — Worldbuilding Uygulaması
+# Worldbuilder
 
-Kurgusal bir dünyanın haritasını, halklarını, devletlerini, dillerini, hanedanlarını ve tarihini
-tek bir yerde, **birbirine bağlı** biçimde tutan masaüstü uygulaması.
+A desktop app that keeps a fictional world's map, peoples, states, languages, dynasties and
+history in one place, all **linked together**.
 
-- İç içe geçen interaktif haritalar (kıta → şehir → bina), üzerine çizilen sınırlar ve pinler
-- Ansiklopedik maddeler: birbirine `[[bağlantı]]` verilebilen, serbest alanlı, şablonlanabilir
-- CK3 tarzı katmanlı siyasi hiyerarşi, yıl bazlı fetih ve sınır değişimi
-- Din/dil/kültür gibi **kendi tanımladığın** harita modları
-- Zaman çizgisi: yılı kaydırdıkça harita o güne döner
-- Hanedan ağaçları, diplomasi ağı, atlas istatistikleri
+- Nested interactive maps (continent → city → building) with borders and pins drawn on top
+- Encyclopedia-style articles: free-form fields, templates, `[[links]]` between them
+- CK3-style layered political hierarchy, year-based conquest and border changes
+- Map modes you **define yourself** — religion, language, culture, anything
+- A timeline: drag the year and the map returns to that day
+- Dynasty trees, a diplomacy web, atlas statistics
 
-Her şey sonradan yeniden adlandırılabilir, taşınabilir ya da silinebilir — sabit kategori yok.
-Tasarım gerekçeleri: [CLAUDE.md](CLAUDE.md).
+Everything can be renamed, moved or deleted later — no fixed categories.
+Design rationale: [CLAUDE.md](CLAUDE.md).
 
 ---
 
-## Kurulum (Windows)
+## Installing (Windows)
 
-[**Releases**](../../releases) sayfasından son sürümü indir. İki seçenek var, ikisi de aynı
-uygulamayı açar:
+Download the latest release from the [**Releases**](../../releases) page. Two options, both
+open the same app:
 
-| Dosya | Ne yapar |
+| File | What it does |
 | --- | --- |
-| **`Dunya-…-Setup.exe`** | Normal kurulum. Nereye kurulacağını sorar, masaüstü + Başlat menüsü kısayolu oluşturur, sonradan Ayarlar'dan kaldırılabilir. Yönetici hakkı istemez. |
-| **`Dunya-…-portable.zip`** | Kurulum yok. Bir klasöre çıkar, içindeki `Dünya.exe`'yi çalıştır. USB'de de taşınabilir. |
+| **`Worldbuilder-…-Setup.exe`** | A normal installer. Asks where to install, creates desktop + Start Menu shortcuts, uninstalls like any app. No administrator rights needed. |
+| **`Worldbuilder-…-portable.zip`** | No installation. Extract to a folder and run `Worldbuilder.exe` inside. Works from a USB stick too. |
 
-Her ikisinde de `.dunya` dosyalarına çift tıklayarak doğrudan o dünyayı açabilirsin.
+Either way, double-clicking a `.dunya` file opens that world directly.
 
-### "Windows bilgisayarınızı korudu" uyarısı
+### The "Windows protected your PC" warning
 
-`.exe`yi çalıştırınca Windows mavi bir uyarı gösterecek. **Bu bir virüs uyarısı değil.** Uygulama
-ücretli bir sertifikayla imzalanmadığı için çıkıyor; Windows tanımadığı her yayıncı için bunu
-gösterir. Geçmek için: **"Daha fazla bilgi" → "Yine de çalıştır"**. Dosya başına bir kez yeterli.
+Running the `.exe` will likely show a blue warning screen. **This is not a virus warning.** It
+appears because the app is not signed with a paid certificate; Windows shows it for any
+unrecognised publisher. To continue: **"More info" → "Run anyway"**. Once per file is enough.
 
-İmzasız bir `.exe` çalıştırmak istemiyorsan bu tamamen makul — aşağıdaki
-[kaynaktan derleme](#kaynaktan-derleme) adımlarıyla kodu inceleyip kendin derleyebilirsin.
+If you would rather not run an unsigned `.exe`, that is entirely reasonable — the
+[build from source](#building-from-source) steps below let you inspect the code and build it
+yourself.
 
 ---
 
-## Verilerin nerede
+## Where your data lives
 
-Yazdığın her şey **anında** şuraya kaydedilir:
+Everything you create is saved **instantly** to:
 
 ```
-Belgeler\Dünya\
-├── world.db      → tüm içerik (SQLite veritabanı)
-├── assets\       → eklediğin görseller (sancaklar, harita zeminleri)
-└── backups\      → otomatik günlük yedekler (30 gün saklanır)
+Documents\Worldbuilder\
+├── world.db      → all your content (a SQLite database)
+├── assets\       → images you add (banners, map backgrounds)
+└── backups\      → automatic daily backups (kept for 30 days)
 ```
 
-Bulut yok, hesap yok — her şey kendi bilgisayarında. Yedeklemek için bu klasörü kopyalaman yeterli.
+No cloud, no account — everything stays on your own computer. To back up, copy that folder.
 
-**`.dunya` dosyası** ise Photoshop'un `.psd`'si gibi: `Ctrl+S` ile dünyanın tamamını (görseller
-dahil) tek bir dosyaya paketler. Başkasına gönderebilir, başka bilgisayarda açabilirsin.
+A **`.dunya` file** is like Photoshop's `.psd`: `Ctrl+S` packs the whole world (images
+included) into a single file you can send to someone or open on another computer.
 
 ---
 
-## Kısayollar
+## Shortcuts
 
-| Kısayol | İşlev |
+| Shortcut | What it does |
 | --- | --- |
-| `Ctrl+K` | Her şeyde ara (palet) |
-| `Ctrl+S` / `Ctrl+Shift+S` | Kaydet / Farklı kaydet |
-| `Ctrl+O` | Dünya aç |
-| `Ctrl+Z` / `Ctrl+Y` | Geri al / Yinele |
-| `F1` | Kısayolların tam listesi |
-| `Ctrl`+tık | Haritada birden çok çizim seç |
-| `Ctrl+C` / `Ctrl+V` / `Ctrl+D` | Çizimi kopyala / yapıştır / çoğalt |
-| `Shift`+tekerlek | Seçili çizimin (ya da aktif aracın) boyutu |
-| `Alt+←` / `Alt+→` | Gezinme geçmişi |
+| `Ctrl+K` | Search everything (palette) |
+| `Ctrl+S` / `Ctrl+Shift+S` | Save world / Save as |
+| `Ctrl+O` | Open world |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
+| `F1` | The full shortcut list |
+| `Ctrl`+click | Select multiple drawings on the map |
+| `Ctrl+C` / `Ctrl+V` / `Ctrl+D` | Copy / paste / duplicate drawings |
+| `Shift`+wheel | Size of the selection (or the active tool's default) |
 
-Tamamı uygulama içindeki **⌨ Kısayollar** sayfasında.
-
----
-
-## Başkasından gelen `.dunya` dosyaları
-
-Dosyalar paylaşılmak için tasarlandı, bu yüzden içerikleri **güvenilmez girdi** kabul edilir:
-not içeriği HTML/JavaScript çalıştıramaz, gömülü görseller `assets\` klasörünün dışına yazamaz,
-bozuk veri uygulamayı kilitlemek yerine onarılır. Ayrıntı: CLAUDE.md'deki "Güvenlik sözleşmesi".
-
-Yine de: tanımadığın birinden gelen bir dosyaya, tanımadığın bir programa gösterdiğin şüpheyi göster.
+The complete list lives on the **⌨ Shortcuts** page inside the app.
 
 ---
 
-## Kaynaktan derleme
+## `.dunya` files from other people
 
-[Node.js](https://nodejs.org) 22 veya üzeri gerekir.
+The files are designed to be shared, so their contents are treated as **untrusted input**:
+note content cannot run HTML/JavaScript, embedded images cannot write outside the `assets\`
+folder, and corrupt data is repaired instead of locking the app up. Details: the "Security
+contract" section in CLAUDE.md.
+
+Still — give a file from a stranger the same suspicion you would give an unknown program.
+
+---
+
+## Building from source
+
+Requires [Node.js](https://nodejs.org) 22 or newer.
 
 ```bash
 npm install
-npm run dev          # geliştirme sunucusu (anında yenilemeli)
-npm run build:win    # dist/ altına kurulum + zip üretir
+npm run dev          # dev server with hot reload
+npm run build:win    # produces the installer + zip under dist/
 ```
 
-Diğer komutlar:
+Other commands:
 
 ```bash
-npm run typecheck    # tip denetimi
+npm run typecheck    # type checking
 npm run lint         # eslint
-node src/main/db.ts  # veritabanı self-check (şema + CRUD + undo + güvenlik assert'leri)
+node src/main/db.ts  # database self-check (schema + CRUD + undo + security asserts)
 ```
 
-Sürüm yayımlama: `git tag v1.0.1 && git push --tags` → GitHub Actions derleyip taslak bir
-Release'e kurulum ve zip'i ekler ([.github/workflows/release.yml](.github/workflows/release.yml)).
+Releasing: `git tag v1.0.1 && git push --tags` → GitHub Actions builds and attaches the
+installer and zip to a draft release ([.github/workflows/release.yml](.github/workflows/release.yml)).
 
 ---
 
-## Durum
+## Status
 
-Kişisel bir hobi projesi, sürekli gelişiyor. Bir şey bozuksa ya da tuhaf görünüyorsa
-[issue açabilirsin](../../issues).
+A personal hobby project, evolving continuously. If something breaks or looks wrong,
+[open an issue](../../issues).
 
-## Lisans
+## License
 
-Lisans **uygulamanın kodunu** kapsar. Uygulamayla ürettiğin dünya (`.dunya` dosyan, haritaların,
-maddelerin) tamamen sana aittir ve bu depoda yer almaz.
+The license covers **the application's code**. The world you build with it (your `.dunya`
+files, maps, articles) is entirely yours and is not part of this repository.

@@ -44,4 +44,4 @@ jobs:
         run: >
           gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME"
           --notes "Setup exe to install; portable zip to run without installing."
-          dist/Dunya-*-Setup.exe dist/Dunya-*-portable.zip
+          dist/Worldbuilder-*-Setup.exe dist/Worldbuilder-*-portable.zip
