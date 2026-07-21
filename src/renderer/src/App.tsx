@@ -22,6 +22,7 @@ import Kronoloji from './Kronoloji'
 import MapView from './MapView'
 import Palette from './Palette'
 import Settings from './Settings'
+import Shortcuts from './Shortcuts'
 import { redo, undo } from './undo'
 
 type View =
@@ -32,6 +33,7 @@ type View =
   | { kind: 'kronoloji' }
   | { kind: 'diplomasi' }
   | { kind: 'atlas' }
+  | { kind: 'shortcuts' }
 
 export default function App(): React.JSX.Element {
   const [entities, setEntities] = useState<EntityRow[]>([])
@@ -92,13 +94,24 @@ export default function App(): React.JSX.Element {
   }, [])
 
   const openEntity = useCallback((id: number): void => navigate({ kind: 'entity', id }), [navigate])
-  const openMap = useCallback((id: number): void => navigate({ kind: 'map', id }), [navigate])
+  // Her harita açılışı 'lastMapId'e yazılır (tüm geçişler — araç çubuğu menüsü dahil — buradan
+  // geçer) → uygulamaya/haritalara dönünce en son bakılan harita açılır. settings tablosunda
+  // olduğu için .dunya ile birlikte taşınır.
+  const openMap = useCallback(
+    (id: number): void => {
+      api.setSetting('lastMapId', String(id))
+      navigate({ kind: 'map', id })
+    },
+    [navigate]
+  )
 
-  // Kenar çubuğu "Haritalar" girişi: bir haritaya gir (ilk harita, yoksa oluştur). Haritalar arası
-  // geçiş artık harita araç çubuğundaki açılır menüden (kenar çubuğu listesi kaldırıldı).
+  // Kenar çubuğu "Haritalar" girişi: bir haritaya gir (son kullanılan, yoksa ilki, hiç yoksa
+  // oluştur). Haritalar arası geçiş harita araç çubuğundaki açılır menüden.
   const openMaps = useCallback(async (): Promise<void> => {
-    if (maps.length) openMap(maps[0].id)
-    else {
+    if (maps.length) {
+      const last = Number(await api.getSetting('lastMapId'))
+      openMap((maps.find((m) => m.id === last) ?? maps[0]).id)
+    } else {
       const { id } = await api.createMap({ name: translate(lang, 'New map') })
       await refresh()
       openMap(id)
@@ -134,21 +147,79 @@ export default function App(): React.JSX.Element {
   // Dünyayı .dunya dosyası olarak kaydet / dosyadan aç (Wonderdraft modeli).
   // Açma çalışma kopyasını ezer → kirliyse önce onay; sonra tam sayfa yeniden yükleme
   // (tüm ref/undo/state temiz başlar).
+  // Kısa bildirim (kaydetme onayı) — modal değil, kendi kaybolur. Ctrl+S'in gerçekten yazdığına
+  // dair görsel onay yoktu; otomatik kaydetme de aynı kanaldan haber veriyor.
+  const [toast, setToast] = useState<string | null>(null)
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const showToast = useCallback((msg: string): void => {
+    setToast(msg)
+    clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(null), 2200)
+  }, [])
+
   const saveWorld = useCallback(
-    (as = false): Promise<string | null> => (as ? api.saveWorldAs() : api.saveWorld()),
-    []
+    async (as = false): Promise<string | null> => {
+      const p = as ? await api.saveWorldAs() : await api.saveWorld()
+      if (p) showToast(translate(lang, 'Saved: {name}', { name: p.split(/[\\/]/).pop() ?? '' }))
+      return p
+    },
+    [showToast, lang]
   )
-  const openWorld = useCallback(async (): Promise<void> => {
-    const info = await api.worldInfo()
-    if (
-      info.dirty &&
-      !(await confirmDialog(
-        translate(lang, 'Opening another world will discard unsaved changes. Continue?')
-      ))
+
+  // Otomatik kaydetme (Photoshop/Krita deseni): açık bir .dunya varsa ve değişiklik olduysa
+  // sessizce paketle. Dosya YOKSA hiçbir şey yapılmaz — kaydetme iletişim kutusu açıp odak
+  // çalmak istenmiyor (kaydedilmemiş oturum zaten kapanışta backups/'a paketleniyor).
+  useEffect(() => {
+    const iv = setInterval(
+      async () => {
+        const info = await api.worldInfo()
+        if (!info.dirty || !info.file) return
+        await api.saveWorld()
+        showToast(translate(lang, 'Auto-saved'))
+      },
+      3 * 60 * 1000
     )
-      return
-    await api.openWorld() // yenilemeyi main yapar (webContents.reload — will-navigate engeline takılmaz)
+    return () => clearInterval(iv)
+  }, [showToast, lang])
+  // Çalışma kopyasını ezen her eylemin (aç / son kullanılanı aç / yeni) ortak kapısı
+  const discardOk = useCallback(async (): Promise<boolean> => {
+    const info = await api.worldInfo()
+    return (
+      !info.dirty ||
+      (await confirmDialog(translate(lang, 'This will discard unsaved changes. Continue?')))
+    )
   }, [lang])
+  const openWorld = useCallback(async (): Promise<void> => {
+    if (!(await discardOk())) return
+    await api.openWorld() // yenilemeyi main yapar (webContents.reload — will-navigate engeline takılmaz)
+  }, [discardOk])
+
+  // Başlangıç ekranı (Photoshop/Krita): son kullanılan .dunya dosyaları. Liste userData'da
+  // tutulur — çalışma kopyası her açılışta sıfırlandığı için settings'te yaşayamaz.
+  // worldFile: bir dünya açıkken başlangıç ekranı gösterilmez (Photoshop'ta da "home" yalnız
+  // belge yokken) — boş görünüm sade ipucuna döner.
+  const [recent, setRecent] = useState<{ path: string; name: string; missing: boolean }[]>([])
+  const [worldFile, setWorldFile] = useState<string | null>(null)
+  useEffect(() => {
+    api.recentWorlds().then(setRecent)
+    api.worldInfo().then((w) => setWorldFile(w.file))
+  }, [])
+  const openRecent = useCallback(
+    async (path: string): Promise<void> => {
+      if (!(await discardOk())) return
+      if (await api.openRecent(path)) return // main yeniden yükler
+      await alertDialog(translate(lang, 'File not found: {p}', { p: path }))
+      setRecent(await api.recentWorlds()) // 'missing' işaretini tazele
+    },
+    [discardOk, lang]
+  )
+  const forgetRecent = useCallback(async (path: string): Promise<void> => {
+    await api.forgetRecent(path)
+    setRecent(await api.recentWorlds())
+  }, [])
+  const newWorld = useCallback(async (): Promise<void> => {
+    if (await discardOk()) await api.newWorld() // main sıfırlar + yeniden yükler
+  }, [discardOk])
 
   // Global kısayollar: Ctrl+K palet, Ctrl+S kaydet, Ctrl+O aç, Ctrl+Z geri al, Alt+←/→ geçmiş
   useEffect(() => {
@@ -164,6 +235,9 @@ export default function App(): React.JSX.Element {
       } else if (e.ctrlKey && e.key.toLowerCase() === 'o') {
         e.preventDefault()
         openWorld()
+      } else if (e.key === 'F1') {
+        e.preventDefault()
+        setView({ kind: 'shortcuts' })
       } else if (e.key === 'Escape') {
         setPalette(false)
       } else if (
@@ -366,6 +440,12 @@ export default function App(): React.JSX.Element {
           >
             {t('📊 Atlas')}
           </div>
+          <div
+            className={`side-item settings-btn ${view.kind === 'shortcuts' ? 'active' : ''}`}
+            onClick={() => setView({ kind: 'shortcuts' })}
+          >
+            {t('⌨ Shortcuts')}
+          </div>
           <div className="side-item settings-btn" onClick={() => setView({ kind: 'settings' })}>
             {t('⚙ Settings')}
           </div>
@@ -373,8 +453,44 @@ export default function App(): React.JSX.Element {
 
         <div className="main">
           {view.kind === 'empty' && (
-            <div className="empty-state">
+            <div className="empty-state start-screen">
               <h2>{t('World')}</h2>
+              {!worldFile && (
+                <>
+                  <div className="start-actions">
+                    <button onClick={newWorld}>{t('＋ New world')}</button>
+                    <button onClick={openWorld}>{t('📂 Open…')}</button>
+                  </div>
+                  <h4>{t('Recent')}</h4>
+                  {recent.length === 0 ? (
+                    <p>{t('No recent worlds yet — save one with Ctrl+S.')}</p>
+                  ) : (
+                    <ul className="recent-list">
+                      {recent.map((r) => (
+                        <li key={r.path} className={r.missing ? 'missing' : undefined}>
+                          <button
+                            className="recent-open"
+                            title={r.path}
+                            onClick={() => openRecent(r.path)}
+                          >
+                            <span className="recent-name">{r.name}</span>
+                            <span className="recent-path">
+                              {r.missing ? t('file not found') : r.path}
+                            </span>
+                          </button>
+                          <button
+                            className="recent-x"
+                            title={t('Remove from list')}
+                            onClick={() => forgetRecent(r.path)}
+                          >
+                            ×
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
               <p>{t('Pick an entity or 🗺 Maps from the left, or search with Ctrl+K.')}</p>
             </div>
           )}
@@ -426,8 +542,10 @@ export default function App(): React.JSX.Element {
           )}
           {view.kind === 'diplomasi' && <Diplomasi types={types} onOpenEntity={openEntity} />}
           {view.kind === 'atlas' && <Atlas onOpenEntity={openEntity} />}
+          {view.kind === 'shortcuts' && <Shortcuts />}
         </div>
 
+        {toast && <div className="toast">{toast}</div>}
         {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
         {palette && (
           <Palette

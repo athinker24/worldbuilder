@@ -116,6 +116,15 @@ export default function EntityPage({
     { id: number; map_id: number; style: string; map_name: string }[]
   >([])
 
+  // [[ tamamlama önerisi (aşağıdaki onNoteInput/applyWiki kullanır)
+  // Metin kutusu STATE'te DEĞİL ref'te: state'te tutulsa `el.value = …` yazımı "render sonrası
+  // state mutasyonu" sayılıyor (react-hooks/immutability). State yalnız konum + sorgu taşır.
+  const sugEl = useRef<HTMLTextAreaElement | null>(null)
+  const [wikiSug, setWikiSug] = useState<{ start: number; q: string; x: number; y: number } | null>(
+    null
+  )
+  const [sugIdx, setSugIdx] = useState(0)
+
   // Madde şablonları (settings 'templates') — uygula + bu sayfayı şablon olarak kaydet
   const [tpls, setTpls] = useState<EntityTemplate[]>([])
   const [tplDraft, setTplDraft] = useState<string | null>(null) // "şablon olarak kaydet" adı formu
@@ -425,6 +434,55 @@ export default function EntityPage({
     if (!tags.includes(t)) saveTags([...tags, t])
   }
 
+  // --- [[ ile madde adı tamamlama (Obsidian deseni) ---
+  // Textarea'lar bilinçli olarak UNCONTROLLED (defaultValue + onBlur kaydı; kontrollü yapmak
+  // tüm not düzenleme yolunu ve yükseklik kaydını değiştirirdi) → ekleme doğrudan DOM'a yazılır.
+  // Öneri kutusu textarea'nın ALTINA çapalanır: imleç konumunu piksele çevirmek için ayna div
+  // gerekirdi, kutunun altı bu iş için yeterince iyi.
+  const sugList = wikiSug
+    ? allEntities.filter((e) => e.name.toLowerCase().includes(wikiSug.q.toLowerCase())).slice(0, 8)
+    : []
+  // İmleçten geriye en yakın "[[" — arada "]]" varsa bağlantı zaten kapanmış, öneri yok
+  const onNoteInput = (e: React.FormEvent<HTMLTextAreaElement>): void => {
+    const el = e.currentTarget
+    const before = el.value.slice(0, el.selectionStart)
+    const open = before.lastIndexOf('[[')
+    const q = open < 0 ? '' : before.slice(open + 2)
+    if (open < 0 || before.includes(']]', open) || q.includes('\n')) {
+      setWikiSug(null)
+      return
+    }
+    const r = el.getBoundingClientRect()
+    sugEl.current = el
+    setSugIdx(0)
+    setWikiSug({ start: open, q, x: r.left, y: Math.min(r.bottom, window.innerHeight - 220) })
+  }
+  const applyWiki = (name: string): void => {
+    const s = wikiSug
+    const el = sugEl.current
+    if (!s || !el) return
+    el.value = `${el.value.slice(0, s.start)}[[${name}]]${el.value.slice(el.selectionStart)}`
+    const caret = s.start + name.length + 4
+    el.setSelectionRange(caret, caret)
+    el.focus()
+    setWikiSug(null)
+  }
+  const onNoteKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (!wikiSug) return
+    if (e.key === 'Escape') setWikiSug(null)
+    else if (!sugList.length) return
+    else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setSugIdx((i) => (i + 1) % sugList.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setSugIdx((i) => (i - 1 + sugList.length) % sugList.length)
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault()
+      applyWiki(sugList[Math.min(sugIdx, sugList.length - 1)].name)
+    }
+  }
+
   const handleWikiClick = async (e: React.MouseEvent): Promise<void> => {
     const target = (e.target as HTMLElement).closest('a[data-wiki]')
     if (!target) return
@@ -622,6 +680,8 @@ export default function EntityPage({
           defaultValue={entity.content}
           key={`content-${entity.id}`}
           onBlur={(e) => e.target.value !== entity.content && save({ content: e.target.value })}
+          onInput={onNoteInput}
+          onKeyDown={onNoteKeyDown}
           placeholder={t('Markdown content… link to other entities with [[Entity Name]].')}
         />
       ) : (
@@ -724,6 +784,8 @@ export default function EntityPage({
                       )
                     noteResizeStart.current = null
                   }}
+                  onInput={onNoteInput}
+                  onKeyDown={onNoteKeyDown}
                   placeholder={t('Markdown content… link to other entities with [[Entity Name]].')}
                 />
               ) : (
@@ -1217,6 +1279,25 @@ export default function EntityPage({
               </div>
             ))}
           </>
+        )}
+
+        {/* [[ tamamlama önerileri. onMouseDown preventDefault ŞART: tıklama textarea'yı blur
+            ederse onBlur eski metni kaydeder, remount olur ve eklemeyi geri alırdı. */}
+        {wikiSug && sugList.length > 0 && (
+          <div className="wiki-sug" style={{ left: wikiSug.x, top: wikiSug.y }}>
+            {sugList.map((en, i) => (
+              <button
+                key={en.id}
+                type="button"
+                className={i === Math.min(sugIdx, sugList.length - 1) ? 'active' : undefined}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => applyWiki(en.name)}
+              >
+                {en.name}
+                {en.type && <span className="wiki-sug-type">{en.type}</span>}
+              </button>
+            ))}
+          </div>
         )}
 
         {/* Üst/Yönetici/Aile/İlişkiler formları hangi sekme açık olursa olsun bu listeyi kullanır */}

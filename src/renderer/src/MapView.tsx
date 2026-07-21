@@ -108,6 +108,17 @@ interface FeatureLayer extends L.Layer {
   isCurveControl?: boolean
 }
 
+// geoman'ın çizim örneğinin (map.pm.Draw.Marker/Line/Polygon) tiplenmemiş iç alanları —
+// açık bir çizim oturumunu YENİDEN KURMADAN stilini güncellemek için gerekli (bkz.
+// updateDrawSettings). Yalnız kullandığımız alanlar.
+interface DrawInstance {
+  enabled?: () => boolean
+  setOptions?: (o: { markerStyle?: L.MarkerOptions }) => void
+  setPathOptions?: (o: L.PathOptions) => void
+  _hintMarker?: L.Marker
+  _layer?: { setStyle?: (o: L.PathOptions) => void }
+}
+
 // Pin = renkli yuvarlak rozet + içinde beyaz kartografik ikon (divIcon). Merkez çapa: rozet
 // noktanın üstünde ortalı. Taban çap PIN_BASE; zoom'la ölçekleme updateOverlaySizes'ta.
 const PIN_BASE = 28
@@ -159,6 +170,17 @@ const LABEL_MIN = 5
 const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 // textPath'in href'i belge genelinde çözülür → her etiketin yol id'si benzersiz olmalı
 let labelSeq = 0
+// Çizim panosu (Ctrl+C/V). MODÜL düzeyinde: MapView harita geçişinde remount oluyor
+// (App'te key={`m-${id}`}) — component ref'i olsaydı pano harita değişince silinirdi ve
+// haritalar arası yapıştırma imkânsız olurdu.
+type ClipItem = { geometry: string; style: string; entity_id: number | null }
+let clipboard: ClipItem[] = []
+// Yazma/okuma MODÜL düzeyinde fonksiyonla: react-hooks/immutability bileşen içinden dış
+// değişkene yazmayı (haklı olarak) engelliyor — pano render'a girmiyor, state olması gereksiz.
+const setClipboard = (v: ClipItem[]): void => {
+  clipboard = v
+}
+const getClipboard = (): ClipItem[] => clipboard
 const labelDivIcon = (s: {
   text?: string
   color?: string
@@ -472,6 +494,18 @@ export default function MapView({
   const worldMapRef = useRef<WorldMap | null>(null) // handler'lar (navigasyon) güncel feature'ları görsün
   const [selected, setSelected] = useState<Feature | null>(null)
   const selectedRef = useRef<Feature | null>(null) // edit modu handler'ları güncel seçimi görsün
+  // Çoklu seçim (Ctrl+tık): EK seçilen çizim id'leri. `selected` BİRİNCİL kalır — panel onun
+  // kontrollerini gösterir, düzenlemeler seçilinin tamamına uygulanır. Ctrl bilinçli tercih
+  // (Shift+tekerlek zaten boyut ayarında). Sıra: birincil her zaman başta.
+  const [extraSel, setExtraSel] = useState<number[]>([])
+  const selIds = selected ? [selected.id, ...extraSel.filter((x) => x !== selected.id)] : []
+  const selIdsRef = useRef<number[]>([])
+  const markedSel = useRef<number[]>([]) // en son vurgulananlar (fark uygulansın, tüm katman taranmasın)
+  const lastMouse = useRef<L.LatLng | null>(null) // Ctrl+V hedefi (imlecin son harita konumu)
+  const clearSel = (): void => {
+    setSelected(null)
+    setExtraSel([])
+  }
   const [allEntities, setAllEntities] = useState<EntityRow[]>([])
   // Kişi maddeleri haritaya bağlanamaz (bkz. EntityPage — aile/hanedan alanları içindir)
   const personTypeNames = types.filter((ty) => ty.isPerson).map((ty) => ty.name)
@@ -682,7 +716,7 @@ export default function MapView({
     endMeasure()
     setConquest(null) // çakışan oturum kalmasın
     endNav()
-    setSelected(null)
+    clearSel()
     setNav({ step: 'a' })
   }
   // Özel pin görselleri kütüphanesi (settings 'pinImages', global — travelModes deseni)
@@ -840,6 +874,70 @@ export default function MapView({
     syncEditMode()
   }, [selected, tool])
 
+  // geoman'ın çizim örneğine tek erişim noktası (tiplenmemiş iç alanlar için, bkz. DrawInstance)
+  const drawInst = (shape: string): DrawInstance | undefined =>
+    (mapRef.current?.pm.Draw as unknown as Record<string, DrawInstance | undefined> | undefined)?.[
+      shape
+    ]
+
+  // Etiket ÖNİZLEMESİ (geoman'ın ipucu marker'ı): labelDivIcon boyutu html'e gömmez — fontSize
+  // dışarıdan yazılır (updateOverlaySizes deseni, tasarım uzayı font-size=100). İpucu marker'ı
+  // featureGroup'ta olmadığı için o yazımı kimse yapmıyordu: boyut/font değişimi yerleştirene
+  // kadar önizlemede görünmüyordu. Aynı formül, tek style yazımı (DOM ölçümü yok).
+  const styleHintLabel = (scale: number): void => {
+    const el = (drawInst('Marker')?._hintMarker as unknown as { _icon?: HTMLElement } | undefined)
+      ?._icon
+    if (!el) return
+    const l = drawRef.current.label
+    el.style.fontSize = `${LABEL_BASE * (l.size ?? 1) * scale}px`
+    el.style.fontFamily = `'${l.font}', serif`
+  }
+
+  // Aktif çizim aracına drawRef.current'i uygula (araç açılışı + ayar değişimi ortak yolu).
+  // Çizim ZATEN açıksa enableDraw'u YENİDEN çağırma: geoman enable() ipucu marker'ını
+  // `L.marker(map.getCenter())` ile sıfırdan doğuruyor — boyut ayarında önizleme harita ortasına
+  // sıçrıyordu (poligon/yolda da başlanmış köşeleri siler). Açıksa stil yerinde yazılır.
+  const applyDrawStyle = (): void => {
+    const map = mapRef.current
+    const tl = toolRef.current
+    if (!map || (tl !== 'polygon' && tl !== 'line' && tl !== 'marker' && tl !== 'label')) return
+    const s = drawRef.current
+    const shape = tl === 'polygon' ? 'Polygon' : tl === 'line' ? 'Line' : 'Marker'
+    const inst = drawInst(shape)
+    const live = inst?.enabled?.() ?? false
+    if (tl === 'marker' || tl === 'label') {
+      const icon = tl === 'marker' ? pinDivIcon(s.marker) : labelDivIcon(s.label)
+      if (live) {
+        inst?.setOptions?.({ markerStyle: { icon } })
+        inst?._hintMarker?.setIcon(icon)
+      } else map.pm.enableDraw('Marker', { markerStyle: { icon } })
+      if (tl === 'label') styleHintLabel(2 ** map.getZoom())
+      return
+    }
+    const pathOptions =
+      tl === 'polygon'
+        ? {
+            color: s.polygon.color,
+            fillColor: s.polygon.fillImg
+              ? `url(#${fillPatternId(s.polygon.fillImg)})`
+              : s.polygon.color,
+            fillOpacity: s.polygon.fillOpacity,
+            weight: s.polygon.weight
+          }
+        : {
+            color: s.line.color,
+            weight: s.line.weight,
+            opacity: s.line.opacity,
+            dashArray: lineDashArray(s.line.dash, s.line.weight),
+            lineCap: 'round' as const,
+            fill: false
+          }
+    if (live) {
+      inst?.setPathOptions?.(pathOptions)
+      inst?._layer?.setStyle?.(pathOptions)
+    } else map.pm.enableDraw(shape, { pathOptions })
+  }
+
   // Tüm geoman modlarını kapatıp istenen aracı aç; aynı araca ikinci basış kapatır
   const activateTool = (t: Tool): void => {
     const map = mapRef.current
@@ -858,34 +956,8 @@ export default function MapView({
     toolRef.current = t
     setToolState(t)
     syncEditMode() // edit'e girildiyse seçiliyi aç, başka araca geçildiyse eski edit'i kapat
-    const s = drawRef.current
-    if (t === 'polygon')
-      map.pm.enableDraw('Polygon', {
-        pathOptions: {
-          color: s.polygon.color,
-          fillColor: s.polygon.fillImg
-            ? `url(#${fillPatternId(s.polygon.fillImg)})`
-            : s.polygon.color,
-          fillOpacity: s.polygon.fillOpacity,
-          weight: s.polygon.weight
-        }
-      })
-    else if (t === 'line')
-      map.pm.enableDraw('Line', {
-        pathOptions: {
-          color: s.line.color,
-          weight: s.line.weight,
-          opacity: s.line.opacity,
-          dashArray: lineDashArray(s.line.dash, s.line.weight),
-          lineCap: 'round',
-          fill: false
-        }
-      })
-    else if (t === 'marker')
-      map.pm.enableDraw('Marker', { markerStyle: { icon: pinDivIcon(s.marker) } })
-    else if (t === 'label')
-      // önizleme gerçek metni gösterir (panelden girilen text/renk/açı)
-      map.pm.enableDraw('Marker', { markerStyle: { icon: labelDivIcon(s.label) } })
+    // önizleme gerçek ayarları gösterir (metin/renk/boyut/açı) — ayar değişimiyle ortak yol
+    if (t === 'polygon' || t === 'line' || t === 'marker' || t === 'label') applyDrawStyle()
     // 'scale' / 'nav': geoman modu yok — ayar dalı panelde açılır, oturumlar oradan başlatılır
     // 'edit': global mod yok — syncEditMode yalnız seçili çizimi düzenlenebilir yaptı (yukarıda)
     else if (t === 'drag') map.pm.enableGlobalDragMode()
@@ -897,34 +969,7 @@ export default function MapView({
     drawRef.current = s
     setDrawSettingsState(s)
     api.setSetting('drawSettings', JSON.stringify(s))
-    const map = mapRef.current
-    if (!map) return
-    if (toolRef.current === 'polygon')
-      map.pm.enableDraw('Polygon', {
-        pathOptions: {
-          color: s.polygon.color,
-          fillColor: s.polygon.fillImg
-            ? `url(#${fillPatternId(s.polygon.fillImg)})`
-            : s.polygon.color,
-          fillOpacity: s.polygon.fillOpacity,
-          weight: s.polygon.weight
-        }
-      })
-    else if (toolRef.current === 'line')
-      map.pm.enableDraw('Line', {
-        pathOptions: {
-          color: s.line.color,
-          weight: s.line.weight,
-          opacity: s.line.opacity,
-          dashArray: lineDashArray(s.line.dash, s.line.weight),
-          lineCap: 'round',
-          fill: false
-        }
-      })
-    else if (toolRef.current === 'marker')
-      map.pm.enableDraw('Marker', { markerStyle: { icon: pinDivIcon(s.marker) } })
-    else if (toolRef.current === 'label')
-      map.pm.enableDraw('Marker', { markerStyle: { icon: labelDivIcon(s.label) } })
+    applyDrawStyle()
   }
 
   // Etiket ve pin'leri haritaya "yapıştır": ekran boyutu = taban (harita birimi) × zoom ölçeği.
@@ -982,30 +1027,117 @@ export default function MapView({
       const el = (d.m as unknown as { _icon?: HTMLElement })._icon
       if (el) el.style.fontSize = `${d.base * scale}px`
     }
+    // açık etiket önizlemesi (ipucu marker'ı da featureGroup dışında) — zoom'da onunla ölçeklensin
+    if (toolRef.current === 'label') styleHintLabel(scale)
   }
 
-  // Sil + geri alma kaydı; hem geoman silme modu hem sağ tık menüsü kullanır
-  const removeFeature = async (fid: number): Promise<void> => {
-    const row = (await api.getMap(id))?.features.find((f) => f.id === fid)
-    await api.deleteFeature(fid)
-    if (row) {
-      const ref = { id: fid }
-      pushUndo({
-        undo: async () => {
-          ref.id = (
+  // Sil + geri alma kaydı; geoman silme modu, sağ tık menüsü ve Del tuşu kullanır.
+  // Birden çok id verilirse TEK undo kaydı (çoklu seçimde silme tek adımda geri alınır).
+  const removeFeature = async (...fids: number[]): Promise<void> => {
+    const all = (await api.getMap(id))?.features ?? []
+    const rows = fids.map((fid) => all.find((f) => f.id === fid)).filter((r) => r !== undefined)
+    for (const fid of fids) await api.deleteFeature(fid)
+    if (rows.length) {
+      // Silinip yeniden oluşturulan kayıt YENİ id alır → kimlik mutable ref'te tutulur (undo deseni)
+      const refs = rows.map((r) => ({ id: r.id, row: r }))
+      const recreate = async (): Promise<void> => {
+        for (const r of refs)
+          r.id = (
             await api.createFeature({
               map_id: id,
-              entity_id: row.entity_id ?? undefined,
-              geometry: row.geometry,
-              style: row.style
+              entity_id: r.row.entity_id ?? undefined,
+              geometry: r.row.geometry,
+              style: r.row.style
             })
           ).id
-        },
-        redo: () => api.deleteFeature(ref.id)
+      }
+      pushUndo({
+        undo: recreate,
+        redo: async () => {
+          for (const r of refs) await api.deleteFeature(r.id)
+        }
       })
     }
-    setSelected(null)
+    clearSel()
     await reloadFeatures()
+  }
+
+  // --- Kopyala / yapıştır / çoğalt (Ctrl+C / Ctrl+V / Ctrl+D) ---
+  // Pano MODÜL düzeyinde: MapView harita geçişinde remount oluyor (key={m-id}), ref olsaydı
+  // kopyalanan çizim harita değişince kaybolurdu — haritalar arası yapıştırma bu sayede çalışır.
+  const copySelection = (): void => {
+    const feats = worldMapRef.current?.features ?? []
+    setClipboard(
+      selIdsRef.current
+        .map((fid) => feats.find((f) => f.id === fid))
+        .filter((f) => f !== undefined)
+        .map((f) => ({ geometry: f.geometry, style: f.style, entity_id: f.entity_id }))
+    )
+  }
+  // GeoJSON koordinatlarını kaydır (Point/LineString/Polygon — iç içe dizi derinliği fark etmez)
+  const shiftCoords = (c: unknown, dx: number, dy: number): unknown =>
+    typeof (c as number[])[0] === 'number'
+      ? [(c as number[])[0] + dx, (c as number[])[1] + dy]
+      : (c as unknown[]).map((k) => shiftCoords(k, dx, dy))
+  const eachPoint = (c: unknown, fn: (p: number[]) => void): void => {
+    if (typeof (c as number[])[0] === 'number') fn(c as number[])
+    else (c as unknown[]).forEach((k) => eachPoint(k, fn))
+  }
+  // Panodakileri bu haritaya yapıştır: grubun ortası imlecin altına gelir (imleç yoksa +8 birim
+  // kaydırma — Ctrl+D çoğaltmanın da yolu bu). Yeni çizimler AKTİF zemine etiketlenir.
+  const pasteClipboard = async (atCursor: boolean): Promise<void> => {
+    const items = getClipboard()
+    if (!items.length) return
+    let minX = Infinity,
+      maxX = -Infinity,
+      minY = Infinity,
+      maxY = -Infinity
+    for (const it of items)
+      eachPoint(JSON.parse(it.geometry).coordinates, (p) => {
+        minX = Math.min(minX, p[0])
+        maxX = Math.max(maxX, p[0])
+        minY = Math.min(minY, p[1])
+        maxY = Math.max(maxY, p[1])
+      })
+    const cur = atCursor ? lastMouse.current : null
+    const dx = cur ? cur.lng - (minX + maxX) / 2 : 8
+    const dy = cur ? cur.lat - (minY + maxY) / 2 : -8
+    const active = boardsRef.current.list.length ? boardsRef.current.active : undefined
+    const make = async (): Promise<number[]> => {
+      const out: number[] = []
+      for (const it of items) {
+        const g = JSON.parse(it.geometry)
+        const style = { ...(JSON.parse(it.style || '{}') as FeatureStyle) }
+        if (active) style.board = active
+        const { id: nid } = await api.createFeature({
+          map_id: id,
+          entity_id: it.entity_id ?? undefined,
+          geometry: JSON.stringify({ ...g, coordinates: shiftCoords(g.coordinates, dx, dy) }),
+          style: JSON.stringify(style)
+        })
+        out.push(nid)
+      }
+      return out
+    }
+    const ref = { ids: await make() }
+    pushUndo({
+      undo: async () => {
+        for (const nid of ref.ids) await api.deleteFeature(nid)
+      },
+      redo: async () => {
+        ref.ids = await make()
+      }
+    })
+    await reloadFeatures()
+    const fresh = (await api.getMap(id))?.features ?? []
+    setSelected(fresh.find((f) => f.id === ref.ids[0]) ?? null)
+    setExtraSel(ref.ids.slice(1))
+  }
+  const duplicateSelection = async (): Promise<void> => {
+    const keep = getClipboard()
+    copySelection()
+    await pasteClipboard(false) // çoğaltma imleçten bağımsız: sabit kaydırma
+    setClipboard(keep) // Ctrl+D panoyu bozmasın
   }
 
   // Sınır evrimi: çizimi slider'ın yılından başlayan bir kopyaya çatalla, eskisini yıl-1'de kapat.
@@ -1321,7 +1453,7 @@ export default function MapView({
             layer.bindTooltip(f.entity_name, { sticky: true })
           }
         }
-        layer.on('click', () => {
+        layer.on('click', (ev) => {
           if (measureRef.current) return // ölçüm oturumu: tıklama harita handler'ına düşer
           // 🧭 Navigasyon: tıklamalar başlangıç/varış pini seçimidir
           const nv = navRef.current
@@ -1364,7 +1496,14 @@ export default function MapView({
             highlightPicked(picked)
             return
           }
+          // Ctrl+tık: seçime ekle/çıkar (birincil değişmez → panel aynı kontrolleri gösterir)
+          if ((ev as L.LeafletMouseEvent).originalEvent?.ctrlKey && selectedRef.current) {
+            if (f.id !== selectedRef.current.id)
+              setExtraSel((e) => (e.includes(f.id) ? e.filter((x) => x !== f.id) : [...e, f.id]))
+            return
+          }
           setSelected(f)
+          setExtraSel([])
         })
         // saveGeometry iki aşamalı: (1) snapshotUpdates SENKRON çalışır — katman geometrilerini ve
         // weldTouched'ı pm:update anında yakalar+temizler (ertelense sonraki gesture ile karışırdı);
@@ -1639,6 +1778,22 @@ export default function MapView({
   // Yıl uygulaması: (1) yıl aralığı dışındaki çizimleri gizle/geri getir, (2) kademe modunda
   // taban poligonları o yılki kademe atasının rengine, (3) varsayılan görünümde zincir tepesinin
   // rengine boya + kök etiketlerini yerleştir. Slider'ın her tikinde yalnız bu çalışır — DB yok.
+  // Seçim vurgusu: setStyle DEĞİL CSS sınıfı (`.sel-feature` = drop-shadow). Stil yazılsaydı
+  // poligonun rengi vurguyla ezilir, kullanıcı panelden renk değiştirirken sonucu göremezdi.
+  // getElement() hem Path (SVG) hem Marker (divIcon) için çalışır. applyYear katmanları yeniden
+  // kurduğu için sonunda tekrar çağrılır; fark uygulanır (tüm katmanlar taranmaz).
+  const markSelection = (): void => {
+    const cls = (fid: number, on: boolean): void => {
+      for (const l of allLayers.current.get(fid) ?? [])
+        (l as { getElement?: () => Element | null | undefined })
+          .getElement?.()
+          ?.classList.toggle('sel-feature', on)
+    }
+    for (const fid of markedSel.current) cls(fid, false)
+    markedSel.current = selIdsRef.current
+    for (const fid of selIdsRef.current) cls(fid, true)
+  }
+
   const applyYear = (year: number, reposition = false): void => {
     yearRef.current = year
     const fg = featureGroupRef.current
@@ -1793,7 +1948,16 @@ export default function MapView({
     }
     rebuildDerivedLabels(year, rungOwnerAt) // mod yoksa kendini temizler
     updateOverlaySizes(reposition) // geri eklenen etiket/pin boyutları güncel zoom'a otursun
+    markSelection() // katmanlar yeniden kuruldu → seçim vurgusunu geri yaz
   }
+
+  // Seçim değişince vurguyu tazele (ref + DOM sınıfı). applyYear çağrılmaz — vurgu artık stil
+  // değil sınıf, katmanlara dokunmaya gerek yok.
+  useEffect(() => {
+    selIdsRef.current = selIds
+    markSelection()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selIds.join(',')])
 
   // Katman panelini settings'ten yükle (kalıcı tercih); toggle anında DB'siz uygular
   useEffect(() => {
@@ -1994,23 +2158,32 @@ export default function MapView({
           (ly as L.Path).setStyle?.({ color: '#ffffff', weight: 4, dashArray: '6' })
   }
 
-  // Del/Backspace: seçili çizimi sil (bir girdi alanına yazarken değil)
+  // Çizim kısayolları: Del/Backspace sil, Ctrl+C kopyala, Ctrl+V imlecin altına yapıştır,
+  // Ctrl+D çoğalt — hepsi ÇOKLU seçimle çalışır. Girdi alanına yazarken hiçbiri tetiklenmez.
+  // Bare effect (dep dizisi yok): handler'lar her render tazelenir, bayat closure olmaz.
   useEffect(() => {
-    if (!selected) return
     const onKey = (e: KeyboardEvent): void => {
       const target = e.target as HTMLElement
       const typing =
         target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
       if (typing) return
-      if (e.key === 'Delete' || e.key === 'Backspace') {
+      const has = selIdsRef.current.length > 0
+      const k = e.key.toLowerCase()
+      if ((e.key === 'Delete' || e.key === 'Backspace') && has) {
         e.preventDefault()
-        removeFeature(selected.id)
+        void removeFeature(...selIdsRef.current)
+      } else if (e.ctrlKey && k === 'c' && has) copySelection()
+      else if (e.ctrlKey && k === 'v' && getClipboard().length) {
+        e.preventDefault()
+        void pasteClipboard(true)
+      } else if (e.ctrlKey && k === 'd' && has) {
+        e.preventDefault() // tarayıcı "yer imi ekle"
+        void duplicateSelection()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id])
+  })
 
   // Esc: fetih akışını iptal et, seçim vurgularını temizle
   useEffect(() => {
@@ -2167,6 +2340,12 @@ export default function MapView({
     const fg = new L.FeatureGroup()
     featureGroupRef.current = fg
     map.addLayer(fg)
+
+    // Ctrl+V yapıştırmanın hedefi: imlecin son harita konumu (React state'e girmez — her hareket
+    // re-render olurdu; yalnız yapıştırma anında okunur)
+    map.on('mousemove', (e: L.LeafletMouseEvent) => {
+      lastMouse.current = e.latlng
+    })
 
     map.on('zoom zoomend', () => {
       refreshZoomVis() // zoom-sınırlı pin/etiketleri güncel zoom'a göre aç/kapat (boyutlamadan önce)
@@ -2326,7 +2505,7 @@ export default function MapView({
       drawRef.current = s
       setDrawSettingsState(s)
     })
-    setSelected(null)
+    clearSel()
 
     return () => {
       clearTimeout(hudTimer.current)
@@ -2397,7 +2576,7 @@ export default function MapView({
       return
     }
     reloadFeatures()
-    setSelected(null)
+    clearSel()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadToken])
 
@@ -2407,23 +2586,42 @@ export default function MapView({
   // Etiket de Point — pin dalından ÖNCE ayrılmalı (ayırt edici: style.text)
   const selIsLabel = selStyle.text !== undefined
 
-  // Seçili çizimin stilini düzenle — seçim başına TEK undo kaydı (kaydırıcı spam'i yok)
-  const styleEditRef = useRef<{ fid: number; orig: string; latest: string } | null>(null)
+  // Seçili çizim(ler)in stilini düzenle — seçim başına TEK undo kaydı (kaydırıcı spam'i yok).
+  // Çoklu seçimde patch HEPSİNE uygulanır (her biri kendi stilinin üstüne): paneldeki mevcut
+  // kontroller toplu düzenleme haline böyle gelir, ayrı bir "toplu" arayüz gerekmez. Bir çizim
+  // için anlamsız anahtar (pinde fillOpacity gibi) render'da zaten yok sayılır.
+  const styleEditRef = useRef<{
+    key: string
+    items: { fid: number; orig: string; latest: string }[]
+  } | null>(null)
   const editSelectedStyle = async (patch: Partial<FeatureStyle>): Promise<void> => {
     if (!selected) return
-    const nextStr = JSON.stringify({ ...selStyle, ...patch })
-    if (styleEditRef.current?.fid !== selected.id) {
-      const ref = { fid: selected.id, orig: selected.style || '{}', latest: nextStr }
+    const key = selIds.join(',')
+    if (styleEditRef.current?.key !== key) {
+      const styleOf = (fid: number): string =>
+        (fid === selected.id
+          ? selected.style
+          : worldMapRef.current?.features.find((x) => x.id === fid)?.style) || '{}'
+      const ref = { key, items: selIds.map((fid) => ({ fid, orig: styleOf(fid), latest: '' })) }
       styleEditRef.current = ref
       pushUndo({
-        undo: () => api.updateFeature(ref.fid, { style: ref.orig }),
-        redo: () => api.updateFeature(ref.fid, { style: ref.latest })
+        undo: async () => {
+          for (const it of ref.items) await api.updateFeature(it.fid, { style: it.orig })
+        },
+        redo: async () => {
+          for (const it of ref.items) await api.updateFeature(it.fid, { style: it.latest })
+        }
       })
-    } else {
-      styleEditRef.current.latest = nextStr
     }
-    await api.updateFeature(selected.id, { style: nextStr })
-    setSelected({ ...selected, style: nextStr })
+    const items = styleEditRef.current.items
+    for (const it of items) {
+      it.latest = JSON.stringify({
+        ...(JSON.parse(it.latest || it.orig) as FeatureStyle),
+        ...patch
+      })
+      await api.updateFeature(it.fid, { style: it.latest })
+    }
+    setSelected({ ...selected, style: items[0].latest }) // items[0] = birincil (selIds sırası)
     await reloadFeatures()
   }
 
@@ -2469,31 +2667,58 @@ export default function MapView({
     </>
   )
 
-  // Shift+tekerlek: seçili çizimin boyut/kalınlığını değiştir (Wonderdraft deseni) — zoom yerine.
-  // onWheel bir kez kurulan useEffect closure'ında olduğu için taze seçim ref'ten okunur; ref her
-  // render'da güncel selStyle/editSelectedStyle ile yeniden atanır. ponytail: her tık editSelectedStyle
-  // → reloadFeatures (kaydırıcı sürüklemekle aynı yol, reloadGen titremeyi zaten engelliyor).
+  // Shift+tekerlek: seçili çizimin — seçim yokken aktif çizim aracının VARSAYILANININ —
+  // boyut/kalınlığını değiştir (Wonderdraft deseni), zoom yerine. onWheel bir kez kurulan useEffect
+  // closure'ında olduğu için taze seçim ref'ten okunur; ref her render'da güncel
+  // selStyle/editSelectedStyle ile yeniden atanır. ponytail: her tık editSelectedStyle →
+  // reloadFeatures (kaydırıcı sürüklemekle aynı yol, reloadGen titremeyi zaten engelliyor);
+  // varsayılan dalı updateDrawSettings → enableDraw ile önizlemeyi anında tazeler.
+  const drawTool = tool === 'polygon' || tool === 'line' || tool === 'marker' || tool === 'label'
   const wheelAdjustRef = useRef<((deltaY: number) => void) | null>(null)
   useEffect(() => {
     // callback ref'i her render taze tut (useLatest deseni); onWheel bir kez kurulur, güncel
     // seçimi buradan okur. Bare-effect ref yazımı bu desende güvenli — kuralı bu satırda kapat.
     // eslint-disable-next-line react-hooks/immutability
-    wheelAdjustRef.current = !selected
-      ? null
-      : (deltaY: number) => {
-          const dir = deltaY < 0 ? 1 : -1 // tekerlek yukarı = büyüt
-          if (selIsLine || selIsPolygon) {
-            const max = selIsLine ? 12 : 10
-            const w = Math.max(1, Math.min(max, (selStyle.weight ?? (selIsLine ? 3 : 2)) + dir))
-            editSelectedStyle({ weight: w })
-          } else {
-            const s = Math.max(
-              0.5,
-              Math.min(10, Number(((selStyle.size ?? 1) + dir * 0.25).toFixed(2)))
-            )
-            editSelectedStyle({ size: s })
+    wheelAdjustRef.current =
+      !selected && !drawTool
+        ? null
+        : (deltaY: number) => {
+            const dir = deltaY < 0 ? 1 : -1 // tekerlek yukarı = büyüt
+            const wclamp = (v: number, max: number): number => Math.max(1, Math.min(max, v))
+            const sclamp = (v: number): number => Math.max(0.5, Math.min(10, Number(v.toFixed(2))))
+            if (!selected) {
+              const d = drawRef.current
+              if (tool === 'line')
+                updateDrawSettings({
+                  ...d,
+                  line: { ...d.line, weight: wclamp(d.line.weight + dir, 12) }
+                })
+              else if (tool === 'polygon')
+                updateDrawSettings({
+                  ...d,
+                  polygon: { ...d.polygon, weight: wclamp(d.polygon.weight + dir, 10) }
+                })
+              else if (tool === 'marker')
+                updateDrawSettings({
+                  ...d,
+                  marker: { ...d.marker, size: sclamp(d.marker.size + dir * 0.25) }
+                })
+              else if (tool === 'label')
+                updateDrawSettings({
+                  ...d,
+                  label: { ...d.label, size: sclamp(d.label.size + dir * 0.25) }
+                })
+              return
+            }
+            if (selIsLine || selIsPolygon) {
+              const max = selIsLine ? 12 : 10
+              editSelectedStyle({
+                weight: wclamp((selStyle.weight ?? (selIsLine ? 3 : 2)) + dir, max)
+              })
+            } else {
+              editSelectedStyle({ size: sclamp((selStyle.size ?? 1) + dir * 0.25) })
+            }
           }
-        }
   })
 
   // Hiyerarşi panelinden 📍: çizim bu haritadaysa odaklan, değilse ilgili haritaya git
@@ -3103,11 +3328,23 @@ export default function MapView({
         {selected && (
           <div className="map-panel">
             <div className="map-panel-head">
-              <b>{t('Drawing #{id}', { id: selected.id })}</b>
-              <button className="mini" onClick={() => setSelected(null)}>
+              <b>
+                {selIds.length > 1
+                  ? t('{n} drawings selected', { n: selIds.length })
+                  : t('Drawing #{id}', { id: selected.id })}
+              </b>
+              <button className="mini" onClick={clearSel}>
                 ×
               </button>
             </div>
+            {selIds.length > 1 && (
+              // Kontroller birincil çizimin türüne göre; düzenleme SEÇİLİNİN TAMAMINA uygulanır
+              <div className="panel-block">
+                <label>
+                  {t('Edits apply to all selected drawings. Ctrl+click to add/remove.')}
+                </label>
+              </div>
+            )}
 
             <div className="panel-block">
               <label>{t('View:')}</label>
@@ -3429,7 +3666,7 @@ export default function MapView({
                   compact
                   onOpen={onOpenEntity}
                   onChanged={() => (reloadFeatures(), onChanged())}
-                  onDeleted={() => (setSelected(null), reloadFeatures())}
+                  onDeleted={() => (clearSel(), reloadFeatures())}
                 />
               </>
             ) : (

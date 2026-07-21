@@ -163,7 +163,7 @@ export function resetWorld(): void {
 // settings.value) kullanılmıyor sayılır. Ada göre eşleşme bilinçli KORUYUCU — alt-dize çakışması
 // yalnız fazla dosya TUTMAYA yol açar, asla kullanımdaki bir dosyayı silmez. packWorld (kaydet) ve
 // unpackWorld (aç) içinde otomatik çağrılır (undo yığınının önemsiz olduğu checkpoint/yeniden-yükleme
-// anları) + Ayarlar'daki elle butondan.
+// anları). Tamamen otomatik — UI yok.
 function pruneUnusedAssets(): number {
   const files = readdirSync(assetsDir).filter((f) => statSync(join(assetsDir, f)).isFile())
   const texts: string[] = []
@@ -426,7 +426,9 @@ export const api = {
 
   // --- haritalar ---
   listMaps(): unknown[] {
-    return db.prepare(`SELECT id, name, parent_map_id FROM maps ORDER BY name`).all()
+    // Sıra = EKLENME sırası (id), alfabetik değil: kullanıcı haritalarını kendi kurduğu düzende
+    // görmek istiyor (araç çubuğu menüsü ve "ilk harita" seçimi bu listeden okur).
+    return db.prepare(`SELECT id, name, parent_map_id FROM maps ORDER BY id`).all()
   },
   getMap(id: number): unknown {
     const map = db.prepare(`SELECT * FROM maps WHERE id = ?`).get(id)
@@ -762,6 +764,10 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   )
   // Harita silme undo'su: satır + çizim orijinal id ile geri gelir, alt harita üst bağı korunur
   const child = api.createMap({ name: 'Şehir', parent_map_id: m.id }) as { id: number }
+  // listMaps sırası EKLENME sırası (alfabetik değil): 'Ada' en son eklendi → listede de son
+  const late = api.createMap({ name: 'Ada' }) as { id: number }
+  assert.equal((api.listMaps() as { id: number }[]).at(-1)?.id, late.id)
+  api.deleteMap(late.id)
   const mFull = api.getMap(m.id) as {
     id: number
     name: string

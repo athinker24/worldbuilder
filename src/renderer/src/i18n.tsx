@@ -21,11 +21,70 @@ const TR: Record<string, string> = {
   'Pin types': 'Pin tipleri',
   '(no entity)': '(maddesiz)',
   '⚙ Settings': '⚙ Ayarlar',
+  // Kaydetme bildirimi + otomatik kaydetme
+  'Saved: {name}': 'Kaydedildi: {name}',
+  'Auto-saved': 'Otomatik kaydedildi',
+  // Kısayol yardımı (Shortcuts.tsx)
+  '⌨ Shortcuts': '⌨ Kısayollar',
+  General: 'Genel',
+  'Map — selection': 'Harita — seçim',
+  'Map — copy': 'Harita — kopyalama',
+  'Map — view & drawing': 'Harita — görünüm ve çizim',
+  Timeline: 'Zaman çizgisi',
+  Notes: 'Notlar',
+  'Suggest entity names — ↑↓ to pick, Enter/Tab to insert':
+    'Madde adı öner — ↑↓ ile seç, Enter/Tab ile ekle',
+  'Close the suggestion list': 'Öneri listesini kapat',
+  'Search everything (palette)': 'Her şeyde ara (palet)',
+  'Save world / Save as': 'Dünyayı kaydet / Farklı kaydet',
+  'Open world': 'Dünya aç',
+  'Undo / Redo': 'Geri al / Yinele',
+  'Back / Forward in history': 'Geçmişte geri / ileri',
+  'This page': 'Bu sayfa',
+  'Delete selected entities (in the list)': 'Seçili maddeleri sil (listede)',
+  Click: 'Tık',
+  'Select a drawing': 'Bir çizim seç',
+  'Ctrl+click': 'Ctrl+tık',
+  'Add/remove from selection (edits apply to all)':
+    'Seçime ekle/çıkar (düzenlemeler hepsine uygulanır)',
+  'Delete selected drawings': 'Seçili çizimleri sil',
+  'Cancel conquest / measure / route session': 'Fetih / ölçüm / rota oturumunu iptal et',
+  'Copy selected drawings': 'Seçili çizimleri kopyala',
+  'Paste under the cursor (also into another map)':
+    'İmlecin altına yapıştır (başka haritaya da olur)',
+  'Duplicate in place (slightly offset)': 'Yerinde çoğalt (biraz kaydırarak)',
+  Wheel: 'Tekerlek',
+  'Smooth zoom': 'Yumuşak yakınlaştırma',
+  'Shift+wheel': 'Shift+tekerlek',
+  'Size/thickness — of the selection, or of the active tool default':
+    'Boyut/kalınlık — seçilinin, seçim yoksa aktif aracın varsayılanının',
+  'Ctrl+drag a vertex': 'Ctrl+köşe sürükle',
+  'Weld: move the neighbouring polygon vertex along with it':
+    'Kaynak: komşu poligonun köşesini de birlikte taşı',
+  'Right click on a drawing': 'Çizime sağ tık',
+  'Menu: event, fork border, delete…': 'Menü: olay, sınırı çatalla, sil…',
+  'Step one year (while the strip is open)': 'Bir yıl ilerle/geri (şerit açıkken)',
+  'Click the year': 'Yıla tıkla',
+  'Type a year by hand': 'Elle yıl gir',
+  // Haritada çoklu seçim
+  '{n} drawings selected': '{n} çizim seçili',
+  'Edits apply to all selected drawings. Ctrl+click to add/remove.':
+    'Düzenlemeler seçili tüm çizimlere uygulanır. Ctrl+tık ile ekle/çıkar.',
   '📜 Chronology': '📜 Kronoloji',
   'Save World': 'Dünyayı Kaydet',
   'Open World': 'Dünya Aç',
-  'Opening another world will discard unsaved changes. Continue?':
-    'Başka bir dünya açılınca kaydedilmemiş değişiklikler kaybolur. Devam edilsin mi?',
+  'This will discard unsaved changes. Continue?':
+    'Kaydedilmemiş değişiklikler kaybolacak. Devam edilsin mi?',
+  // Başlangıç ekranı (son kullanılan .dunya dosyaları)
+  '＋ New world': '＋ Yeni dünya',
+  '📂 Open…': '📂 Aç…',
+  Recent: 'Son kullanılanlar',
+  Presets: 'Hazır renkler', // renk seçicideki sabit altılı şerit (son kullanılanlardan ayrı)
+  'No recent worlds yet — save one with Ctrl+S.':
+    'Henüz son kullanılan dünya yok — Ctrl+S ile kaydet.',
+  'file not found': 'dosya bulunamadı',
+  'File not found: {p}': 'Dosya bulunamadı: {p}',
+  'Remove from list': 'Listeden çıkar',
   World: 'Dünya',
   'Select an entity or map from the left, or search with Ctrl+K.':
     'Soldan bir madde ya da harita seç, ya da Ctrl+K ile ara.',

@@ -434,6 +434,143 @@ h4 {
   color: var(--muted);
 }
 
+/* Kısa bildirim (kaydetme onayı) — sağ altta, tıklanamaz */
+.toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1000;
+  pointer-events: none;
+  background: var(--bg3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  box-shadow: var(--shadow-2);
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+/* [[ madde adı tamamlama önerileri (EntityPage not/içerik metin kutuları) */
+.wiki-sug {
+  position: fixed;
+  z-index: 1000;
+  min-width: 200px;
+  max-width: 320px;
+  max-height: 210px;
+  overflow-y: auto;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  box-shadow: var(--shadow-2);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.wiki-sug button {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 5px 8px;
+  border-radius: var(--r-s);
+}
+.wiki-sug button.active {
+  background: var(--accent-soft);
+}
+.wiki-sug-type {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* Kısayol yardımı (F1 / kenar çubuğu) */
+.shortcut-table {
+  border-collapse: collapse;
+  margin-bottom: 8px;
+}
+.shortcut-table td {
+  padding: 3px 12px 3px 0;
+  vertical-align: top;
+}
+.shortcut-table td:first-child {
+  white-space: nowrap;
+}
+kbd {
+  font-family: inherit;
+  font-size: 12px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 1px 6px;
+  color: var(--text);
+}
+
+/* Başlangıç ekranı (Photoshop/Krita "home"): son kullanılan .dunya dosyaları */
+.start-screen {
+  width: 100%;
+  max-width: 520px;
+  text-align: left;
+}
+.start-screen h2,
+.start-screen h4 {
+  margin: 0 0 8px;
+}
+.start-screen h4 {
+  margin-top: 20px;
+}
+.start-actions {
+  display: flex;
+  gap: 8px;
+}
+.start-actions button {
+  flex: 1;
+  padding: 10px;
+}
+.recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.recent-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.recent-open {
+  flex: 1;
+  min-width: 0; /* uzun yol satırının ellipsis'i için (flex çocuğu varsayılan auto) */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+}
+.recent-name {
+  color: var(--text);
+}
+.recent-path,
+.recent-list li.missing .recent-name {
+  color: var(--muted);
+  font-size: 11px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-list li.missing .recent-path {
+  color: var(--danger);
+}
+.recent-x {
+  padding: 8px 10px;
+  color: var(--muted);
+}
+
 .page {
   padding: 16px 24px;
   overflow-y: auto;
@@ -1058,6 +1195,13 @@ h4 {
   background: var(--bg0);
 }
 
+/* Seçim vurgusu (tek ya da Ctrl+tık ile çoklu). setStyle DEĞİL filtre: çizimin kendi rengi
+   bozulmaz (panelden renk değiştirirken sonuç görünür kalmalı). Hem SVG path'e hem divIcon'a
+   uygulanır. Harita içeriği temadan muaf — iki temada da aynı beyaz+siyah hale. */
+.sel-feature {
+  filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 5px #000);
+}
+
 .map-panel {
   width: 380px;
   min-width: 380px;
@@ -1389,6 +1533,37 @@ a {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* Hazır + son kullanılan renk şeritleri — swatch'lar mutlak renk (cp-sv/cp-hue gibi temadan muaf) */
+.cp-recent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.cp-recent-sw {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  cursor: pointer;
+}
+/* Seçili hazır renk: swatch'ın kendi rengini kapatmayan dış halka */
+.cp-recent-sw.active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+/* Son kullanılanlar DAİRE — hazır renklerin karelerinden bakışta ayrılsın */
+.cp-recent-sw.round {
+  border-radius: 50%;
+}
+.cp-strip-label {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 2px;
 }
 
 .cp-label {

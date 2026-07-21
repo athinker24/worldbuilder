@@ -169,6 +169,11 @@ export const api = {
   saveWorldAs: () => inv<string | null>('saveWorldAs'),
   openWorld: () => inv<string | null>('openWorld'),
   worldInfo: () => inv<{ file: string | null; dirty: boolean }>('worldInfo'),
+  // Başlangıç ekranı: son kullanılan dünyalar (userData/recent.json — çalışma kopyasından bağımsız)
+  recentWorlds: () => inv<{ path: string; name: string; missing: boolean }[]>('recentWorlds'),
+  openRecent: (path: string) => inv<boolean>('openRecent', path),
+  forgetRecent: (path: string) => inv<void>('forgetRecent', path),
+  newWorld: () => inv<void>('newWorld'),
   exportMapImage: (
     rect: { x: number; y: number; width: number; height: number },
     defaultName: string
@@ -493,6 +498,23 @@ export async function getTheme(): Promise<Theme> {
 }
 
 export const saveTheme = (theme: Theme): Promise<void> => api.setSetting('theme', theme)
+
+// Renk seçicinin "son kullanılanlar" şeridi (settings 'recentColors'; en yeni başta, 12 kayıt).
+// Bellekte önbelleklenir — her açılışta DB'ye gidilmesin; sayfada birden çok seçici olabiliyor.
+const RECENT_COLORS = 12
+let recentColors: string[] | null = null
+export async function getRecentColors(): Promise<string[]> {
+  if (!recentColors)
+    recentColors = JSON.parse((await api.getSetting('recentColors')) || '[]') as string[]
+  return recentColors
+}
+export async function pushRecentColor(hex: string): Promise<string[]> {
+  const h = hex.toLowerCase()
+  const list = [h, ...(await getRecentColors()).filter((c) => c !== h)].slice(0, RECENT_COLORS)
+  recentColors = list
+  await api.setSetting('recentColors', JSON.stringify(list))
+  return list
+}
 
 // Renk atanmamış değerler için string'den deterministik renk (hex — ColorPicker ile uyumlu)
 export function autoColor(seed: string): string {

@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron'
 import { basename, join, normalize, sep } from 'path'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { writeFile } from 'fs/promises'
 import { execFile } from 'child_process'
 import { pathToFileURL } from 'url'
@@ -56,6 +56,7 @@ async function saveWorld(as = false): Promise<string | null> {
   currentFile = target
   dbApi.setSetting('worldFile', target)
   dirty = false
+  addRecent(target)
   updateTitle()
   return target
 }
@@ -67,12 +68,34 @@ const isTr = (): boolean => dbApi.getSetting('language') === 'tr'
 const dunyaArg = (argv: string[]): string | null =>
   argv.find((a) => a.toLowerCase().endsWith('.dunya') && existsSync(a)) ?? null
 
+// Son kullanılan .dunya dosyaları (Photoshop/Krita başlangıç ekranı). DATA_DIR'e YAZILMAZ:
+// çalışma kopyası her normal açılışta sıfırlanıyor, liste onu atlatmalı → userData/recent.json.
+const RECENT = join(app.getPath('userData'), 'recent.json')
+const readRecent = (): string[] => {
+  try {
+    const l = JSON.parse(readFileSync(RECENT, 'utf8'))
+    return Array.isArray(l) ? (l as string[]) : []
+  } catch {
+    return [] // ilk açılış / bozuk dosya: boş listeyle başla
+  }
+}
+const writeRecent = (l: string[]): void => {
+  try {
+    writeFileSync(RECENT, JSON.stringify(l.slice(0, 12)))
+  } catch {
+    /* disk yazılamıyorsa liste önemsiz — açılışı engellemesin */
+  }
+}
+const addRecent = (path: string): void =>
+  writeRecent([path, ...readRecent().filter((p) => p !== path)])
+
 // Bir .dunya dosyasını çalışma kopyasının üzerine aç (önce güvenlik yedeği)
 function openWorldFile(path: string): void {
   dbApi.backupNow()
   unpackWorld(path)
   currentFile = path
   dirty = false
+  addRecent(path)
   updateTitle()
 }
 
@@ -100,6 +123,31 @@ const mainApi = {
     // engeline takılıp URL'yi dış tarayıcıya gönderiyordu (webContents.reload engele girmez)
     mainWindow?.webContents.reload()
     return r.filePaths[0]
+  },
+  // Başlangıç ekranı (Photoshop/Krita): son kullanılan dünyalar. 'missing' = dosya taşınmış/silinmiş
+  // — satır listede kalır (kullanıcı × ile atar), sessizce yok sayılmaz.
+  recentWorlds: (): { path: string; name: string; missing: boolean }[] =>
+    readRecent().map((p) => ({ path: p, name: basename(p), missing: !existsSync(p) })),
+  forgetRecent: (path: string): void => writeRecent(readRecent().filter((p) => p !== path)),
+  // Listeden aç. Dosya yoksa listede bırakılır (kullanıcı görsün), false döner.
+  openRecent(path: string): boolean {
+    if (!existsSync(path)) return false
+    openWorldFile(path)
+    mainWindow?.webContents.reload()
+    return true
+  },
+  // "Yeni": açılıştaki boş-belge yolunun aynısı — mevcut çalışma kopyası .dunya paketi olarak
+  // backups/'a alınır, sonra şema boşaltılır. Kaydedilmemiş-değişiklik onayı renderer'da.
+  newWorld(): void {
+    if (hasContent()) {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      packWorld(join(DATA_DIR, 'backups', `son-oturum-${stamp}.dunya`))
+    }
+    resetWorld()
+    currentFile = null
+    dirty = false
+    updateTitle()
+    mainWindow?.webContents.reload()
   },
   async pickImage(): Promise<string | null> {
     const r = await dialog.showOpenDialog({

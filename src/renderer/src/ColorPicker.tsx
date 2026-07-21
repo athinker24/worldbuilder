@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react'
+import { getRecentColors, pushRecentColor } from './api'
+import { useT } from './i18n'
 
 function hexToRgb(hex: string): [number, number, number] | null {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
@@ -37,6 +39,12 @@ function rgbToHsv(r: number, g: number, b: number): { h: number; s: number; v: n
   return { h, s: max ? d / max : 0, v: max }
 }
 
+// Hazır renkler: altı BİRBİRİNDEN AYRI ton (kızıl / mavi / yeşil / altın / mor / turkuaz).
+// Amaç bir tema paleti değil, haritada yan yana durunca karışmayan bir başlangıç seti — bu
+// yüzden token DEĞİL sabit hex (harita içeriği iki temada da aynı görünmeli, bkz. CLAUDE.md).
+// Uygulamanın kendi çizim varsayılanları (pin #c0603a, poligon #7bb3ff) bilinçli olarak setin içinde.
+const PRESETS = ['#c0603a', '#7bb3ff', '#5f9e5f', '#d9a441', '#8e6bbf', '#4fb3a5']
+
 interface Props {
   value: string // hex, ör. #7bb3ff
   onChange: (hex: string) => void
@@ -44,6 +52,7 @@ interface Props {
 
 /** Swatch: tıklanınca klasik renk seçici açılır (gradyan karesi + ton çubuğu + hex + RGB). */
 export default function ColorPicker({ value, onChange }: Props): React.JSX.Element {
+  const t = useT()
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
   const swatchRef = useRef<HTMLButtonElement>(null)
   // Son yaydığımız hex — dışarıdan gerçekten farklı bir renk gelirse HSV'yi yeniden türet
@@ -103,12 +112,29 @@ export default function ColorPicker({ value, onChange }: Props): React.JSX.Eleme
     window.addEventListener('mouseup', onUp)
   }
 
+  // Son kullanılan renkler: kayda GEÇME anı popup'ın KAPANIŞI — sürükleme sırasında her kare
+  // emit ediliyor, o ara renkleri listeye yazmak şeridi çöple doldururdu.
+  const [recent, setRecent] = useState<string[]>([])
   const open = (): void => {
     const rect = swatchRef.current!.getBoundingClientRect()
     setPos({
       x: Math.min(rect.left, window.innerWidth - 250),
       y: Math.min(rect.bottom + 4, window.innerHeight - 320)
     })
+    getRecentColors().then(setRecent)
+  }
+  const close = (): void => {
+    setPos(null)
+    void pushRecentColor(value).then(setRecent)
+  }
+  // Şeritten seçim: hex girdisiyle aynı yol (HSV yeniden türetilir, gri tonlarında ton kaybolmaz)
+  const applyHex = (hex: string): void => {
+    const rgb = hexToRgb(hex)
+    if (!rgb) return
+    setLastEmit(hex.toLowerCase())
+    setHsv(rgbToHsv(...rgb))
+    setHexText(hex)
+    onChange(hex)
   }
 
   const hueColor = rgbToHex(...hsvToRgb(hsv.h, 1, 1))
@@ -123,7 +149,7 @@ export default function ColorPicker({ value, onChange }: Props): React.JSX.Eleme
         onClick={open}
       />
       {pos && (
-        <div className="color-popup-overlay" onMouseDown={() => setPos(null)}>
+        <div className="color-popup-overlay" onMouseDown={close}>
           <div
             className="color-popup"
             style={{ left: pos.x, top: pos.y }}
@@ -168,6 +194,37 @@ export default function ColorPicker({ value, onChange }: Props): React.JSX.Eleme
                 spellCheck={false}
               />
             </div>
+            {/* İki şerit ayırt edilebilir olmalı: hazır = kare + başlık, son kullanılan = daire */}
+            <div className="cp-strip-label">{t('Presets')}</div>
+            <div className="cp-recent">
+              {PRESETS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={`cp-recent-sw${c === value.toLowerCase() ? ' active' : ''}`}
+                  style={{ background: c }}
+                  title={c}
+                  onClick={() => applyHex(c)}
+                />
+              ))}
+            </div>
+            {recent.length > 0 && (
+              <>
+                <div className="cp-strip-label">{t('Recent')}</div>
+                <div className="cp-recent">
+                  {recent.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className="cp-recent-sw round"
+                      style={{ background: c }}
+                      title={c}
+                      onClick={() => applyHex(c)}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
             {(['R', 'G', 'B'] as const).map((ch, i) => (
               <div className="cp-row" key={ch}>
                 <span className="cp-label">{ch}</span>
