@@ -21,6 +21,11 @@ const TR: Record<string, string> = {
   'Pin types': 'Pin tipleri',
   '(no entity)': '(maddesiz)',
   '⚙ Settings': '⚙ Ayarlar',
+  // Hata sınırı (bozuk .dunya render'ı patlatırsa çıkış yolu)
+  'This world could not be opened': 'Bu dünya açılamadı',
+  'The file may be corrupt or created by a newer version.':
+    'Dosya bozuk olabilir ya da daha yeni bir sürümle oluşturulmuş olabilir.',
+  Details: 'Ayrıntılar',
   // Kaydetme bildirimi + otomatik kaydetme
   'Saved: {name}': 'Kaydedildi: {name}',
   'Auto-saved': 'Otomatik kaydedildi',

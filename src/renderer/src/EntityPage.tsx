@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { marked } from 'marked'
+import { Marked, type Tokens } from 'marked'
 import {
   api,
   assetUrl,
@@ -36,11 +36,30 @@ interface Props {
   onLocateFeature?: (mapId: number, featureId: number) => void // harita geçmişinden çizime git
 }
 
-// Markdown'ın ÜRETTİĞİ bağlantı adreslerinde izin verilen şemalar. marked ham HTML'i değil ama
-// `[tıkla](javascript:…)` yazımını olduğu gibi <a href> içine koyuyor; tıklanınca kod renderer
-// bağlamında çalışırdı (window.api → tüm veritabanı). Paylaşılan bir .dunya bunu taşıyabileceği
-// için adres şeması beyaz listeye alınıyor — '#' wiki linklerinin kendi adresi.
+// Bağlantı adreslerinde izin verilen şemalar. marked, `[tıkla](javascript:…)` yazımını olduğu
+// gibi <a href> içine koyar; tıklanınca kod renderer bağlamında çalışırdı (window.api → tüm
+// veritabanı). Paylaşılan bir .dunya bunu taşıyabileceği için beyaz liste zorunlu.
+// '#' wiki linklerinin kendi adresi; 'world:' nota gömülü yerel görsel (![x](world://data/…)).
 const SAFE_URL = /^(https?:|world:|mailto:|#)/i
+const safeHref = (href: string): string => (SAFE_URL.test(href.trim()) ? href : '#')
+// Temizlik PARSER DÜZEYİNDE: adres, HTML'e yazılmadan ÖNCE token üzerinde denetlenir. (Önceki
+// sürüm üretilen HTML'de href="…" regex'i arıyordu; bugün doğru çalışıyordu ama marked bir gün
+// tek tırnak/farklı sıra kullansa sessizce delinirdi — filtre yerine kaynakta kesmek gerekiyordu.)
+// escapeAttr: adres tırnak içine yazılıyor, marked'ın kendi kaçırmasına güvenmiyoruz.
+const escapeAttr = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+const safeMarked = new Marked({
+  renderer: {
+    link(this: { parser: { parseInline: (t: Tokens.Generic[]) => string } }, token: Tokens.Link) {
+      const t = token.title ? ` title="${escapeAttr(token.title)}"` : ''
+      const inner = this.parser.parseInline(token.tokens)
+      return `<a href="${escapeAttr(safeHref(token.href))}"${t}>${inner}</a>`
+    },
+    image(token: Tokens.Image) {
+      const t = token.title ? ` title="${escapeAttr(token.title)}"` : ''
+      return `<img src="${escapeAttr(safeHref(token.href))}" alt="${escapeAttr(token.text)}"${t}>`
+    }
+  }
+})
 // [[Madde Adı]] → tıklanabilir wiki linki (markdown'dan önce dönüştürülür)
 // '<' önce kaçırılır: nota yazılan ham HTML (<img onerror=...> gibi) script olarak
 // çalışamaz — paylaşılan bir world.db'den gelen içerik de güvenli kalır.
@@ -49,15 +68,9 @@ function renderMarkdown(content: string): string {
     .replace(/</g, '&lt;')
     .replace(
       /\[\[([^\]]+)\]\]/g,
-      (_, name: string) => `<a href="#" data-wiki="${name.replace(/"/g, '&quot;')}">${name}</a>`
+      (_, name: string) => `<a href="#" data-wiki="${escapeAttr(name)}">${name}</a>`
     )
-  // Çıktıdaki TÜM etiketler marked'ın kendi ürettikleri (kullanıcının '<'leri yukarıda kaçırıldı),
-  // bu yüzden href/src üzerinde düz regex güvenli — kullanıcı metnine denk gelme ihtimali yok.
-  return marked
-    .parse(withWiki, { async: false })
-    .replace(/ (href|src)="([^"]*)"/gi, (m, attr: string, url: string) =>
-      SAFE_URL.test(url.trim()) ? m : ` ${attr}="#"`
-    )
+  return safeMarked.parse(withWiki, { async: false })
 }
 
 // Sekmeli not bölgesi: fields['notlar'] JSON'unda durur (şema değişikliği yok, fields['üst'] deseni)

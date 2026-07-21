@@ -434,6 +434,18 @@ h4 {
   color: var(--muted);
 }
 
+/* Hata sınırı ayrıntısı — uzun yığın izi sayfayı taşırmasın */
+.error-detail {
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 11px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 8px;
+}
+
 /* Kısa bildirim (kaydetme onayı) — sağ altta, tıklanamaz */
 .toast {
   position: fixed;

@@ -130,8 +130,11 @@ const mainApi = {
     readRecent().map((p) => ({ path: p, name: basename(p), missing: !existsSync(p) })),
   forgetRecent: (path: string): void => writeRecent(readRecent().filter((p) => p !== path)),
   // Listeden aç. Dosya yoksa listede bırakılır (kullanıcı görsün), false döner.
+  // YALNIZ recent.json'da kayıtlı yollar açılabilir: IPC'den gelen path güvenilmez girdi —
+  // ele geçirilmiş bir renderer keyfî bir dosyayı çalışma kopyasının üzerine açamamalı
+  // (dialog'lu openWorld bundan muaf: yolu kullanıcı seçiyor, renderer değil).
   openRecent(path: string): boolean {
-    if (!existsSync(path)) return false
+    if (!readRecent().includes(path) || !existsSync(path)) return false
     openWorldFile(path)
     mainWindow?.webContents.reload()
     return true
@@ -226,6 +229,10 @@ function createWindow(): void {
       packWorld(target)
     }
   })
+
+  // Uygulama hiçbir tarayıcı izni (kamera, konum, bildirim…) kullanmaz — hepsi kapalı.
+  // Uzak içerik zaten yüklenemiyor; bu, ileride bir şey sızarsa diye ucuz bir emniyet kilidi.
+  win.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
 
   // Dış linkler yalnız tarayıcıda ve yalnız http(s) — file:// vb. çalıştırılamaz
   const openSafe = (url: string): void => {

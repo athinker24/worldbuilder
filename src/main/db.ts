@@ -138,8 +138,77 @@ export function unpackWorld(sourcePath: string): void {
     }
     db.exec(`DROP TABLE assets`) // çalışma kopyası yalın kalsın (görseller diskte)
   }
+  repairImportedJson() // bozuk JSON kolonları varsayılana düşür (aşağıdaki gerekçe)
   api.setSetting('worldFile', sourcePath)
   pruneUnusedAssets() // açılan dünyada kullanılmayan (önceki dünyadan kalan) görselleri temizle
+}
+
+/** Dışarıdan gelen bir .dunya'daki bozuk JSON kolonlarını varsayılana düşür; onarılan satır
+ *  sayısını döner. TEK YERDE olması bilinçli: renderer bu kolonları 20'den fazla noktada
+ *  `JSON.parse` ediyor ve bir tek satır bozuksa o görünüm komple çökerdi (harita hiç açılmaz,
+ *  madde sayfası beyaz kalırdı). Her çağrı noktasını try/catch'e sarmak yerine veri, uygulamaya
+ *  girdiği kapıda onarılıyor. Satır SİLİNMEZ — yalnız bozuk alan sıfırlanır, gerisi durur. */
+function repairImportedJson(): number {
+  let fixed = 0
+  const isPlainObject = (v: string): boolean => {
+    try {
+      const p: unknown = JSON.parse(v)
+      return typeof p === 'object' && p !== null && !Array.isArray(p)
+    } catch {
+      return false
+    }
+  }
+  const isArray = (v: string): boolean => {
+    try {
+      return Array.isArray(JSON.parse(v))
+    } catch {
+      return false
+    }
+  }
+  const repair = <T extends { id: number; v: string }>(
+    rows: T[],
+    ok: (v: string) => boolean,
+    sql: string,
+    def: string
+  ): void => {
+    const st = db.prepare(sql)
+    for (const r of rows)
+      if (!ok(r.v)) {
+        st.run(def, r.id)
+        fixed++
+      }
+  }
+  repair(
+    db.prepare(`SELECT id, fields AS v FROM entities`).all() as { id: number; v: string }[],
+    isPlainObject,
+    `UPDATE entities SET fields = ? WHERE id = ?`,
+    '{}'
+  )
+  repair(
+    db.prepare(`SELECT id, style AS v FROM features`).all() as { id: number; v: string }[],
+    isPlainObject,
+    `UPDATE features SET style = ? WHERE id = ?`,
+    '{}'
+  )
+  repair(
+    db.prepare(`SELECT id, layers AS v FROM maps`).all() as { id: number; v: string }[],
+    isArray,
+    `UPDATE maps SET layers = ? WHERE id = ?`,
+    '[]'
+  )
+  // settings: değerlerin bir kısmı düz metin ('dark', 'tr', dosya yolu) — yalnız JSON GÖRÜNÜMLÜ
+  // olanlar ({ ya da [ ile başlayanlar) denetlenir, bozuksa satır silinir → kod varsayılana düşer
+  const del = db.prepare(`DELETE FROM settings WHERE key = ?`)
+  for (const r of db.prepare(`SELECT key, value FROM settings`).all() as {
+    key: string
+    value: string
+  }[]) {
+    if (!/^\s*[[{]/.test(r.value)) continue
+    if (isPlainObject(r.value) || isArray(r.value)) continue
+    del.run(r.key)
+    fixed++
+  }
+  return fixed
 }
 
 /** Çalışma kopyasında kayda değer içerik var mı? (boş açılışta gereksiz anlık paket alınmasın) */
@@ -599,10 +668,13 @@ export const api = {
     // (kontrol karakterleri not başlıklarında oluşmaz — sadece Windows'un yasak sembolleri elenir)
     const safe = (name: string, fallback: string): string => {
       const s = name
-        .replace(/[<>:"/\\|?*]/g, '_')
+        // eslint-disable-next-line no-control-regex -- kontrol karakterleri de dosya adında geçersiz
+        .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
         .replace(/[. ]+$/, '')
         .trim()
-      return (s || fallback).slice(0, 120)
+      // Windows aygıt adları (CON, NUL, COM1…) dosya/klasör olamaz — yazma hata verirdi
+      const out = (s || fallback).slice(0, 120)
+      return /^(CON|PRN|AUX|NUL|COM\d|LPT\d)$/i.test(out) ? `_${out}` : out
     }
 
     rmSync(notesDir, { recursive: true, force: true }) // eski ağacı temizle → yeniden üret
@@ -721,6 +793,20 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     existsSync(join(dir, 'notes', '(no map)', 'hanedan', 'Test Hanedanı', 'Savaşlar.txt')),
     'haritasız madde (no map) altında olmalı'
   )
+  // safe(): Windows aygıt adı (CON) klasör olamaz → _CON; kontrol karakteri _ olur.
+  // Bunlarsız exportNotes Windows'ta EPERM/yanlış hedefle patlardı.
+  {
+    const evilEnt = api.createEntity({
+      name: 'CON',
+      fields: JSON.stringify({ notlar: JSON.stringify([{ title: 'x\x07y', content: 'z' }]) })
+    }) as { id: number }
+    api.exportNotes()
+    assert.ok(
+      existsSync(join(dir, 'notes', '(no map)', '(no type)', '_CON', 'x_y.txt')),
+      'CON → _CON, kontrol karakteri → _'
+    )
+    api.deleteEntity(evilEnt.id)
+  }
   // pruneUnusedAssets: adı DB metninde geçen görsel korunur, geçmeyen silinir
   writeFileSync(join(dir, 'assets', 'used.png'), Buffer.from([9]))
   writeFileSync(join(dir, 'assets', 'unused.png'), Buffer.from([9]))
@@ -854,6 +940,30 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       'gömülü ad assets/ dışına yazdı!'
     )
     assert.ok(existsSync(join(dir, 'assets', 'kacti.png'))) // basename'e indirgenip içeride kaldı
+  }
+  // Bozuk JSON kolonlu .dunya: açılışta onarılmalı — yoksa renderer'daki 20+ JSON.parse
+  // noktasından biri patlar ve o görünüm komple çöker (harita hiç açılmaz)
+  {
+    const broken = join(dir, 'broken.dunya')
+    copyFileSync(dunya, broken)
+    const bd = new DatabaseSync(broken)
+    bd.exec(`UPDATE entities SET fields = 'BOZUK{{'`)
+    bd.exec(`UPDATE features SET style = '[1,2]'`) // geçerli JSON ama DİZİ — nesne bekleniyor
+    bd.exec(`UPDATE maps SET layers = 'yok'`)
+    bd.exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('mapModes', '{bozuk')`)
+    bd.exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('theme', 'dark')`)
+    bd.close()
+    unpackWorld(broken)
+    assert.equal(
+      (api.getEntity(a.id) as { fields: string }).fields,
+      '{}',
+      'bozuk fields onarılmalı'
+    )
+    const bm = api.getMap(m.id) as { layers: string; features: { style: string }[] }
+    assert.equal(bm.features[0].style, '{}', 'bozuk style onarılmalı')
+    assert.equal(bm.layers, '[]', 'bozuk layers onarılmalı')
+    assert.equal(api.getSetting('mapModes'), null, 'bozuk JSON ayarı silinmeli')
+    assert.equal(api.getSetting('theme'), 'dark', 'düz METİN ayar korunmalı (JSON değil)')
   }
   // Boş açılış: içerik algılanır, reset sonrası db + assets bomboş
   assert.ok(hasContent())

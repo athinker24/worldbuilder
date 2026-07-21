@@ -1436,9 +1436,11 @@ export default function MapView({
           })
         // Etikete tooltip bağlanmaz — metni zaten görünür
         if (f.entity_name && !derived && !isLabel) {
-          // Poligonda ad sürekli ortada, poligon boyutuna orantılı; marker'da üzerine gelince
+          // Poligonda ad sürekli ortada, poligon boyutuna orantılı; marker'da üzerine gelince.
+          // escapeHtml ŞART: Leaflet string tooltip'i innerHTML ile basar (DivOverlay._updateContent)
+          // — `<img onerror=…>` adlı bir madde, paylaşılan bir .dunya'da tıklamasız kod çalıştırırdı.
           if (isPolygon) {
-            layer.bindTooltip(f.entity_name, {
+            layer.bindTooltip(escapeHtml(f.entity_name), {
               permanent: true,
               direction: 'center',
               className: 'poly-label'
@@ -1450,7 +1452,7 @@ export default function MapView({
             )
             labelMeta.current.set(f.id, { base, font: style.font ?? 'Cinzel' })
           } else {
-            layer.bindTooltip(f.entity_name, { sticky: true })
+            layer.bindTooltip(escapeHtml(f.entity_name), { sticky: true })
           }
         }
         layer.on('click', (ev) => {
@@ -1930,7 +1932,7 @@ export default function MapView({
             else {
               if (labelRoot !== null) {
                 const name = entNames.current.get(labelRoot) ?? ''
-                tt.setContent(name)
+                tt.setContent(escapeHtml(name)) // string tooltip = innerHTML (bindTooltip ile aynı)
                 const b = (l as L.Polygon).getBounds()
                 labelMeta.current.set(fid, {
                   base: Math.min(

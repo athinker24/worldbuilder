@@ -4,11 +4,14 @@ directories:
   buildResources: build
 files:
   - '!**/.vscode/*'
-  - '!src/*'
+  - '!src/**' # '!src/*' yalnız DOĞRUDAN çocukları eleyordu — src/main/… paketlenebilirdi
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # Geliştirme notları kullanıcıya gitmez: iç mimari + güvenlik önlemlerinin ayrıntılı dökümü,
+  # yani saldırgana hazır bir yol haritası. README.txt kullanıcı içindir, o kalır.
+  - '!{CLAUDE.md,DURUM.md}'
 asarUnpack:
   - resources/**
 win:
