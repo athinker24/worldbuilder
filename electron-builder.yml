@@ -10,25 +10,38 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   # Geliştirme notları kullanıcıya gitmez: iç mimari + güvenlik önlemlerinin ayrıntılı dökümü,
-  # yani saldırgana hazır bir yol haritası. README.txt kullanıcı içindir, o kalır.
+  # yani saldırgana hazır bir yol haritası. (README.md zaten yukarıda eleniyor.)
   - '!{CLAUDE.md,DURUM.md}'
 asarUnpack:
   - resources/**
 win:
   executableName: Dünya
+  # Dosya adları ASCII: GitHub indirme bağlantılarında 'ü' yüzde-kodlamaya dönüşüp çirkinleşiyor.
+  # Bu ad ZIP'e uygulanır; NSIS aşağıda kendi adını ezer.
+  artifactName: Dunya-${version}-portable.${ext}
   target:
     - nsis
-    - portable
-# .dunya çift tıkla açılır (yalnız NSIS kurulumu kaydeder; portable/dev kaydedemez — Windows sınırı)
+    # ZIP, electron-builder'ın 'portable' hedefinin YERİNE geçti: portable kendi kendini açan bir
+    # exe'ydi, her çalıştırmada ~200 MB'ı %TEMP%'e çıkarıp oradan koşuyordu. Açılış yavaştı, geride
+    # temp klasörleri kalıyordu ve asıl önemlisi .dunya çift tık ilişkilendirmesi KIRILIYORDU:
+    # index.ts kayıt defterine process.execPath yazar, portable'da o da kaybolan bir temp yolu.
+    # ZIP'te exe kullanıcının koyduğu yerde sabit durur → ilişkilendirme çalışır.
+    - zip
+# .dunya çift tıkla açılır. NSIS kurulumu ilişkilendirmeyi kendi kaydeder; ZIP'te ise uygulama
+# her açılışta HKCU'ya güncel exe yolunu yazar (bkz. index.ts) — taşınsa da bulunur.
 fileAssociations:
   - ext: dunya
     name: Dünya
     description: Dünya worldbuilding dosyası
-portable:
-  artifactName: ${name}-${version}-portable.${ext}
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
+  artifactName: Dunya-${version}-Setup.${ext}
+  # Sihirbaz açılır ve kurulum klasörü sorulur (tek tık sessiz kurulum değil)
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false # yönetici hakkı istemez — kullanıcının kendi profiline kurar
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false # Belgeler\Dünya kullanıcının verisi — kaldırırken SİLİNMEZ
 npmRebuild: false

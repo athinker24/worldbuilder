@@ -1,0 +1,47 @@
+name: Release
+
+# Sürüm etiketi atınca (git tag v1.0.1 && git push --tags) GitHub kendi makinesinde derler ve
+# kurulum + zip'i TASLAK bir Release'e ekler. Taslak: yayımlamadan önce dosyaları indirip
+# deneyebilirsin. Kendi bilgisayarında derleyip elle yüklemeye gerek kalmaz, ayrıca çıktının
+# hangi kaynaktan üretildiği herkesçe görülebilir.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: # Actions sekmesinden elle de çalıştırılabilir (deneme derlemesi)
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write # Release oluşturup dosya eklemek için gerekli
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # node:sqlite için 22+ şart (db.ts self-check'i de bu sürümde koşar)
+          cache: npm
+
+      - run: npm ci
+
+      # Derlemeden önce kalite kapısı: bozuk bir sürüm yayımlanmasın
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: node src/main/db.ts # veritabanı self-check (şema + CRUD + undo + güvenlik assert'leri)
+
+      - run: npm run build:win
+
+      # Yükleme GitHub'ın KENDİ 'gh' aracıyla (runner'da hazır kurulu). Üçüncü taraf bir action
+      # kullanmamak bilinçli: contents:write yetkisi verilen her dış bağımlılık, ele geçirilirse
+      # depoya yazabilecek bir tedarik zinciri riski demek.
+      # shell: bash — windows runner'da varsayılan PowerShell'dir ve joker (*) genişletmez.
+      - name: Taslak Release oluştur ve dosyaları ekle
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME"
+          --notes "Kurulum için Dunya-…-Setup.exe, kurulumsuz kullanım için Dunya-…-portable.zip."
+          dist/Dunya-*-Setup.exe dist/Dunya-*-portable.zip
