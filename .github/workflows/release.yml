@@ -1,47 +1,47 @@
 name: Release
 
-# Sürüm etiketi atınca (git tag v1.0.1 && git push --tags) GitHub kendi makinesinde derler ve
-# kurulum + zip'i TASLAK bir Release'e ekler. Taslak: yayımlamadan önce dosyaları indirip
-# deneyebilirsin. Kendi bilgisayarında derleyip elle yüklemeye gerek kalmaz, ayrıca çıktının
-# hangi kaynaktan üretildiği herkesçe görülebilir.
+# On a version tag (git tag v1.0.1 && git push --tags) GitHub builds on its own machine and
+# attaches the installer + zip to a DRAFT release. Draft: you can download and try the files
+# before publishing. No local building and manual uploading, and anyone can see which source
+# produced the output.
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch: # Actions sekmesinden elle de çalıştırılabilir (deneme derlemesi)
+  workflow_dispatch: # can also be run by hand from the Actions tab (a trial build)
 
 jobs:
   windows:
     runs-on: windows-latest
     permissions:
-      contents: write # Release oluşturup dosya eklemek için gerekli
+      contents: write # needed to create the release and attach files
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22 # node:sqlite için 22+ şart (db.ts self-check'i de bu sürümde koşar)
+          node-version: 22 # node:sqlite needs 22+ (the db.ts self-check runs on it too)
           cache: npm
 
       - run: npm ci
 
-      # Derlemeden önce kalite kapısı: bozuk bir sürüm yayımlanmasın
+      # Quality gate before the build: a broken release must never ship
       - run: npm run lint
       - run: npm run typecheck
-      - run: node src/main/db.ts # veritabanı self-check (şema + CRUD + undo + güvenlik assert'leri)
+      - run: node src/main/db.ts # database self-check (schema + CRUD + undo + security asserts)
 
       - run: npm run build:win
 
-      # Yükleme GitHub'ın KENDİ 'gh' aracıyla (runner'da hazır kurulu). Üçüncü taraf bir action
-      # kullanmamak bilinçli: contents:write yetkisi verilen her dış bağımlılık, ele geçirilirse
-      # depoya yazabilecek bir tedarik zinciri riski demek.
-      # shell: bash — windows runner'da varsayılan PowerShell'dir ve joker (*) genişletmez.
-      - name: Taslak Release oluştur ve dosyaları ekle
+      # Upload via GitHub's OWN 'gh' tool (preinstalled on the runner). Avoiding a third-party
+      # action is deliberate: any external dependency granted contents:write is supply-chain
+      # surface that could write to the repo if compromised.
+      # shell: bash — the Windows runner defaults to PowerShell, which does not expand globs (*).
+      - name: Create draft release and attach artifacts
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
           gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME"
-          --notes "Kurulum için Dunya-…-Setup.exe, kurulumsuz kullanım için Dunya-…-portable.zip."
+          --notes "Setup exe to install; portable zip to run without installing."
           dist/Dunya-*-Setup.exe dist/Dunya-*-portable.zip

@@ -1431,7 +1431,7 @@ export default function MapView({
             }
           }
         }
-        // Pin rozet ölçeği YALNIZ pinlere; etiket de Point ama font ölçeklenir (labelText dalı)
+        // Badge scaling ONLY for pins; a label is Point too but its font scales (the labelText branch)
         if (!isPolygon && !isLabel)
           markerSize.current.set(f.id, {
             size: style.size ?? 1,
@@ -1442,11 +1442,12 @@ export default function MapView({
             base: LABEL_BASE * (style.size ?? 1),
             font: style.font ?? 'Cinzel'
           })
-        // Etikete tooltip bağlanmaz — metni zaten görünür
+        // No tooltip on a label — its text is already visible
         if (f.entity_name && !derived && !isLabel) {
-          // Poligonda ad sürekli ortada, poligon boyutuna orantılı; marker'da üzerine gelince.
-          // escapeHtml ŞART: Leaflet string tooltip'i innerHTML ile basar (DivOverlay._updateContent)
-          // — `<img onerror=…>` adlı bir madde, paylaşılan bir .dunya'da tıklamasız kod çalıştırırdı.
+          // On a polygon the name sits centred, sized with the polygon; on a marker it shows
+          // on hover. escapeHtml is REQUIRED: Leaflet renders string tooltips via innerHTML
+          // (DivOverlay._updateContent) — an entity NAMED `<img onerror=…>` in a shared .dunya
+          // would run code with no click.
           if (isPolygon) {
             layer.bindTooltip(escapeHtml(f.entity_name), {
               permanent: true,
@@ -1464,17 +1465,17 @@ export default function MapView({
           }
         }
         layer.on('click', (ev) => {
-          if (measureRef.current) return // ölçüm oturumu: tıklama harita handler'ına düşer
-          // 🧭 Navigasyon: tıklamalar başlangıç/varış pini seçimidir
+          if (measureRef.current) return // measure session: the click falls through to the map handler
+          // 🧭 Navigation: clicks pick the start/destination pin
           const nv = navRef.current
           if (nv && nv.step !== 'result') {
-            if (isPolygon || isLine) return // yalnız pinler seçilebilir
+            if (isPolygon || isLine) return // only pins can be picked
             const name = f.entity_name ?? `#${f.id}`
             if (nv.step === 'a') setNav({ step: 'b', aFid: f.id, aName: name })
             else if (f.id !== nv.aFid) computeRoute(nv.aFid, nv.aName, f.id, name)
             return
           }
-          // Fetih modu: tıklamalar alıcı/fethedilen seçimidir, seçim paneli açılmaz
+          // Conquest mode: clicks pick receiver/conquered, the selection panel never opens
           const c = conquestRef.current
           if (c) {
             if (!f.entity_id || !isPolygon) return
@@ -1494,7 +1495,7 @@ export default function MapView({
               })
               return
             }
-            // adım 2: seçimi aç/kapa (alıcının o yılki kendi çocukları atlanır)
+            // step 2: toggle the pick (the receiver's own children that year are skipped)
             if (
               parentAt(parentHist.current.get(f.entity_id) ?? [], yearRef.current) === c.receiverId
             )
@@ -1506,7 +1507,7 @@ export default function MapView({
             highlightPicked(picked)
             return
           }
-          // Ctrl+tık: seçime ekle/çıkar (birincil değişmez → panel aynı kontrolleri gösterir)
+          // Ctrl+click: add to / remove from the selection (primary unchanged → same panel controls)
           if ((ev as L.LeafletMouseEvent).originalEvent?.ctrlKey && selectedRef.current) {
             if (f.id !== selectedRef.current.id)
               setExtraSel((e) => (e.includes(f.id) ? e.filter((x) => x !== f.id) : [...e, f.id]))
@@ -1515,8 +1516,9 @@ export default function MapView({
           setSelected(f)
           setExtraSel([])
         })
-        // saveGeometry iki aşamalı: (1) snapshotUpdates SENKRON çalışır — katman geometrilerini ve
-        // weldTouched'ı pm:update anında yakalar+temizler (ertelense sonraki gesture ile karışırdı);
+        // saveGeometry has two phases: (1) snapshotUpdates runs SYNCHRONOUSLY — captures+clears
+        // layer geometries and weldTouched at pm:update time (deferred, it would blend into the
+        // next gesture);
         // (2) commitGeometry ASYNC — seri zincirde DB'ye yazar + gerekiyorsa reload eder.
         const snapshotUpdates = (
           e: { layer: L.Layer },
@@ -1534,7 +1536,7 @@ export default function MapView({
               if (fid === f.id) continue
               updates.push({
                 id: fid,
-                old: p.oldGeom, // sürükleme öncesi (dragstart'ta yakalandı) — bayat wm yok
+                old: p.oldGeom, // pre-drag (captured at dragstart) — no stale wm
                 next: JSON.stringify(p.layer.toGeoJSON().geometry)
               })
             }
@@ -1554,19 +1556,20 @@ export default function MapView({
             }
           })
           for (const u of updates) await api.updateFeature(u.id, { geometry: u.next })
-          if (updates.length > 1) await reloadFeatures() // kaynaklanan komşular yeniden çizilsin
+          if (updates.length > 1) await reloadFeatures() // redraw the welded neighbours
         }
-        // Snapshot senkron, commit seri zincirde — reload'lar birbirini ezmez. .catch şart:
-        // yoksa tek bir reddedilen commit zinciri kalıcı zehirler, sonraki tüm kayıtlar sessizce düşerdi.
+        // Snapshot synchronous, commit on the serial chain — reloads never clobber each other.
+        // .catch is mandatory: one rejected commit would poison the chain for good and every
+        // later save would silently drop.
         const saveGeometry = (e: { layer: L.Layer }, weld: boolean): void => {
           const updates = snapshotUpdates(e, weld)
           geomSaveChain.current = geomSaveChain.current
             .then(() => commitGeometry(updates))
-            .catch((err) => console.error('geometri kaydı başarısız:', err))
+            .catch((err) => console.error('geometry save failed:', err))
         }
-        // Canlı kaynak: Ctrl basılıyken köşe sürüklemeye başlanınca aynı noktadaki komşu
-        // köşeler bulunur, sürükleme boyunca birlikte taşınır (mıknatıs gibi tek nokta hissi).
-        // ponytail: aynı oturumda iki komşu birden geoman'la düzenlenirse sonuncunun kaydı kaynağı ezebilir.
+        // Live weld: starting a vertex drag with Ctrl held finds the neighbours' co-located
+        // vertices and moves them along for the whole drag (a single magnet-point feel).
+        // ponytail: editing two neighbours at once via geoman could have the last save clobber the weld.
         const dragLL = (e: unknown): L.LatLng | undefined =>
           (e as { markerEvent?: { target?: L.Marker } }).markerEvent?.target?.getLatLng?.()
         const partnerRings = (poly: L.Polygon): L.LatLng[][] => {
@@ -1578,14 +1581,14 @@ export default function MapView({
           if (!ctrlRef.current || !isPolygon) return
           const ll = dragLL(e)
           if (!ll) return
-          const EPS = 0.01 // ponytail: çakışıklık toleransı (harita birimi) — gerekirse tek sayı ayarı
+          const EPS = 0.01 // ponytail: co-location tolerance (map units) — a single tunable if needed
           for (const [fid, lys] of allLayers.current) {
             if (fid === f.id) continue
             for (const ly of lys) {
               const poly = ly as L.Polygon
               if (!poly.getLatLngs) continue
-              // Partnerin sürükleme öncesi geometrisi YALNIZ eşleşen poligon için, bir kez yakalanır
-              // (mutasyon henüz olmadı) — eşleşmeyen yüzlerce poligonu boşuna stringify etme
+              // The partner's pre-drag geometry is captured once, ONLY for a matched polygon
+              // (no mutation yet) — never stringify hundreds of unmatched polygons for nothing
               let oldGeom: string | null = null
               partnerRings(poly).forEach((ring, ri) =>
                 ring.forEach((pt, vi) => {
@@ -1610,10 +1613,10 @@ export default function MapView({
         })
         layer.on('pm:markerdragend', () => {
           for (const p of dragPartners.current) {
-            // aynı partner birden çok köşede eşleşebilir — oldGeom ilk kaydedilen korunur (aynı zaten)
+            // the same partner can match on several vertices — the first recorded oldGeom is kept (identical anyway)
             if (!weldTouched.current.has(p.fid))
               weldTouched.current.set(p.fid, { layer: p.layer, oldGeom: p.oldGeom })
-            // partnerin köşe marker'ları eski yerde kalır — düzenleme modunu tazele
+            // the partner's vertex markers stay at the old spot — refresh edit mode
             const pm = (
               p.layer as unknown as {
                 pm?: { enabled?: () => boolean; disable: () => void; enable: () => void }
@@ -1626,8 +1629,8 @@ export default function MapView({
           }
           dragPartners.current = []
         })
-        // Köşe düzenlemede kaynak var; poligonu bütün olarak taşımada (drag) yok —
-        // taşıma "komşudan kopar" demektir, komşuyu peşinden sürüklememeli.
+        // Weld applies to vertex editing; not to whole-polygon dragging — a move means
+        // "detach from the neighbour", it must not tow the neighbour along.
         layer.on('pm:update', (e) => saveGeometry(e, true))
         layer.on('pm:dragend', (e) => saveGeometry(e, false))
         layer.on('contextmenu', (e: L.LeafletMouseEvent) => {
@@ -1659,21 +1662,22 @@ export default function MapView({
       })
     }
     setChangeYears([...chYears].sort((a, b) => a - b))
-    // reposition=true: çizimler yeni kuruldu, tooltip'ler taban font'ta konumlandı; font ölçeklendikten
-    // sonra bir kez yeniden ortalanmalı (ayar değişiminde etiket kayması buradan gelirdi). Nadir yol.
+    // reposition=true: features were just built and tooltips positioned at the base font; after
+    // the font scales they need one recentre (label drift on setting changes came from this). Rare path.
     applyYear(yearRef.current, true)
-    // Tam yeniden kurulum katmanları yeniden yarattı → seçili çizimin YENİ katmanlarında edit'i
-    // yeniden aç (yalnız seçili; global değil — lag bu yüzden vardı)
+    // The full rebuild recreated the layers → reopen edit on the selected feature's NEW layers
+    // (selected only; not global — that was where the lag came from)
     syncEditMode()
   }
 
-  // CK3 tarzı türetilmiş bölge etiketleri (kademe/boya): aynı gruptaki (o yılki kademe sahibi /
-  // boya değeri) BİTİŞİK taban poligonlar union-find ile tek bileşene toplanır (bitişiklik =
-  // ortak köşe grid hücresi, geoman snapping garantisi); her bileşen uzun eksenine (PCA) göre
-  // eğik + hafif kavisli bir ad etiketi alır, font bileşen genişliğiyle ölçekli, çok küçükte yok.
-  // Etiketler DB feature değil — doğrudan haritaya eklenen geçici marker'lar (featureGroup'a
-  // DEĞİL: fg.clearLayers churn'ü, updateOverlaySizes eachLayer'ı ve geoman edit modundan muaf).
-  // interactive:false kritik — fetih tıklamaları alttaki poligona düşmeli.
+  // CK3-style derived region labels (rank/paint): ADJACENT base polygons in the same group
+  // (that year's rank owner / paint value) union-find into one component (adjacency = shared
+  // vertex grid cell, guaranteed by geoman snapping); each component gets a name label tilted
+  // along its long axis (PCA) with a slight arc, font scaled to component width, none when
+  // tiny. The labels are not DB features — transient markers added straight to the map (NOT
+  // the featureGroup: exempt from fg.clearLayers churn, updateOverlaySizes eachLayer and
+  // geoman edit mode). interactive:false is critical — conquest clicks must fall through to
+  // the polygon below.
   const rebuildDerivedLabels = (
     year: number,
     rungOwnerAt: (eid: number) => number | null
@@ -1689,13 +1693,13 @@ export default function MapView({
       clear()
       return
     }
-    // 1. Görünür taban poligonlar + grup anahtarı + metin
+    // 1. Visible base polygons + group key + text
     const items: { fid: number; key: string }[] = []
     const textOf = new Map<string, string>()
     for (const [fid] of labelGeo.current) {
       const y = layerYears.current.get(fid)
       if (y && !((y.from ?? -Infinity) <= year && year <= (y.to ?? Infinity))) continue
-      if (!onActiveBoard(fid)) continue // aktif olmayan zemindeki poligon etikete katılmaz
+      if (!onActiveBoard(fid)) continue // a polygon on an inactive board joins no label
       const eid = featEnt.current.get(fid)
       if (eid === undefined) continue
       let key: string
@@ -1714,12 +1718,12 @@ export default function MapView({
       items.push({ fid, key })
       textOf.set(key, text)
     }
-    // 2. İmza: sahiplik değişmeyen tiklerde hiç dokunma (playback bedava)
+    // 2. Signature: on ticks with unchanged ownership, touch nothing (playback is free)
     const sig = items.map((i) => `${i.fid}:${i.key}`).join('|')
     if (sig === derivedSig.current) return
     clear()
     derivedSig.current = sig
-    // 3. Union-find: aynı grup içinde köşe hücresi paylaşanlar tek bileşen
+    // 3. Union-find: same-group polygons sharing a vertex cell form one component
     const parent = new Map<number, number>()
     const find = (x: number): number => {
       let r = x
@@ -1733,7 +1737,7 @@ export default function MapView({
       return r
     }
     for (const { fid } of items) parent.set(fid, fid)
-    const seen = new Map<string, number>() // `${grup}|${hücre}` → ilk gören fid
+    const seen = new Map<string, number>() // `${group}|${cell}` → first fid to see it
     for (const { fid, key } of items) {
       for (const vk of labelGeo.current.get(fid)!.keys) {
         const k = `${key}|${vk}`
@@ -1742,7 +1746,7 @@ export default function MapView({
         else parent.set(find(fid), find(first))
       }
     }
-    // 4. Bileşen başına etiket
+    // 4. One label per component
     const comps = new Map<number, { key: string; fids: number[] }>()
     for (const { fid, key } of items) {
       const r = find(fid)
@@ -1760,8 +1764,8 @@ export default function MapView({
       for (const fid of fids) {
         const g = labelGeo.current.get(fid)!
         verts = verts.concat(g.verts)
-        // Çapa: alan ağırlıklı bileşen centroid'i — etiket TÜM bileşenin ortasına oturur,
-        // tek parçaya değil (kullanıcı geri bildirimi: yazı poligonların toplamına yayılmalı)
+        // Anchor: area-weighted component centroid — the label sits over the WHOLE component,
+        // not one piece (user feedback: the text should span the polygons' union)
         cx += g.centroid[0] * g.area
         cy += g.centroid[1] * g.area
         totalArea += g.area
@@ -1769,13 +1773,13 @@ export default function MapView({
       cx /= totalArea
       cy /= totalArea
       const { theta, extent } = pcaAxis(verts)
-      // CRS.Simple'da lat (y) yukarı, CSS rotate saat yönü → açı ters; ±90'a normalize (ters metin yok)
+      // In CRS.Simple lat (y) goes up, CSS rotate is clockwise → angle inverted; normalized to ±90 (no upside-down text)
       let angle = (-theta * 180) / Math.PI
       if (angle > 90) angle -= 180
       if (angle < -90) angle += 180
-      // Metin ana eksenin ~%80'ine yayılsın: labelDivIcon harf başına ~0.62em genişlik tahmin eder
+      // Spread the text over ~80% of the main axis: labelDivIcon estimates ~0.62em per letter
       const base = Math.min(300, (extent * 0.8) / (0.62 * Math.max(4, text.length)))
-      if (base < LABEL_MIN) continue // çok küçük bölge etiketsiz
+      if (base < LABEL_MIN) continue // a tiny region gets no label
       const m = L.marker([cy, cx], {
         icon: labelDivIcon({ text, color: '#ffffff', angle, curve: 10 }),
         interactive: false,
@@ -1785,13 +1789,13 @@ export default function MapView({
     }
   }
 
-  // Yıl uygulaması: (1) yıl aralığı dışındaki çizimleri gizle/geri getir, (2) kademe modunda
-  // taban poligonları o yılki kademe atasının rengine, (3) varsayılan görünümde zincir tepesinin
-  // rengine boya + kök etiketlerini yerleştir. Slider'ın her tikinde yalnız bu çalışır — DB yok.
-  // Seçim vurgusu: setStyle DEĞİL CSS sınıfı (`.sel-feature` = drop-shadow). Stil yazılsaydı
-  // poligonun rengi vurguyla ezilir, kullanıcı panelden renk değiştirirken sonucu göremezdi.
-  // getElement() hem Path (SVG) hem Marker (divIcon) için çalışır. applyYear katmanları yeniden
-  // kurduğu için sonunda tekrar çağrılır; fark uygulanır (tüm katmanlar taranmaz).
+  // Applying the year: (1) hide/restore features outside their year range, (2) in rank mode
+  // paint base polygons in that year's rank ancestor's color, (3) in the default view paint in
+  // the chain top's color + place root labels. Every slider tick runs only this — no DB.
+  // Selection highlight: a CSS class, NOT setStyle (`.sel-feature` = drop-shadow). Writing a
+  // style would bury the polygon's color under the highlight while the user edits it in the
+  // panel. getElement() works for both Path (SVG) and Marker (divIcon). applyYear rebuilds
+  // layers, so it is called again at the end; the diff is applied (no full layer scan).
   const markSelection = (): void => {
     const cls = (fid: number, on: boolean): void => {
       for (const l of allLayers.current.get(fid) ?? [])
@@ -1809,11 +1813,11 @@ export default function MapView({
     const fg = featureGroupRef.current
     if (!fg) return
     const kademeOn = activeModeRef.current?.kind === 'kademe'
-    // Varsayılan (kök) görünümü: taban poligonlar o yılki zincirin TEPESİNDEKİ maddenin rengine
-    // boyanır (üstü boş = en üst kabulü); kökün adı en büyük parçasının üzerine tek etiket olur.
+    // Default (root) view: base polygons painted in the color of the entity at the TOP of
+    // that year's chain (no parent = top); the root's name becomes one label over its largest piece.
     const topOnly = activeModeRef.current === null
-    // Üst zincirini yıla göre tırman, görüntülenen kademedeki atayı bul (döngü korumalı).
-    // Sahip-ID ayrı çözülür: renk + türetilmiş etiket metni aynı tırmanışı paylaşır.
+    // Climb the parent chain by year to the ancestor at the displayed rank (cycle-guarded).
+    // The owner id resolves separately: color + derived label text share one climb.
     const rungOwnerAt = (eid: number): number | null => {
       let cur: number | undefined = eid
       const seen = new Set<number>()
@@ -1822,14 +1826,14 @@ export default function MapView({
         seen.add(cur)
         cur = parentAt(parentHist.current.get(cur) ?? [], year) ?? undefined
       }
-      return null // o yıl bu kademede sahibi yok
+      return null // no owner at this rank that year
     }
     const rungColor = (eid: number): string => {
       const o = rungOwnerAt(eid)
       return o !== null ? rungTargets.current.get(o)! : '#666666'
     }
-    // Zincirin tepesi (döngü korumalı, applyYear başına memo'lu)
-    const rootMemo = new Map<number, number>() // applyYear başına memo; climb ortak rootAtYear
+    // Top of the chain (cycle-guarded, memoised per applyYear)
+    const rootMemo = new Map<number, number>() // per-applyYear memo; the climb is the shared rootAtYear
     const rootOf = (eid: number): number => {
       const hit = rootMemo.get(eid)
       if (hit !== undefined) return hit
@@ -1841,15 +1845,15 @@ export default function MapView({
       const y = layerYears.current.get(fid)
       return !y || inYearRange(y.from, y.to, year)
     }
-    // 1. geçiş (yalnız kök görünümü): görünür taban poligonları köke göre grupla,
-    // her kökün etiket taşıyıcısını (en büyük parça) seç
+    // Pass 1 (root view only): group visible base polygons by root, pick each root's label
+    // carrier (the largest piece)
     const carrier = new Map<number, number>() // rootId → fid
     if (topOnly) {
       for (const [fid] of allLayers.current) {
         const eid = featEnt.current.get(fid)
         if (eid === undefined || !baseSet.current.has(eid) || !inYears(fid)) continue
-        if (!onActiveBoard(fid)) continue // farklı zemindeki çizim etikete katılmaz
-        if (!featArea.current.has(fid)) continue // yalnız poligonlar
+        if (!onActiveBoard(fid)) continue // a feature on another board joins no label
+        if (!featArea.current.has(fid)) continue // polygons only
         const root = rootOf(eid)
         const cur = carrier.get(root)
         if (
@@ -1861,34 +1865,34 @@ export default function MapView({
     }
     for (const [fid, layers] of allLayers.current) {
       let visible = inYears(fid)
-      // Zemin (çizim katmanı): aktif olmayan zemindeki çizim hiç gösterilmez
+      // Board (drawing layer): a feature on an inactive board is never shown
       if (!onActiveBoard(fid)) visible = false
-      // Katman paneli: türü kapalıysa çizim hiç gösterilmez
+      // Layers panel: with its kind toggled off the feature is never shown
       const kind = featKind.current.get(fid)
       if (kind && !layersRef.current[kind]) visible = false
-      // Pin filtresi: gizlenen madde tipindeki pinler gösterilmez
+      // Pin filter: pins of a hidden entity type are not shown
       if (kind === 'pin' && pinHiddenRef.current.has(pinType.current.get(fid) ?? ''))
         visible = false
       const eid = featEnt.current.get(fid)
       const isBase = eid !== undefined && baseSet.current.has(eid) && featArea.current.has(fid)
       let st = renderStyle.current.get(fid)
-      let labelRoot: number | null = null // taşıyıcıysa kök id'si; -1 = taban etiketi gizle
+      let labelRoot: number | null = null // root id when carrier; -1 = hide the base label
       if (topOnly && eid !== undefined) {
         if (isBase) {
-          // Yalnız renk kökten gelir; opaklık/kalınlık çizimin kendi ayarında kalır
-          // (fillColor da düz renge döner — siyasi mozaikte dolgu görseli geçersiz)
+          // Only the color comes from the root; opacity/weight stay the feature's own
+          // (fillColor reverts to flat too — fill images are void in the political mosaic)
           const root = rootOf(eid)
           const c = entColors.current.get(root) ?? '#666666'
           if (st) st = { ...st, color: c, fillColor: c }
           labelRoot = carrier.get(root) === fid ? root : -1
         } else if (featArea.current.has(fid)) {
-          // Gizleme kuralları yalnız POLİGON sınırları için: üst maddenin elle çizilmiş sınırı
-          // mozaikle temsil ediliyorsa çift görüntü olmasın. Pin ve yollar (maddesi kime bağlı
-          // olursa olsun) süslemedir, her zaman kendi görünümüyle kalır.
+          // Hiding rules apply to POLYGON borders only: when a parent's hand-drawn border is
+          // represented by the mosaic there must be no double image. Pins and paths (whoever
+          // their entity is) are decoration and always keep their own look.
           if (parentAt(parentHist.current.get(eid) ?? [], year) !== null) {
-            visible = false // üstü var → zincirin tepesi değil
+            visible = false // has a parent → not the top of the chain
           } else if (mosaicManaged.current.has(eid)) {
-            visible = false // sınırı mozaikten türetiliyor (herhangi bir yıl); eski çizimi hiç gösterme
+            visible = false // its border derives from the mosaic (in any year); never show the old drawing
           }
         }
       }
@@ -1896,25 +1900,25 @@ export default function MapView({
         const c = eid !== undefined ? rungColor(eid) : '#666666'
         st = { ...st, color: c, fillColor: c }
       }
-      // Zoom kapısı en sonda: baseVisible = zoom DIŞI görünürlük (refreshZoomVis bunu okur),
-      // sonra zoom aralığı dışındaysa gizle
+      // The zoom gate comes last: baseVisible = visibility APART from zoom (refreshZoomVis
+      // reads it), then hide when outside the zoom range
       baseVisible.current.set(fid, visible)
       if (!zoomOk(fid)) visible = false
       const arrow = featArrow.current.get(fid)
       for (const l of layers) {
         if (visible && !fg.hasLayer(l)) {
           fg.addLayer(l)
-          // Edit modunda aynı katman nesnesini featureGroup'a geri eklemek geoman'ın köşe
-          // marker'larını geri GETİRMEZ (ölçüldü) → düzenleme modu açıksa elle tazele. YALNIZ
-          // seçili çizim için (global değil — lag'in kaynağı buydu).
+          // Re-adding the same layer object to the featureGroup does NOT bring geoman's vertex
+          // markers back (measured) → refresh manually when edit mode is on. ONLY for the
+          // selected feature (not global — that was the source of the lag).
           if (toolRef.current === 'edit' && selectedRef.current?.id === fid)
             (l as unknown as { pm?: { enable: () => void } }).pm?.enable()
         } else if (!visible && fg.hasLayer(l)) fg.removeLayer(l)
         if (visible && st && (l as L.Path).setStyle) {
-          // dashArray kanonik değere döner — fetih vurgusunun kesikli kenarı kalıcı kalmasın,
-          // yol (çizgi) desenleri ise korunur (renderStyle'da saklı). isCurveControl: üstünde eğri
-          // overlay'i olan gerçek/düzenlenebilir çizgi neredeyse görünmez kalır (0 tam saydam SVG'de
-          // tıklanamaz olabildiği için değil, düşük ama boyanan bir değer).
+          // dashArray returns to canonical — the conquest highlight's dashed edge must not
+          // stick, while path (line) patterns survive (kept in renderStyle). isCurveControl:
+          // the real/editable line under a curve overlay stays near-invisible (a low but
+          // painted value, because a fully transparent SVG can be unclickable).
           ;(l as L.Path).setStyle({
             color: st.color,
             fillColor: st.fillColor,
@@ -1924,14 +1928,15 @@ export default function MapView({
             dashArray: st.dashArray
           })
         }
-        // 'end' oku: yalnız GÖRÜNÜR katmana (eğri varsa overlay'e, yoksa gerçek çizgiye) — kontrol
-        // çizgisine de eklenirse context-stroke stroke-opacity'yi yok saydığı için hayalet ikinci ok belirir.
+        // The 'end' arrow: only on the VISIBLE layer (the overlay when curved, else the real
+        // line) — added to the control line too, context-stroke ignores stroke-opacity and a
+        // ghost second arrow appears.
         if (visible && arrow === 'end' && !(l as FeatureLayer).isCurveControl) {
           const el = (l as L.Path).getElement?.() as SVGElement | null
           el?.setAttribute('marker-end', 'url(#worldArrow)')
         }
-        // Kalıcı etiketler: katman paneli kapalıysa hepsi gizli; kök görünümünde taşıyıcı
-        // kökün adını taşır, diğer taban etiketleri gizli
+        // Permanent labels: all hidden when the layers panel says so; in the root view the
+        // carrier bears the root's name, other base labels stay hidden
         if (visible) {
           const tt = l.getTooltip?.()
           const el = tt?.getElement()
@@ -1940,7 +1945,7 @@ export default function MapView({
             else {
               if (labelRoot !== null) {
                 const name = entNames.current.get(labelRoot) ?? ''
-                tt.setContent(escapeHtml(name)) // string tooltip = innerHTML (bindTooltip ile aynı)
+                tt.setContent(escapeHtml(name)) // a string tooltip = innerHTML (same as bindTooltip)
                 const b = (l as L.Polygon).getBounds()
                 labelMeta.current.set(fid, {
                   base: Math.min(
@@ -1957,19 +1962,19 @@ export default function MapView({
       }
     }
     rebuildDerivedLabels(year, rungOwnerAt) // mod yoksa kendini temizler
-    updateOverlaySizes(reposition) // geri eklenen etiket/pin boyutları güncel zoom'a otursun
-    markSelection() // katmanlar yeniden kuruldu → seçim vurgusunu geri yaz
+    updateOverlaySizes(reposition) // re-added label/pin sizes settle onto the current zoom
+    markSelection() // layers were rebuilt → rewrite the selection highlight
   }
 
-  // Seçim değişince vurguyu tazele (ref + DOM sınıfı). applyYear çağrılmaz — vurgu artık stil
-  // değil sınıf, katmanlara dokunmaya gerek yok.
+  // Refresh the highlight when the selection changes (ref + DOM class). No applyYear call —
+  // the highlight is a class now, not a style, so the layers need no touching.
   useEffect(() => {
     selIdsRef.current = selIds
     markSelection()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selIds.join(',')])
 
-  // Katman panelini settings'ten yükle (kalıcı tercih); toggle anında DB'siz uygular
+  // Load the layers panel from settings (persisted); toggles apply instantly, DB-free
   useEffect(() => {
     api.getSetting('mapLayers').then((raw) => {
       if (!raw) return
@@ -1989,7 +1994,7 @@ export default function MapView({
     applyYear(yearRef.current)
   }
 
-  // Harita geçişi: yeni harita oluştur (adı satır içi formdan) → App'i tazele + o haritaya git
+  // Map switching: create a new map (name from the inline form) → refresh App + go there
   const createMap = async (name: string): Promise<void> => {
     if (!name.trim()) return
     const { id: newId } = await api.createMap({ name: name.trim() })
@@ -1998,13 +2003,13 @@ export default function MapView({
     onNavigate(newId)
   }
 
-  // Harita yeniden adlandır (satır içi) — undo'ya girmez (eski kenar çubuğunda da rename yoktu)
+  // Rename a map (inline) — not undoable (the old sidebar had no rename either)
   const renameMap = (mapId: number, name: string): void => {
     void api.updateMap(mapId, { name }).then(onChanged)
   }
 
-  // Harita sil (undo ile — App'teki desenin kopyası). Yalnız AKTİF OLMAYAN haritalar silinir
-  // (aktif haritayı silince gidilecek görünüm belirsiz — önce ona geçmemek gerekir).
+  // Delete a map (with undo — a copy of App's pattern). Only NON-ACTIVE maps can be deleted
+  // (deleting the active one leaves no obvious view to land on — switch away first).
   const deleteMapWithUndo = async (mapId: number): Promise<void> => {
     const name = maps.find((m) => m.id === mapId)?.name ?? ''
     if (!(await confirmDialog(t('Delete "{name}" and all drawings on it?', { name })))) return
@@ -2035,15 +2040,16 @@ export default function MapView({
     onChanged()
   }
 
-  // Zoom görünürlüğü: çizimin min/max zoom aralığında olup olmadığı
+  // Zoom visibility: whether the feature sits inside its min/max zoom range
   const zoomOk = (fid: number): boolean => {
     const z = zoomLimits.current.get(fid)
     if (!z) return true
     const cur = mapRef.current?.getZoom() ?? 0
     return (z.min == null || cur >= z.min) && (z.max == null || cur <= z.max)
   }
-  // Zoom değişince: yalnız zoom-sınırlı çizimleri, zoom DIŞI görünürlüklerini (baseVisible) koruyarak
-  // aç/kapat. Tüm çizimleri taramaz (hot-path); marker'lar stil taşımaz, yeniden eklemek yeter.
+  // On zoom change: toggle only the zoom-limited features, preserving their non-zoom
+  // visibility (baseVisible). Never scans all features (hot path); markers carry no style,
+  // re-adding suffices.
   const refreshZoomVis = (): void => {
     const fg = featureGroupRef.current
     if (!fg) return
@@ -2057,8 +2063,8 @@ export default function MapView({
         } else if (!shown && fg.hasLayer(l)) fg.removeLayer(l)
       }
     }
-    // Leaflet katmanı geri eklerken elemanı SIFIRDAN kuruyor (Marker._initIcon / Path._initPath)
-    // → seçim vurgusunun CSS sınıfı kayboluyordu. applyYear sonundakiyle aynı tazeleme.
+    // Leaflet rebuilds the element from SCRATCH on re-add (Marker._initIcon / Path._initPath)
+    // → the selection highlight's CSS class was lost. Same refresh as at the end of applyYear.
     markSelection()
   }
 
@@ -2071,9 +2077,10 @@ export default function MapView({
     applyYear(yearRef.current)
   }
 
-  // --- Zeminler (çizim katmanları) ---
-  // Bir çizimin ait olduğu zemin: style.board; tanımsız ya da artık-olmayan id → İLK zemin
-  // (silme/rename çizimleri yetim bırakmaz — yeniden yazma yok, tek kaynak bu çözümleme).
+  // --- Boards (drawing layers) ---
+  // The board a feature belongs to: style.board; an undefined or no-longer-existing id → the
+  // FIRST board (deletion/rename cannot orphan features — no rewriting, this resolution is
+  // the single source).
   const resolveBoard = (fid: number): string | undefined => {
     const { list } = boardsRef.current
     if (!list.length) return undefined
@@ -2099,7 +2106,7 @@ export default function MapView({
     if (!name.trim()) return
     const bid = crypto.randomUUID()
     const list = [...boardsRef.current.list, { id: bid, name: name.trim() }]
-    // İlk zemin oluşturulunca aktif olur (mevcut çizimler tanımsız→ilk zemin kuralıyla onda görünür)
+    // The first board created becomes active (existing features show on it via the undefined→first rule)
     persistBoards({ list, active: boardsRef.current.list.length ? boardsRef.current.active : bid })
     setNewBoardName(null)
   }
@@ -2121,21 +2128,21 @@ export default function MapView({
     )
       return
     const list = boardsRef.current.list.filter((x) => x.id !== bid)
-    // Aktif zemini sildiysek kalan ilkine geç; hepsi silindiyse filtre kapanır (tek tuval)
+    // Deleting the active board switches to the first remaining; with none left the filter is off (one canvas)
     const active = bid === boardsRef.current.active ? (list[0]?.id ?? '') : boardsRef.current.active
     persistBoards({ list, active })
     applyYear(yearRef.current)
   }
 
-  // Çizimin türü — arama listesi ikonu + pin filtresi chip'leri (state'ten saf türetme)
+  // The feature's kind — search list icon + pin filter chips (pure derivation from state)
   const kindOf = (f: WorldMap['features'][number]): 'polygon' | 'line' | 'pin' | 'label' => {
     if (f.geometry.includes('"Polygon"')) return 'polygon'
     if (f.geometry.includes('"LineString"')) return 'line'
     return (JSON.parse(f.style || '{}') as FeatureStyle).text !== undefined ? 'label' : 'pin'
   }
 
-  // Haritada arama: madde adı (bağlı çizimler) ya da serbest etiket metniyle eşleş.
-  // useMemo: zoom HUD her tikte render tetikler — feature başına JSON.parse hot-path'e girmesin.
+  // Map search: match by entity name (bound features) or free label text.
+  // useMemo: the zoom HUD renders every tick — keep per-feature JSON.parse off the hot path.
   const searchMatches = useMemo(() => {
     const q = searchQ.trim().toLocaleLowerCase('tr')
     if (!q) return []
@@ -2149,7 +2156,7 @@ export default function MapView({
       .slice(0, 12)
   }, [worldMap, searchQ])
 
-  // Bu haritadaki pinlerin madde tipleri (filtre chip'leri; tek tipte filtre anlamsız)
+  // Entity types of this map's pins (filter chips; a filter over one type is pointless)
   const pinTypes = useMemo(
     () => [
       ...new Set(
@@ -2162,7 +2169,7 @@ export default function MapView({
     [worldMap]
   )
 
-  // Fetih seçim vurguları: önce kanonik stile dön, sonra seçili maddelerin poligonlarını vurgula
+  // Conquest pick highlights: restore canonical styles first, then highlight the picked entities' polygons
   const highlightPicked = (picked: Set<number>): void => {
     applyYear(yearRef.current)
     for (const [fid, eid] of featEnt.current)
@@ -2171,8 +2178,8 @@ export default function MapView({
           (ly as L.Path).setStyle?.({ color: '#ffffff', weight: 4, dashArray: '6' })
   }
 
-  // Çizim kısayolları: Del/Backspace sil, Ctrl+C kopyala, Ctrl+V imlecin altına yapıştır,
-  // Ctrl+D çoğalt — hepsi ÇOKLU seçimle çalışır. Girdi alanına yazarken hiçbiri tetiklenmez.
+  // Feature shortcuts: Del/Backspace delete, Ctrl+C copy, Ctrl+V paste under the cursor,
+  // Ctrl+D duplicate — all work with MULTI-select. None fire while typing in an input.
   // Bare effect (dep dizisi yok): handler'lar her render tazelenir, bayat closure olmaz.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -2184,9 +2191,9 @@ export default function MapView({
       const k = e.key.toLowerCase()
       if ((e.key === 'Delete' || e.key === 'Backspace') && has) {
         e.preventDefault()
-        // App'te de Del var (kenar çubuğunda seçili MADDELERİ siler). İkisi de window'a bağlı
-        // olduğu için haritada bir çizim seçiliyken Del HER İKİSİNİ birden siliyordu. Bu handler
-        // yakalama (capture) fazında kayıtlı → App'inkinden önce çalışır, burada zinciri keser.
+        // App has Del too (deletes the ENTITIES selected in the sidebar). Both listen on
+        // window, so Del with a map feature selected deleted BOTH. This handler registers in
+        // the capture phase → runs before App's and cuts the chain here.
         e.stopImmediatePropagation()
         void removeFeature(...selIdsRef.current)
       } else if (e.ctrlKey && k === 'c' && has) copySelection()
@@ -2194,15 +2201,15 @@ export default function MapView({
         e.preventDefault()
         void pasteClipboard(true)
       } else if (e.ctrlKey && k === 'd' && has) {
-        e.preventDefault() // tarayıcı "yer imi ekle"
+        e.preventDefault() // the browser's "add bookmark"
         void duplicateSelection()
       }
     }
-    window.addEventListener('keydown', onKey, true) // capture: App'in Del handler'ından önce
+    window.addEventListener('keydown', onKey, true) // capture: before App's Del handler
     return () => window.removeEventListener('keydown', onKey, true)
   })
 
-  // Esc: fetih akışını iptal et, seçim vurgularını temizle
+  // Esc: cancel the conquest flow, clear the pick highlights
   useEffect(() => {
     if (!conquest) return
     const onKey = (e: KeyboardEvent): void => {
@@ -2216,7 +2223,7 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conquest !== null])
 
-  // Esc: aktif ölçüm oturumunu bitir
+  // Esc: end the active measure session
   useEffect(() => {
     if (!measure) return
     const onKey = (e: KeyboardEvent): void => {
@@ -2238,7 +2245,7 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nav !== null])
 
-  // Fetih onayı: seçilen her madde, slider yılından itibaren alıcıya bağlanır (tek undo kaydı)
+  // Conquest confirm: every picked entity attaches to the receiver from the slider year on (one undo record)
   const commitConquest = async (): Promise<void> => {
     const c = conquestRef.current
     setConquest(null)
@@ -2252,7 +2259,7 @@ export default function MapView({
       const e = await api.getEntity(eid)
       if (!e) continue
       const f = JSON.parse(e.fields || '{}') as Record<string, string>
-      const recs = getParents(e.fields).filter((r) => r.from !== year) // aynı yıla ikinci fetih öncekini ezer
+      const recs = getParents(e.fields).filter((r) => r.from !== year) // a second conquest in the same year overrides
       recs.push({ from: year, id: c.receiverId })
       recs.sort((a, b) => (a.from ?? -Infinity) - (b.from ?? -Infinity))
       f['parent'] = JSON.stringify(recs)
@@ -2271,11 +2278,12 @@ export default function MapView({
     await reloadFeatures()
   }
 
-  // Harita kurulumu (id değişince sıfırdan)
+  // Map setup (from scratch when the id changes)
   useEffect(() => {
     if (!divRef.current) return
-    // Sol tık sürükleme kapalı (çizim/seçim için serbest); kaydırma orta tuşla; zoom butonları yok (HUD var)
-    // scrollWheelZoom kapalı: yerine aşağıda özel sürekli (kesirli, animasyonsuz) tekerlek zoom var
+    // Left-drag panning off (free for drawing/selection); pan with middle mouse; no zoom
+    // buttons (there is a HUD). scrollWheelZoom off: replaced below by a custom continuous
+    // (fractional, animation-free) wheel zoom
     const map = L.map(divRef.current, {
       crs: L.CRS.Simple,
       minZoom: -4,
@@ -2287,14 +2295,14 @@ export default function MapView({
       attributionControl: false
     })
     mapRef.current = map
-    map.pm.setGlobalOptions({ tooltips: false }) // geoman'ın "Click to place marker" ipuçlarını kapat
+    map.pm.setGlobalOptions({ tooltips: false }) // silence geoman's "Click to place marker" hints
 
     const host = divRef.current
     let panning = false
     let last: [number, number] = [0, 0]
     const onDown = (e: MouseEvent): void => {
       if (e.button === 1) {
-        e.preventDefault() // otomatik kaydırma imlecini engelle
+        e.preventDefault() // block the autoscroll cursor
         panning = true
         last = [e.clientX, e.clientY]
       }
@@ -2307,14 +2315,14 @@ export default function MapView({
     const onUp = (): void => {
       panning = false
     }
-    // Sürekli/YUMUŞAK tekerlek zoom: her tık bir HEDEF zoom'a eklenir, rAF döngüsü mevcut zoom'u
-    // hedefe doğru kademe kademe (ease) taşır. Her kare animate:false setZoomAround → 'zoom' olayı →
-    // etiketler/pinler her karede senkron ölçeklenir (Leaflet'in kendi animasyonu bunu yapmaz, o
-    // yüzden manuel). Eskiden hedefe ANINDA atlanıyordu → tekerlek tıkı başına ~0.15 sıçrama = kademeli his.
-    // ponytail: 0.0015 hassasiyet, 0.2 ease — hızlı/yavaş/sert gelirse tek sayı ayarı.
-    // wheelZooming: rAF sürerken 'zoom' olayı YALNIZ DOM (etiket/pin ölçekleme) yapsın, React state
-    // (HUD/ölçek çubuğu) her karede güncellenmesin — 60fps React re-render'ı (Timeline/panel) kasardı.
-    // React durumu zoom oturunca (aşağıda, settle) bir kez güncellenir.
+    // Continuous/SMOOTH wheel zoom: each tick adds to a TARGET zoom and a rAF loop eases the
+    // current zoom toward it. Every frame animate:false setZoomAround → 'zoom' event → labels/
+    // pins scale synchronously per frame (Leaflet's own animation does not, hence manual).
+    // Previously it jumped to the target INSTANTLY → ~0.15 leap per wheel tick = stepped feel.
+    // ponytail: 0.0015 sensitivity, 0.2 ease — single numbers to tune if it feels fast/slow/harsh.
+    // wheelZooming: while the rAF runs, the 'zoom' event does DOM only (label/pin scaling) and
+    // React state (HUD/scale bar) is not updated per frame — 60fps React re-renders (Timeline/
+    // panel) would stutter. React state updates once when the zoom settles (below).
     let wheelTarget: number | null = null
     let wheelPt: L.Point | null = null
     let wheelRaf: number | null = null
@@ -2331,7 +2339,7 @@ export default function MapView({
         wheelTarget = null
         wheelRaf = null
         wheelZooming = false
-        showHud(map.getZoom()) // oturunca HUD + ölçek çubuğu tek React güncellemesi
+        showHud(map.getZoom()) // on settle, one React update for HUD + scale bar
         setBarZoom(map.getZoom())
         return
       }
@@ -2341,7 +2349,7 @@ export default function MapView({
     const onWheel = (e: WheelEvent): void => {
       e.preventDefault()
       if (e.shiftKey && wheelAdjustRef.current) {
-        wheelAdjustRef.current(e.deltaY) // Shift basılı: zoom yerine seçili çizimi büyüt/küçült
+        wheelAdjustRef.current(e.deltaY) // Shift held: resize the selection instead of zooming
         return
       }
       const base = wheelTarget ?? map.getZoom()
@@ -2358,23 +2366,23 @@ export default function MapView({
     featureGroupRef.current = fg
     map.addLayer(fg)
 
-    // Ctrl+V yapıştırmanın hedefi: imlecin son harita konumu (React state'e girmez — her hareket
-    // re-render olurdu; yalnız yapıştırma anında okunur)
+    // The Ctrl+V paste target: the cursor's last map position (never enters React state —
+    // every move would re-render; read only at paste time)
     map.on('mousemove', (e: L.LeafletMouseEvent) => {
       lastMouse.current = e.latlng
     })
 
     map.on('zoom zoomend', () => {
-      refreshZoomVis() // zoom-sınırlı pin/etiketleri güncel zoom'a göre aç/kapat (boyutlamadan önce)
-      updateOverlaySizes() // DOM: her karede (yumuşak zoom) — etiket/pin senkron ölçeklenir
-      // React state (HUD + ölçek çubuğu) yalnız tekerlek-zoom DIŞINDA hemen; tekerlekte settle'da (yukarıda)
+      refreshZoomVis() // toggle zoom-limited pins/labels for the current zoom (before sizing)
+      updateOverlaySizes() // DOM: every frame (smooth zoom) — labels/pins scale in sync
+      // React state (HUD + scale bar) immediately only OUTSIDE wheel zoom; on wheel, at settle (above)
       if (!wheelZooming) {
         showHud(map.getZoom())
         setBarZoom(map.getZoom())
       }
     })
 
-    // Ölçüm oturumu tıklamaları: calib 2 noktada forma geçer; dist/area nokta biriktirir
+    // Measure session clicks: calib switches to the form at 2 points; dist/area accumulate points
     map.on('click', (e: L.LeafletMouseEvent) => {
       const m = measureRef.current
       if (!m || m.kind === 'calib-form') return
@@ -2405,7 +2413,7 @@ export default function MapView({
       setMeasure({ kind: m.kind, pts })
     })
 
-    // Boş alana sağ tık → araç menüsü (çizim üzerindeyse layer handler'ı devralır)
+    // Right-click on empty space → tool menu (over a feature the layer handler takes over)
     map.on('contextmenu', (e: L.LeafletMouseEvent) => {
       if ((e.originalEvent.target as HTMLElement).classList?.contains('leaflet-interactive')) return
       e.originalEvent.preventDefault()
@@ -2427,12 +2435,12 @@ export default function MapView({
     map.on('pm:create', async (e) => {
       const geometry = JSON.stringify((e.layer as L.Polygon).toGeoJSON().geometry)
       map.removeLayer(e.layer)
-      // O anki araç ayarlarının anlık görüntüsü çizimin kalıcı stili olur.
-      // from = çizim anındaki slider yılı: çizim, var olmadığı tarihlerde görünmez
-      // (seçili çizim panelindeki "Zaman" bloğundan değiştirilebilir/temizlenebilir).
+      // A snapshot of the current tool settings becomes the feature's persistent style.
+      // from = the slider year at draw time: the feature is invisible in years it does not
+      // exist (changeable/clearable in the selected feature panel's "Time" block).
       const s = drawRef.current
       const shape = (e as { shape?: string }).shape
-      // Etiket ve pin araçlarının ikisi de geoman'da 'Marker' → ayırt etmek için aktif araç okunur
+      // Label and pin tools are both 'Marker' to geoman → the active tool disambiguates
       const isLabelDraw = toolRef.current === 'label'
       const from = yearRef.current
       const styleObj =
@@ -2473,7 +2481,7 @@ export default function MapView({
                   fillImg: s.polygon.fillImg,
                   from
                 }
-      // Aktif zemine bağla (zemin tanımlıysa) → yalnız o zeminde görünür
+      // Bind to the active board (when boards exist) → visible only on it
       if (boardsRef.current.list.length)
         (styleObj as Record<string, unknown>).board = boardsRef.current.active
       const style = JSON.stringify(styleObj)
@@ -2494,7 +2502,7 @@ export default function MapView({
       if (fid) await removeFeature(fid)
     })
 
-    map.setView([500, 500], 0) // varsayılan; zemin görseli ayrı effect'te yüklenir
+    map.setView([500, 500], 0) // default; the base image loads in its own effect
     reloadFeatures()
     api.listEntities().then(setAllEntities)
     api.getSetting('mapScales').then((raw) => {
@@ -2506,12 +2514,12 @@ export default function MapView({
     getMapBoards(id).then((b) => {
       boardsRef.current = b
       setBoards(b)
-      applyYear(yearRef.current) // yüklenince zemin filtresini uygula
+      applyYear(yearRef.current) // apply the board filter once loaded
     })
     getPinImages().then(setPinImages)
     api.getSetting('drawSettings').then((raw) => {
       if (!raw) return
-      // Alan bazında birleştir: eski kayıtlarda olmayan yeni ayarlar (ör. font) varsayılandan gelsin
+      // Merge per field: settings missing from old records (e.g. font) come from defaults
       const p = JSON.parse(raw) as Partial<DrawSettings>
       const s: DrawSettings = {
         marker: { ...DEFAULT_DRAW.marker, ...p.marker },
@@ -2526,7 +2534,7 @@ export default function MapView({
 
     return () => {
       clearTimeout(hudTimer.current)
-      measureTemp.current = null // map.remove() grubu zaten söker
+      measureTemp.current = null // map.remove() tears the group down anyway
       measurePoly.current = null
       navTemp.current = null
       setMeasure(null)
@@ -2543,7 +2551,7 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
-  // "Haritada göster": çizim yüklenene kadar kısa aralıklarla dene, bulunca üzerine uç
+  // "Show on map": retry at short intervals until the feature loads, then fly to it
   useEffect(() => {
     if (!focus) return
     let tries = 0
@@ -2565,7 +2573,7 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.token])
 
-  // Zemin görseli: image_path değişince katmanı ekle/yenile (remount gerekmez → ekleme anında görünür)
+  // Base image: add/refresh the layer when image_path changes (no remount → appears instantly)
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -2578,14 +2586,14 @@ export default function MapView({
       ]
       imageLayerRef.current = L.imageOverlay(assetUrl(worldMap.image_path), bounds).addTo(map)
       map.fitBounds(bounds)
-      // Görselin dışına çirkin gri boşluğa kaçmayı engelle: pan sınırlı, tam sığdırmadan fazla uzaklaşılamaz
+      // Prevent escaping into ugly grey space beyond the image: pan bounded, no zooming out past fit
       map.options.maxBoundsViscosity = 1
       map.setMaxBounds(L.latLngBounds(bounds).pad(0.5))
       map.setMinZoom(map.getBoundsZoom(bounds) - 1)
     }
   }, [worldMap?.image_path, worldMap?.width, worldMap?.height])
 
-  // Undo/redo sonrası: harita remount edilmeden çizimleri tazele (zoom/konum korunur)
+  // After undo/redo: refresh features without remounting the map (zoom/position kept)
   const firstToken = useRef(true)
   useEffect(() => {
     if (firstToken.current) {
@@ -2600,13 +2608,13 @@ export default function MapView({
   const selStyle = selected ? (JSON.parse(selected.style || '{}') as FeatureStyle) : {}
   const selIsPolygon = selected ? selected.geometry.includes('"Polygon"') : false
   const selIsLine = selected ? selected.geometry.includes('"LineString"') : false
-  // Etiket de Point — pin dalından ÖNCE ayrılmalı (ayırt edici: style.text)
+  // A label is Point too — must branch off BEFORE the pin path (discriminator: style.text)
   const selIsLabel = selStyle.text !== undefined
 
-  // Seçili çizim(ler)in stilini düzenle — seçim başına TEK undo kaydı (kaydırıcı spam'i yok).
-  // Çoklu seçimde patch HEPSİNE uygulanır (her biri kendi stilinin üstüne): paneldeki mevcut
-  // kontroller toplu düzenleme haline böyle gelir, ayrı bir "toplu" arayüz gerekmez. Bir çizim
-  // için anlamsız anahtar (pinde fillOpacity gibi) render'da zaten yok sayılır.
+  // Edit the selected feature(s)' style — ONE undo record per selection (no slider spam).
+  // In multi-select the patch applies to ALL (each over its own style): this is how the
+  // existing panel controls become bulk editing, no separate "bulk" UI needed. A key
+  // meaningless for a feature (fillOpacity on a pin) is already ignored at render.
   const styleEditRef = useRef<{
     key: string
     items: { fid: number; orig: string; latest: string }[]
@@ -2631,8 +2639,8 @@ export default function MapView({
       })
     }
     const items = styleEditRef.current.items
-    // Paralel: her çizimin yazımı bağımsız — çok seçimliyken kaydırıcı sürüklerken seri IPC
-    // gidiş-dönüşleri birikirdi (20 seçili = kaydırıcının her tikinde 20 sıralı tur).
+    // Parallel: each feature's write is independent — dragging a slider with many selected
+    // used to stack serial IPC round trips (20 selected = 20 sequential trips per tick).
     await Promise.all(
       items.map((it) => {
         it.latest = JSON.stringify({
@@ -2642,13 +2650,13 @@ export default function MapView({
         return api.updateFeature(it.fid, { style: it.latest })
       })
     )
-    setSelected({ ...selected, style: items[0].latest }) // items[0] = birincil (selIds sırası)
+    setSelected({ ...selected, style: items[0].latest }) // items[0] = the primary (selIds order)
     await reloadFeatures()
   }
 
-  // Zoom'a göre görünürlük (pin + etiket): kullanıcı eşiği kaydırıcıyla SEÇER (yüzde okunur).
-  // Kutu işaretlenince eşik o anki zoom'dan başlar, kaydırıcıyla ince ayar; minZoom = "bunun
-  // altında (daha uzakta) gizle", maxZoom = "bunun üstünde (daha yakında) gizle".
+  // Zoom visibility (pin + label): the user PICKS the threshold with a slider (shown as a
+  // percentage). Ticking the box starts at the current zoom, then fine-tune; minZoom = "hide
+  // below this (further out)", maxZoom = "hide above this (closer in)".
   const zoomPct = (z: number): string => `%${Math.round(2 ** z * 100)}`
   const zoomVisRow = (key: 'minZoom' | 'maxZoom', label: string): React.JSX.Element => {
     const val = selStyle[key]
@@ -2688,23 +2696,24 @@ export default function MapView({
     </>
   )
 
-  // Shift+tekerlek: seçili çizimin — seçim yokken aktif çizim aracının VARSAYILANININ —
-  // boyut/kalınlığını değiştir (Wonderdraft deseni), zoom yerine. onWheel bir kez kurulan useEffect
-  // closure'ında olduğu için taze seçim ref'ten okunur; ref her render'da güncel
-  // selStyle/editSelectedStyle ile yeniden atanır. ponytail: her tık editSelectedStyle →
-  // reloadFeatures (kaydırıcı sürüklemekle aynı yol, reloadGen titremeyi zaten engelliyor);
-  // varsayılan dalı updateDrawSettings → enableDraw ile önizlemeyi anında tazeler.
+  // Shift+wheel: resize the selected feature — or, with nothing selected, the active draw
+  // tool's DEFAULT — instead of zooming (the Wonderdraft pattern). onWheel lives in a
+  // mount-once useEffect closure, so the fresh selection is read via a ref, reassigned every
+  // render with the current selStyle/editSelectedStyle. ponytail: every tick goes
+  // editSelectedStyle → reloadFeatures (same path as dragging a slider; reloadGen already
+  // prevents flicker); the defaults branch refreshes the preview instantly via updateDrawSettings.
   const drawTool = tool === 'polygon' || tool === 'line' || tool === 'marker' || tool === 'label'
   const wheelAdjustRef = useRef<((deltaY: number) => void) | null>(null)
   useEffect(() => {
-    // callback ref'i her render taze tut (useLatest deseni); onWheel bir kez kurulur, güncel
-    // seçimi buradan okur. Bare-effect ref yazımı bu desende güvenli — kuralı bu satırda kapat.
+    // Keep the callback ref fresh every render (the useLatest pattern); onWheel mounts once
+    // and reads the current selection here. A bare-effect ref write is safe in this pattern —
+    // silence the rule on this line.
     // eslint-disable-next-line react-hooks/immutability
     wheelAdjustRef.current =
       !selected && !drawTool
         ? null
         : (deltaY: number) => {
-            const dir = deltaY < 0 ? 1 : -1 // tekerlek yukarı = büyüt
+            const dir = deltaY < 0 ? 1 : -1 // wheel up = grow
             const wclamp = (v: number, max: number): number => Math.max(1, Math.min(max, v))
             const sclamp = (v: number): number => Math.max(0.5, Math.min(10, Number(v.toFixed(2))))
             if (!selected) {
@@ -2742,7 +2751,7 @@ export default function MapView({
           }
   })
 
-  // Hiyerarşi panelinden 📍: çizim bu haritadaysa odaklan, değilse ilgili haritaya git
+  // 📍 from the hierarchy panel: focus when the feature is on this map, else switch maps
   const locateEntity = async (eid: number): Promise<void> => {
     const feats = await api.featuresByEntity(eid)
     if (!feats.length) {
@@ -2765,7 +2774,7 @@ export default function MapView({
     }
   }
 
-  // Araç panelini kenarından sürükleyerek genişlet/daralt
+  // Resize the tool panel by dragging its edge
   const startResize = (e: React.MouseEvent): void => {
     e.preventDefault()
     const startX = e.clientX
@@ -2856,7 +2865,7 @@ export default function MapView({
                 <div className="layers-panel-head">{t('Maps')}</div>
                 {maps.map((m) =>
                   editMapId === m.id ? (
-                    // Satır içi ad düzenleme (uncontrolled + onBlur — her tuşta updateMap+refresh titretirdi)
+                    // Inline rename (uncontrolled + onBlur — updateMap+refresh per keystroke used to flicker)
                     <div key={m.id} className="base-row">
                       <input
                         className="base-name"
@@ -3114,9 +3123,9 @@ export default function MapView({
       </div>
       <div className="map-body">
         <div className="map-host-wrap">
-          {/* Yol yön oku için SVG marker tanımı (belge genelinde url(#worldArrow) ile referanslanır;
-              context-stroke ile ok rengi çizginin rengini izler, markerUnits=strokeWidth ile
-              kalınlıkla ölçeklenir → zoom'da ekran-sabit, hot-path yok) */}
+          {/* SVG marker def for the path direction arrow (referenced document-wide via
+              url(#worldArrow); context-stroke makes the arrow follow the line's color,
+              markerUnits=strokeWidth scales it with weight → screen-fixed on zoom, no hot path) */}
           <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden>
             <defs>
               <marker
@@ -3131,9 +3140,9 @@ export default function MapView({
               >
                 <path d="M0,1 L9,5 L0,9 L3,5 z" fill="context-stroke" />
               </marker>
-              {/* Poligon dolgu desenleri: haritada kullanılan + çizim varsayılanındaki her benzersiz
-                  görsel için bir pattern. objectBoundingBox + preserveAspectRatio=none: görsel,
-                  poligonun sınır kutusuna gerilir — poligona yapışık, zoom'da onunla ölçeklenir. */}
+              {/* Polygon fill patterns: one per unique image used on the map + in the draw
+                  default. objectBoundingBox + preserveAspectRatio=none: the image stretches
+                  over the polygon's bbox — glued to the polygon, scaling with it on zoom. */}
               {(() => {
                 const pats = new Set<string>()
                 for (const f of worldMap?.features ?? []) {
@@ -3157,8 +3166,8 @@ export default function MapView({
             </defs>
           </svg>
           <div ref={divRef} className="leaflet-host" />
-          {/* Ölçek çubuğu: yuvarlak bir mesafe (1/2/5×10ⁿ) seçilir, piksel genişliği zoom'dan gelir.
-              Zoom her tikte HUD state'ini değiştirdiği için render güncel kalır. Export'ta da kalır. */}
+          {/* Scale bar: a round distance (1/2/5×10ⁿ) is picked, pixel width comes from zoom.
+              Zoom updates HUD state every tick so the render stays fresh. Kept in exports. */}
           {mapScale &&
             (() => {
               const perPx = mapScale.perUnit / 2 ** barZoom
@@ -3177,9 +3186,9 @@ export default function MapView({
               <Timeline
                 changeYears={changeYears}
                 eventsToken={eventsToken}
-                // Kullanıcı yılı değiştirince rota bayatlar (o yıl var olmayan yollardan geçiyor
-                // olabilir) → düşür. applyYear'ın kendisi sarılmaz: reloadFeatures'ın iç çağrıları
-                // rotayı düşürmemeli ve hot path'e dal eklenmemeli.
+                // Changing the year stales the route (it may run over roads that do not exist
+                // that year) → drop it. applyYear itself is not wrapped: reloadFeatures' internal
+                // calls must not drop the route, and no branch belongs on the hot path.
                 onYear={(y) => {
                   if (navRef.current?.step === 'result') endNav()
                   applyYear(y)
@@ -3359,7 +3368,7 @@ export default function MapView({
               </button>
             </div>
             {selIds.length > 1 && (
-              // Kontroller birincil çizimin türüne göre; düzenleme SEÇİLİNİN TAMAMINA uygulanır
+              // Controls follow the primary feature's kind; edits apply to the WHOLE selection
               <div className="panel-block">
                 <label>
                   {t('Edits apply to all selected drawings. Ctrl+click to add/remove.')}
@@ -3542,7 +3551,7 @@ export default function MapView({
                 </>
               ) : (
                 <>
-                  {/* Serbest modda rozet yok → rengin etkisi olmaz, kontrolü gösterme */}
+                  {/* Free mode has no badge → color has no effect, hide the control */}
                   {!(selStyle.img && selStyle.imgFree) && (
                     <>
                       <label>{t('Color')}</label>
@@ -3614,7 +3623,7 @@ export default function MapView({
                       })}
                     </div>
                   )
-                // ponytail: yalnız dış halka — delikli poligon çizilmiyor
+                // ponytail: outer ring only — no holed polygons are drawn
                 const ring = (g.coordinates as number[][][])[0]
                 return (
                   <div className="panel-block scale-info">

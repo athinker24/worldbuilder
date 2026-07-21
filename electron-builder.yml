@@ -4,44 +4,45 @@ directories:
   buildResources: build
 files:
   - '!**/.vscode/*'
-  - '!src/**' # '!src/*' yalnız DOĞRUDAN çocukları eleyordu — src/main/… paketlenebilirdi
+  - '!src/**' # '!src/*' only excluded DIRECT children — src/main/… could have shipped
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
-  # Geliştirme notları kullanıcıya gitmez: iç mimari + güvenlik önlemlerinin ayrıntılı dökümü,
-  # yani saldırgana hazır bir yol haritası. (README.md zaten yukarıda eleniyor.)
+  # Dev notes never ship to users: a detailed map of the internals + every security
+  # mitigation, i.e. a ready-made roadmap for an attacker. (README.md is excluded above.)
   - '!{CLAUDE.md,DURUM.md}'
 asarUnpack:
   - resources/**
 win:
   executableName: Worldbuilder
-  # Dosya adları ASCII: GitHub indirme bağlantılarında 'ü' yüzde-kodlamaya dönüşüp çirkinleşiyor.
-  # Bu ad ZIP'e uygulanır; NSIS aşağıda kendi adını ezer.
+  # Artifact names stay ASCII: 'ü' turns into percent-encoding in GitHub download links.
+  # This name applies to the ZIP; NSIS overrides its own below.
   artifactName: Worldbuilder-${version}-portable.${ext}
   target:
     - nsis
-    # ZIP, electron-builder'ın 'portable' hedefinin YERİNE geçti: portable kendi kendini açan bir
-    # exe'ydi, her çalıştırmada ~200 MB'ı %TEMP%'e çıkarıp oradan koşuyordu. Açılış yavaştı, geride
-    # temp klasörleri kalıyordu ve asıl önemlisi .dunya çift tık ilişkilendirmesi KIRILIYORDU:
-    # index.ts kayıt defterine process.execPath yazar, portable'da o da kaybolan bir temp yolu.
-    # ZIP'te exe kullanıcının koyduğu yerde sabit durur → ilişkilendirme çalışır.
+    # ZIP REPLACED electron-builder's 'portable' target: portable was a self-extracting exe
+    # that unpacked ~200 MB into %TEMP% on every launch and ran from there. Startup was slow,
+    # temp folders piled up, and crucially the .dunya double-click association BROKE:
+    # index.ts writes process.execPath into the registry, and under portable that was a
+    # vanishing temp path. With a ZIP the exe stays where the user put it → association works.
     - zip
-# .dunya çift tıkla açılır. NSIS kurulumu ilişkilendirmeyi kendi kaydeder; ZIP'te ise uygulama
-# her açılışta HKCU'ya güncel exe yolunu yazar (bkz. index.ts) — taşınsa da bulunur.
+# .dunya opens on double click. The NSIS installer registers the association itself; from the
+# ZIP the app writes its current exe path into HKCU on every launch (see index.ts) — so it is
+# found even after being moved.
 fileAssociations:
   - ext: dunya
     name: Worldbuilder
     description: Worldbuilder world file
 nsis:
   artifactName: Worldbuilder-${version}-Setup.${ext}
-  # Sihirbaz açılır ve kurulum klasörü sorulur (tek tık sessiz kurulum değil)
+  # A wizard opens and asks for the install folder (not a one-click silent install)
   oneClick: false
   allowToChangeInstallationDirectory: true
-  perMachine: false # yönetici hakkı istemez — kullanıcının kendi profiline kurar
+  perMachine: false # no admin rights — installs into the user's own profile
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
   createStartMenuShortcut: true
-  deleteAppDataOnUninstall: false # Belgeler\Dünya kullanıcının verisi — kaldırırken SİLİNMEZ
+  deleteAppDataOnUninstall: false # the data folder is the user's — NEVER deleted on uninstall
 npmRebuild: false
