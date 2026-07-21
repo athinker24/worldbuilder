@@ -633,8 +633,8 @@ export default function MapView({
   // Katman click handler'ları reload olmadan da güncel durumu görsün diye state + ref birlikte tutulur.
   type Conquest =
     | null
-    | { step: 'alıcı' }
-    | { step: 'seçim'; receiverId: number; receiverName: string; picked: Set<number> }
+    | { step: 'receiver' }
+    | { step: 'picking'; receiverId: number; receiverName: string; picked: Set<number> }
   const [conquest, setConquestState] = useState<Conquest>(null)
   const conquestRef = useRef<Conquest>(null)
   const setConquest = (c: Conquest): void => {
@@ -1270,7 +1270,7 @@ export default function MapView({
       entNames.current.set(e.id, e.name)
       entColors.current.set(
         e.id,
-        (JSON.parse(e.fields || '{}') as Record<string, string>)['renk'] ?? autoColor(e.name)
+        (JSON.parse(e.fields || '{}') as Record<string, string>)['color'] ?? autoColor(e.name)
       )
     }
     // En alt kademe gov-bazlıdır: her merdivenin SON etiketi o yönetim biçiminin taban
@@ -1470,7 +1470,7 @@ export default function MapView({
           const c = conquestRef.current
           if (c) {
             if (!f.entity_id || !isPolygon) return
-            if (c.step === 'alıcı') {
+            if (c.step === 'receiver') {
               const pid = parentAt(parentHist.current.get(f.entity_id) ?? [], yearRef.current)
               if (pid === null) {
                 alertDialog(
@@ -1479,7 +1479,7 @@ export default function MapView({
                 return
               }
               setConquest({
-                step: 'seçim',
+                step: 'picking',
                 receiverId: pid,
                 receiverName: allEntities.find((x) => x.id === pid)?.name ?? `#${pid}`,
                 picked: new Set()
@@ -2234,7 +2234,7 @@ export default function MapView({
   const commitConquest = async (): Promise<void> => {
     const c = conquestRef.current
     setConquest(null)
-    if (!c || c.step !== 'seçim' || c.picked.size === 0) {
+    if (!c || c.step !== 'picking' || c.picked.size === 0) {
       applyYear(yearRef.current)
       return
     }
@@ -2247,7 +2247,7 @@ export default function MapView({
       const recs = getParents(e.fields).filter((r) => r.from !== year) // aynı yıla ikinci fetih öncekini ezer
       recs.push({ from: year, id: c.receiverId })
       recs.sort((a, b) => (a.from ?? -Infinity) - (b.from ?? -Infinity))
-      f['üst'] = JSON.stringify(recs)
+      f['parent'] = JSON.stringify(recs)
       updates.push({ id: eid, old: e.fields, next: JSON.stringify(f) })
     }
     pushUndo({
@@ -3178,7 +3178,7 @@ export default function MapView({
                 }}
                 onLocate={focusFeature}
               />
-              {conquest?.step === 'alıcı' && (
+              {conquest?.step === 'receiver' && (
                 <div className="link-hint">
                   {t("⚔ Click the conqueror's border polygon (receiver = its parent)…")}{' '}
                   <button className="mini" onClick={() => setConquest(null)}>
@@ -3186,7 +3186,7 @@ export default function MapView({
                   </button>
                 </div>
               )}
-              {conquest?.step === 'seçim' && (
+              {conquest?.step === 'picking' && (
                 <div className="link-hint">
                   {t('⚔ Select polygons to join {name} ({n} selected)', {
                     name: conquest.receiverName,
@@ -3331,7 +3331,7 @@ export default function MapView({
                   setConquest(null)
                   reloadFeatures()
                 }}
-                onConquest={() => setConquest({ step: 'alıcı' })}
+                onConquest={() => setConquest({ step: 'receiver' })}
                 onOpenEntity={onOpenEntity}
                 onLocate={locateEntity}
               />

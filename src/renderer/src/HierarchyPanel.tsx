@@ -95,14 +95,14 @@ export default function HierarchyPanel({
     const e = await api.getEntity(eid)
     if (!e) return
     const f = JSON.parse(e.fields || '{}') as Record<string, string>
-    f['renk'] = hex
+    f['color'] = hex
     await api.updateEntity(eid, { fields: JSON.stringify(f) })
     await refresh()
     onMode(active)
   }
 
   const entityColor = (e: { fields: string; name: string }): string =>
-    (JSON.parse(e.fields || '{}') as Record<string, string>)['renk'] ?? autoColor(e.name)
+    (JSON.parse(e.fields || '{}') as Record<string, string>)['color'] ?? autoColor(e.name)
 
   return (
     <div className="hier-panel">

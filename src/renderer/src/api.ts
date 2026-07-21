@@ -216,7 +216,7 @@ export function mergeHierConfig(cfg: HierConfig, discoveredGovs: string[]): Hier
     : cfg
 }
 
-// De-jure üst zinciri: maddenin yıl bazlı üst (ebeveyn) geçmişi fields["üst"]'te JSON durur.
+// De-jure üst zinciri: maddenin yıl bazlı üst (ebeveyn) geçmişi fields["parent"]'te JSON durur.
 // Fetih = yeni {from, id} kaydı eklemek; slider geçmişe çekilince eski üst kendiliğinden döner.
 export interface ParentRec {
   from: number | null // null = başlangıçtan beri
@@ -234,7 +234,7 @@ export function getYearRecs(fieldsJson: string, key: string): ParentRec[] {
   }
 }
 
-export const getParents = (fieldsJson: string): ParentRec[] => getYearRecs(fieldsJson, 'üst')
+export const getParents = (fieldsJson: string): ParentRec[] => getYearRecs(fieldsJson, 'parent')
 
 /**
  * Cinsiyet çıkarımı (kişi id → 'M'|'F'). Öncelik:
@@ -256,16 +256,16 @@ export function inferGenders(
     spousesOf.set(a, arr)
   }
   for (const l of links) {
-    if (l.relation === 'baba') fatherSet.add(l.to_id)
-    else if (l.relation === 'anne') motherSet.add(l.to_id)
-    else if (l.relation === 'eş') {
+    if (l.relation === 'father') fatherSet.add(l.to_id)
+    else if (l.relation === 'mother') motherSet.add(l.to_id)
+    else if (l.relation === 'spouse') {
       pushSpouse(l.from_id, l.to_id)
       pushSpouse(l.to_id, l.from_id)
     }
   }
   const g = new Map<number, 'M' | 'F'>()
   for (const e of entities) {
-    const c = (JSON.parse(e.fields || '{}') as Record<string, string>)['cinsiyet']
+    const c = (JSON.parse(e.fields || '{}') as Record<string, string>)['gender']
     if (c === 'erkek') g.set(e.id, 'M')
     else if (c === 'kadın') g.set(e.id, 'F')
     else if (fatherSet.has(e.id)) g.set(e.id, 'M')
@@ -384,17 +384,17 @@ export interface EntityTemplate {
 // db.ts'teki TECH kümesi (arama) ile EntityPage'in render filtresinin BİRLEŞİMİ + kişi alanları.
 // Harita modu boyutları (dims) çalışma anında gelir, çağıran ayrıca eler.
 export const RESERVED_FIELDS = [
-  'sancak',
-  'üst',
-  'notlar',
-  'hiyerarşi',
-  'yönetim',
-  'yönetici',
-  'hane',
-  'renk',
-  'cinsiyet',
-  'doğum',
-  'ölüm',
+  'banner',
+  'parent',
+  'notes',
+  'hierarchy',
+  'government',
+  'ruler',
+  'house',
+  'color',
+  'gender',
+  'birth',
+  'death',
   '_tpl' // uygulanan şablonun adı (salt bilgi, EntityPage'de select'i seçili göstermek için)
 ]
 

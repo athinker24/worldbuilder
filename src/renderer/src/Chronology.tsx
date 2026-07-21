@@ -22,7 +22,7 @@ interface Moment {
 }
 
 // Haritadan bağımsız dikey zaman çizelgesi: mevcut olaylar (timeline.events), isimli dönem
-// bantları (timeline.periods) ve her maddenin yönetici geçmişi (fields['yönetici']) tek listede
+// bantları (timeline.periods) ve her maddenin yönetici geçmişi (fields['ruler']) tek listede
 // birleştirilir. Yeni veri yok — hepsi zaten var olan settings/entities verisinin görünümü.
 export default function Kronoloji({ onOpenEntity, onLocateFeature }: Props): React.JSX.Element {
   const t = useT()
@@ -55,7 +55,7 @@ export default function Kronoloji({ onOpenEntity, onLocateFeature }: Props): Rea
           : undefined
     }))
     for (const e of ents) {
-      for (const r of getYearRecs(e.fields, 'yönetici')) {
+      for (const r of getYearRecs(e.fields, 'ruler')) {
         if (r.from === null) continue // belirsiz başlangıç — zaman çizgisinde gösterilemez
         list.push({
           year: r.from,

@@ -12,7 +12,7 @@ import {
 import { useT } from './i18n'
 
 // Hanedan ağacı (CK3 hane ağacı tarzı): ayrı veri yapısı yok — kişi maddeleri arasındaki
-// 'anne'/'baba'/'eş' bağlarından türetilir. Kök babayı tercih ederek kurucuya tırmanılır,
+// 'mother'/'father'/'spouse' bağlarından türetilir. Kök babayı tercih ederek kurucuya tırmanılır,
 // oradan tüm soy (couple-node) aşağı inilir. Tıklanan kişi merkez olur, ağaç ona göre kurulur.
 interface Props {
   rootId: number
@@ -64,12 +64,12 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
         m.set(k, arr)
       }
       for (const l of links) {
-        if (l.relation === 'anne' || l.relation === 'baba') {
+        if (l.relation === 'mother' || l.relation === 'father') {
           push(parentsOf, l.from_id, l.to_id)
           push(childrenOf, l.to_id, l.from_id)
-          if (l.relation === 'baba') fatherOf.set(l.from_id, l.to_id)
+          if (l.relation === 'father') fatherOf.set(l.from_id, l.to_id)
           else motherOf.set(l.from_id, l.to_id)
-        } else if (l.relation === 'eş') {
+        } else if (l.relation === 'spouse') {
           push(spousesOf, l.from_id, l.to_id)
           push(spousesOf, l.to_id, l.from_id)
         }
@@ -79,19 +79,19 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
       // Yönetici seti: herhangi bir maddenin fields.yönetici'sinde geçen her kişi bir yöneticidir
       const rulerOf = new Map<number, string[]>() // kişi → yönettiği madde adları
       for (const e of entities)
-        for (const rec of getYearRecs(e.fields, 'yönetici')) {
+        for (const rec of getYearRecs(e.fields, 'ruler')) {
           const arr = rulerOf.get(rec.id) ?? []
           if (!arr.includes(e.name)) arr.push(e.name)
           rulerOf.set(rec.id, arr)
         }
       // Kart bilgisi: portre (sancak), doğum/ölüm yılı — kişinin fields'ından
-      const infoOf = new Map<number, { sancak?: string; birth?: number; death?: number }>()
+      const infoOf = new Map<number, { banner?: string; birth?: number; death?: number }>()
       for (const e of entities) {
         const f = JSON.parse(e.fields || '{}') as Record<string, string>
-        const birth = f['doğum'] ? Number(f['doğum']) : undefined
-        const death = f['ölüm'] ? Number(f['ölüm']) : undefined
-        if (f['sancak'] || birth !== undefined || death !== undefined)
-          infoOf.set(e.id, { sancak: f['sancak'], birth, death })
+        const birth = f['birth'] ? Number(f['birth']) : undefined
+        const death = f['death'] ? Number(f['death']) : undefined
+        if (f['banner'] || birth !== undefined || death !== undefined)
+          infoOf.set(e.id, { banner: f['banner'], birth, death })
       }
       return {
         names,
@@ -144,10 +144,10 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
         }
         onClick={() => setCenterId(pid)}
       >
-        {info?.sancak ? (
+        {info?.banner ? (
           <img
             className="tree-portrait"
-            src={assetUrl(info.sancak)}
+            src={assetUrl(info.banner)}
             alt=""
             onError={(e) => {
               // Görsel yüklenemezse yer tutucuya düş (kart hep portre yeri göstersin)
@@ -158,7 +158,7 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
         ) : null}
         <span
           className={`tree-portrait placeholder ${g === 'M' ? 'male' : g === 'F' ? 'female' : ''}`}
-          hidden={!!info?.sancak}
+          hidden={!!info?.banner}
         >
           👤
         </span>
@@ -190,7 +190,7 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
   // ve çift render'ı önler (kuzen/hanedanlar arası evlilik). Çok eşlide tüm çocuklar tek grupta.
   const renderNode = (pid: number, seen: Set<number>): React.JSX.Element => {
     seen.add(pid)
-    // Partnerler = ortak-çocuk eşleri (co-parent) + resmi 'eş' bağları (seen'de olmayanlar)
+    // Partnerler = ortak-çocuk eşleri (co-parent) + resmi 'spouse' bağları (seen'de olmayanlar)
     const kids = (childrenOf.get(pid) ?? []).filter((k) => !seen.has(k))
     const coParents: number[] = []
     for (const k of kids)

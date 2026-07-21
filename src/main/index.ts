@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron'
 import { basename, join, normalize, sep } from 'path'
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { writeFile } from 'fs/promises'
 import { execFile } from 'child_process'
 import { pathToFileURL } from 'url'
@@ -16,8 +16,29 @@ import {
   api as dbApi
 } from './db'
 
-// Veri her zaman Belgeler\Dünya altında (yedek = bu klasörü kopyala); dev ve paketli sürüm aynı dünyayı görür
-const DATA_DIR = join(app.getPath('documents'), 'Dünya')
+// The product name in ONE place: window title, dialog filter label and the data folder all read
+// it, so renaming the app later is a one-line change here plus productName/executableName in
+// electron-builder.yml. (Worldbuilder is a placeholder until a real name is chosen.)
+const APP_NAME = 'Worldbuilder'
+const LEGACY_APP_NAME = 'Dünya' // pre-rename folder, moved on first launch (see below)
+const DOCS = app.getPath('documents')
+
+// All data lives under Documents\<APP_NAME> (to back up, copy that folder); the dev and packaged
+// builds deliberately share it, so both see the same world.
+const DATA_DIR = join(DOCS, APP_NAME)
+
+// One-time move of the pre-rename folder. Without it the app would quietly start with an empty
+// world while years of content sat in the old folder — renaming the app must not orphan data.
+// Only ever moves when the new folder does not exist yet, so it can never merge or overwrite.
+function adoptLegacyDataDir(): void {
+  const legacy = join(DOCS, LEGACY_APP_NAME)
+  if (legacy === DATA_DIR || !existsSync(legacy) || existsSync(DATA_DIR)) return
+  try {
+    renameSync(legacy, DATA_DIR)
+  } catch {
+    /* farklı sürücü/kilitli dosya: taşıyamazsak boş bir dünyayla açılırız, veri yerinde durur */
+  }
+}
 
 // world://data/assets/x.png → DATA_DIR/assets/x.png (görselleri renderer'a servis eder)
 protocol.registerSchemesAsPrivileged([
@@ -38,7 +59,7 @@ let dirty = false
 // Ad + kirli yıldızı pencere başlığında (Photoshop deseni). Renderer document.title kullanmıyor.
 function updateTitle(): void {
   mainWindow?.setTitle(
-    `Dünya — ${currentFile ? basename(currentFile) : 'kaydedilmemiş'}${dirty ? ' *' : ''}`
+    `${APP_NAME} — ${currentFile ? basename(currentFile) : 'unsaved'}${dirty ? ' *' : ''}`
   )
 }
 // Kaydetme: pack + bayrak temizle. Yol yoksa iletişim kutusuyla sor ('as' hep sorar).
@@ -46,8 +67,8 @@ async function saveWorld(as = false): Promise<string | null> {
   let target = as ? null : currentFile
   if (!target) {
     const r = await dialog.showSaveDialog(mainWindow!, {
-      defaultPath: currentFile ?? join(app.getPath('documents'), 'dünyam.dunya'),
-      filters: [{ name: 'Dünya', extensions: ['dunya'] }]
+      defaultPath: currentFile ?? join(DOCS, 'my-world.dunya'),
+      filters: [{ name: APP_NAME, extensions: ['dunya'] }]
     })
     if (r.canceled || !r.filePath) return null
     target = r.filePath
@@ -114,7 +135,7 @@ const mainApi = {
   // burada yalnız seçim + açma. Dönen yol renderer'a "yeniden yükle" işareti.
   async openWorld(): Promise<string | null> {
     const r = await dialog.showOpenDialog(mainWindow!, {
-      filters: [{ name: 'Dünya', extensions: ['dunya'] }],
+      filters: [{ name: APP_NAME, extensions: ['dunya'] }],
       properties: ['openFile']
     })
     if (r.canceled || !r.filePaths[0]) return null
@@ -218,8 +239,8 @@ function createWindow(): void {
       if (!target) {
         target =
           dialog.showSaveDialogSync(win, {
-            defaultPath: join(app.getPath('documents'), 'dünyam.dunya'),
-            filters: [{ name: 'Dünya', extensions: ['dunya'] }]
+            defaultPath: join(DOCS, 'my-world.dunya'),
+            filters: [{ name: APP_NAME, extensions: ['dunya'] }]
           }) ?? null
         if (!target) {
           e.preventDefault() // yer seçilmedi → kapatma iptal
@@ -289,6 +310,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  adoptLegacyDataDir() // eski Belgeler\Dünya klasörünü devral (initDb'den ÖNCE)
   initDb(DATA_DIR)
   backupIfNeeded() // günde bir kez world.db'nin tarihli kopyası — geri yükleme elle (backups/ klasörü)
   const arg = dunyaArg(process.argv)

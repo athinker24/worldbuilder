@@ -14,11 +14,11 @@ import {
 import Atlas from './Atlas'
 import ContextMenu, { MenuState } from './ContextMenu'
 import { alertDialog, confirmDialog, DialogHost } from './dialog'
-import Diplomasi from './Diplomasi'
+import Diplomacy from './Diplomacy'
 import EntityPage from './EntityPage'
 import { deleteEntitiesWithUndo, deleteEntityWithUndo } from './entityOps'
 import { LangContext, translate } from './i18n'
-import Kronoloji from './Kronoloji'
+import Chronology from './Chronology'
 import MapView from './MapView'
 import Palette from './Palette'
 import Settings from './Settings'
@@ -30,8 +30,8 @@ type View =
   | { kind: 'entity'; id: number }
   | { kind: 'map'; id: number }
   | { kind: 'settings' }
-  | { kind: 'kronoloji' }
-  | { kind: 'diplomasi' }
+  | { kind: 'chronology' }
+  | { kind: 'diplomacy' }
   | { kind: 'atlas' }
   | { kind: 'shortcuts' }
 
@@ -423,14 +423,14 @@ export default function App(): React.JSX.Element {
             📂 {t('Open World')}
           </div>
           <div
-            className={`side-item settings-btn ${view.kind === 'kronoloji' ? 'active' : ''}`}
-            onClick={() => setView({ kind: 'kronoloji' })}
+            className={`side-item settings-btn ${view.kind === 'chronology' ? 'active' : ''}`}
+            onClick={() => setView({ kind: 'chronology' })}
           >
             {t('📜 Chronology')}
           </div>
           <div
-            className={`side-item settings-btn ${view.kind === 'diplomasi' ? 'active' : ''}`}
-            onClick={() => setView({ kind: 'diplomasi' })}
+            className={`side-item settings-btn ${view.kind === 'diplomacy' ? 'active' : ''}`}
+            onClick={() => setView({ kind: 'diplomacy' })}
           >
             {t('🕸 Diplomacy')}
           </div>
@@ -531,8 +531,8 @@ export default function App(): React.JSX.Element {
               onThemeChange={setTheme}
             />
           )}
-          {view.kind === 'kronoloji' && (
-            <Kronoloji
+          {view.kind === 'chronology' && (
+            <Chronology
               onOpenEntity={openEntity}
               onLocateFeature={(mapId, featureId) => {
                 setFocus({ featureId, token: Date.now() })
@@ -540,7 +540,7 @@ export default function App(): React.JSX.Element {
               }}
             />
           )}
-          {view.kind === 'diplomasi' && <Diplomasi types={types} onOpenEntity={openEntity} />}
+          {view.kind === 'diplomacy' && <Diplomacy types={types} onOpenEntity={openEntity} />}
           {view.kind === 'atlas' && <Atlas onOpenEntity={openEntity} />}
           {view.kind === 'shortcuts' && <Shortcuts />}
         </div>

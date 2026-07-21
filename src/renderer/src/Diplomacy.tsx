@@ -8,7 +8,7 @@ interface Props {
 }
 
 // Aile ilişkileri hanedan sistemine ait — diplomasi ağına girmez (şema/durum sabitleri)
-const FAMILY = new Set(['anne', 'baba', 'eş'])
+const FAMILY = new Set(['mother', 'father', 'spouse'])
 
 // Diplomasi ağı (World Anvil "diplomacy web" deseni): kişi olmayan maddeler bir çember
 // üzerinde, aralarındaki linkler ilişki türüne göre renkli kavisli çizgiler. Yeni veri yok —

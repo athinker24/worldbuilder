@@ -73,7 +73,7 @@ function renderMarkdown(content: string): string {
   return safeMarked.parse(withWiki, { async: false })
 }
 
-// Sekmeli not bölgesi: fields['notlar'] JSON'unda durur (şema değişikliği yok, fields['üst'] deseni)
+// Sekmeli not bölgesi: fields['notes'] JSON'unda durur (şema değişikliği yok, fields['parent'] deseni)
 interface NoteTab {
   title: string
   content: string
@@ -84,7 +84,7 @@ interface NoteTab {
 function getNoteTabs(fieldsJson: string): NoteTab[] {
   try {
     const f = JSON.parse(fieldsJson || '{}') as Record<string, string>
-    const n = JSON.parse(f['notlar'] ?? '[]') as NoteTab[]
+    const n = JSON.parse(f['notes'] ?? '[]') as NoteTab[]
     return Array.isArray(n) ? n : []
   } catch {
     return []
@@ -117,8 +117,8 @@ export default function EntityPage({
   const [dimValues, setDimValues] = useState<Record<string, string[]>>({})
   // "Yönettiği" türetmek için tüm maddeler fields'lı (bu kişiyi yönetici yazan devlet/bölgeler)
   const [hierEntities, setHierEntities] = useState<Hierarchy['entities']>([])
-  const [üstName, setÜstName] = useState('')
-  const [üstYear, setÜstYear] = useState('')
+  const [parentName, setParentName] = useState('')
+  const [parentYear, setParentYear] = useState('')
   // Yönetici geçmişi (hanedan sistemi): yıl bazlı, kişi maddesine bağlı
   const [rulerName, setRulerName] = useState('')
   const [rulerYear, setRulerYear] = useState('')
@@ -226,12 +226,12 @@ export default function EntityPage({
     setTplDraft(null)
   }
 
-  // De-jure üst geçmişi: fields'daki "üst" anahtarında JSON olarak durur
+  // De-jure üst geçmişi: fields'daki "parent" anahtarında JSON olarak durur
   const parents = getParents(entity.fields)
   const saveParents = (next: ParentRec[]): Promise<void> => {
     const f = { ...fields }
-    if (next.length) f['üst'] = JSON.stringify(next)
-    else delete f['üst']
+    if (next.length) f['parent'] = JSON.stringify(next)
+    else delete f['parent']
     return saveFields(f)
   }
 
@@ -239,8 +239,8 @@ export default function EntityPage({
   const notes = getNoteTabs(entity.fields)
   const saveNoteTabs = (next: NoteTab[]): Promise<void> => {
     const f = { ...fields }
-    if (next.length) f['notlar'] = JSON.stringify(next)
-    else delete f['notlar']
+    if (next.length) f['notes'] = JSON.stringify(next)
+    else delete f['notes']
     return saveFields(f)
   }
 
@@ -252,27 +252,27 @@ export default function EntityPage({
       return next
     })
 
-  // Sancak: fields['sancak'] = assets/ göreli yolu; eski dosya assets'te kalır (zemin görseliyle aynı)
+  // Sancak: fields['banner'] = assets/ göreli yolu; eski dosya assets'te kalır (zemin görseliyle aynı)
   const pickBanner = async (): Promise<void> => {
     const path = await api.pickImage()
-    if (path) await saveFields({ ...fields, sancak: path })
+    if (path) await saveFields({ ...fields, banner: path })
   }
 
-  // Yönetici geçmişi: fields['yönetici'] = [{from, id}] (üst zinciriyle aynı desen)
-  const rulers = getYearRecs(entity.fields, 'yönetici')
+  // Yönetici geçmişi: fields['ruler'] = [{from, id}] (üst zinciriyle aynı desen)
+  const rulers = getYearRecs(entity.fields, 'ruler')
   const saveRulers = (next: ParentRec[]): Promise<void> => {
     const f = { ...fields }
-    if (next.length) f['yönetici'] = JSON.stringify(next)
-    else delete f['yönetici']
+    if (next.length) f['ruler'] = JSON.stringify(next)
+    else delete f['ruler']
     return saveFields(f)
   }
 
-  // Yöneten hane geçmişi: fields['hane'] = [{from, id}] — hane ayrı bir madde (kişi değil)
-  const houses = getYearRecs(entity.fields, 'hane')
+  // Yöneten hane geçmişi: fields['house'] = [{from, id}] — hane ayrı bir madde (kişi değil)
+  const houses = getYearRecs(entity.fields, 'house')
   const saveHouses = (next: ParentRec[]): Promise<void> => {
     const f = { ...fields }
-    if (next.length) f['hane'] = JSON.stringify(next)
-    else delete f['hane']
+    if (next.length) f['house'] = JSON.stringify(next)
+    else delete f['house']
     return saveFields(f)
   }
 
@@ -300,7 +300,7 @@ export default function EntityPage({
   // yazan devlet/bölge maddeleri, türetilir (ayrı veri yok). Ruler yer/devlette girilir.
   const rules = isPerson
     ? hierEntities.flatMap((e) =>
-        getYearRecs(e.fields, 'yönetici')
+        getYearRecs(e.fields, 'ruler')
           .filter((r) => r.id === id)
           .map((r) => ({ eid: e.id, name: e.name, from: r.from }))
       )
@@ -330,7 +330,9 @@ export default function EntityPage({
     return newId
   }
 
-  const childLinks = entity.inLinks.filter((l) => l.relation === 'anne' || l.relation === 'baba')
+  const childLinks = entity.inLinks.filter(
+    (l) => l.relation === 'mother' || l.relation === 'father'
+  )
 
   // Aile bağı düzenlemesinden sonra global grafiği de tazele (cinsiyet çıkarımı canlı güncellensin)
   const reloadFamily = async (): Promise<void> => {
@@ -343,8 +345,8 @@ export default function EntityPage({
   // Cinsiyet kutusu açık değer yoksa bunu gösterir ("otomatik"); çocuk-ekleme ilişkisi de bunu kullanır.
   const inferredGender = inferGenders(hierEntities, allLinks).get(id)
   const genderValue =
-    fields['cinsiyet'] ?? (inferredGender === 'M' ? 'erkek' : inferredGender === 'F' ? 'kadın' : '')
-  const genderIsAuto = !fields['cinsiyet'] && !!inferredGender
+    fields['gender'] ?? (inferredGender === 'M' ? 'erkek' : inferredGender === 'F' ? 'kadın' : '')
+  const genderIsAuto = !fields['gender'] && !!inferredGender
 
   // Ortak çocuğu olanlar birbirinin eşi sayılır (çocuk tek yandan yapıştırılsa bile
   // iki ebeveyn de eş olarak türetilir) — türetilmiş chip, silinmez (linkId yok)
@@ -352,7 +354,7 @@ export default function EntityPage({
     const myChildIds = new Set(childLinks.map((l) => l.from_id))
     const others = new Set<number>()
     for (const l of allLinks) {
-      if ((l.relation === 'anne' || l.relation === 'baba') && myChildIds.has(l.from_id))
+      if ((l.relation === 'mother' || l.relation === 'father') && myChildIds.has(l.from_id))
         if (l.to_id !== id) others.add(l.to_id)
     }
     return [...others].map((o) => ({
@@ -361,20 +363,20 @@ export default function EntityPage({
     }))
   }
 
-  // Aile bağları: 'anne'/'baba'/'eş' ilişki adlarıyla links tablosunda durur; ağaç bunlardan türetilir
+  // Aile bağları: 'mother'/'father'/'spouse' ilişki adlarıyla links tablosunda durur; ağaç bunlardan türetilir
   const familyLinks = (rel: string): { linkId?: number; other: number; name: string }[] => {
     const explicit = [
       ...entity.outLinks
         .filter((l) => l.relation === rel)
         .map((l) => ({ linkId: l.id, other: l.to_id, name: l.to_name })),
       // eş bağı simetrik: karşı taraftan kurulmuşsa da göster
-      ...(rel === 'eş'
+      ...(rel === 'spouse'
         ? entity.inLinks
             .filter((l) => l.relation === rel)
             .map((l) => ({ linkId: l.id, other: l.from_id, name: l.from_name }))
         : [])
     ]
-    if (rel !== 'eş') return explicit
+    if (rel !== 'spouse') return explicit
     // ortak-çocuk eşlerini ekle (zaten açık bağı olanları tekrarlama)
     const have = new Set(explicit.map((e) => e.other))
     return [...explicit, ...coParents().filter((c) => !have.has(c.other))]
@@ -437,16 +439,16 @@ export default function EntityPage({
     )
   }
 
-  // Hiyerarşi etiketleri: fields'daki "hiyerarşi" anahtarında "#etiket, #etiket" olarak durur
-  const tags = (fields['hiyerarşi'] ?? '')
+  // Hiyerarşi etiketleri: fields'daki "hierarchy" anahtarında "#etiket, #etiket" olarak durur
+  const tags = (fields['hierarchy'] ?? '')
     .split(',')
     .map((t) => t.trim())
     .filter(Boolean)
 
   const saveTags = (next: string[]): Promise<void> => {
     const f = { ...fields }
-    if (next.length) f['hiyerarşi'] = next.join(', ')
-    else delete f['hiyerarşi']
+    if (next.length) f['hierarchy'] = next.join(', ')
+    else delete f['hierarchy']
     return saveFields(f)
   }
 
@@ -533,9 +535,9 @@ export default function EntityPage({
 
   return (
     <div className={compact ? 'page compact' : 'page'}>
-      {fields['sancak'] ? (
+      {fields['banner'] ? (
         <div className="banner">
-          <img src={assetUrl(fields['sancak'])} alt="" />
+          <img src={assetUrl(fields['banner'])} alt="" />
           <span className="banner-actions">
             <button className="mini" title={t('Replace banner')} onClick={pickBanner}>
               🖼
@@ -545,7 +547,7 @@ export default function EntityPage({
               title={t('Remove banner')}
               onClick={() => {
                 const f = { ...fields }
-                delete f['sancak']
+                delete f['banner']
                 saveFields(f)
               }}
             >
@@ -886,14 +888,14 @@ export default function EntityPage({
               <input
                 list="gov-list"
                 placeholder={t('feudal, nomadic…')}
-                defaultValue={fields['yönetim'] ?? ''}
+                defaultValue={fields['government'] ?? ''}
                 key={`gov-${entity.id}-${entity.updated_at}`}
                 onBlur={(e) => {
                   const v = e.target.value.trim()
-                  if (v === (fields['yönetim'] ?? '')) return
+                  if (v === (fields['government'] ?? '')) return
                   const f = { ...fields }
-                  if (v) f['yönetim'] = v
-                  else delete f['yönetim']
+                  if (v) f['government'] = v
+                  else delete f['government']
                   saveFields(f)
                 }}
               />
@@ -922,29 +924,29 @@ export default function EntityPage({
                   className="tag-add"
                   onSubmit={(e) => {
                     e.preventDefault()
-                    const target = allEntities.find((en) => en.name === üstName.trim())
+                    const target = allEntities.find((en) => en.name === parentName.trim())
                     if (!target || target.id === id) return
-                    const from = üstYear === '' ? null : Number(üstYear)
+                    const from = parentYear === '' ? null : Number(parentYear)
                     const next = parents.filter((p) => p.from !== from)
                     next.push({ from, id: target.id })
                     next.sort((a, b) => (a.from ?? -Infinity) - (b.from ?? -Infinity))
-                    setÜstName('')
-                    setÜstYear('')
+                    setParentName('')
+                    setParentYear('')
                     saveParents(next)
                   }}
                 >
                   <input
                     list="entity-list"
                     placeholder={t('parent entity')}
-                    value={üstName}
-                    onChange={(e) => setÜstName(e.target.value)}
+                    value={parentName}
+                    onChange={(e) => setParentName(e.target.value)}
                   />
                   <input
                     type="number"
                     placeholder={t('year (blank=from start)')}
                     style={{ width: 110 }}
-                    value={üstYear}
-                    onChange={(e) => setÜstYear(e.target.value)}
+                    value={parentYear}
+                    onChange={(e) => setParentYear(e.target.value)}
                   />
                   <button className="mini" type="submit">
                     +
@@ -1156,8 +1158,8 @@ export default function EntityPage({
                     value={genderValue}
                     onChange={(e) => {
                       const f = { ...fields }
-                      if (e.target.value) f['cinsiyet'] = e.target.value
-                      else delete f['cinsiyet']
+                      if (e.target.value) f['gender'] = e.target.value
+                      else delete f['gender']
                       saveFields(f)
                     }}
                   >
@@ -1169,12 +1171,12 @@ export default function EntityPage({
                 </div>
                 <div className="tag-row">
                   <span className="field-key">{t('Life')}</span>
-                  {(['doğum', 'ölüm'] as const).map((k) => (
+                  {(['birth', 'death'] as const).map((k) => (
                     <input
                       key={`${k}${fields[k] ?? ''}`}
                       type="number"
                       style={{ width: 110 }}
-                      placeholder={k === 'doğum' ? t('birth year') : t('death year')}
+                      placeholder={k === 'birth' ? t('birth year') : t('death year')}
                       defaultValue={fields[k] ?? ''}
                       onBlur={(e) => {
                         const f = { ...fields }
@@ -1186,9 +1188,9 @@ export default function EntityPage({
                     />
                   ))}
                 </div>
-                {famRow(t('Mother'), 'anne', true)}
-                {famRow(t('Father'), 'baba', true)}
-                {famRow(t('Spouse'), 'eş', false)}
+                {famRow(t('Mother'), 'mother', true)}
+                {famRow(t('Father'), 'father', true)}
+                {famRow(t('Spouse'), 'spouse', false)}
                 {/* Çocuk = ters yönlü bağ (çocuk → bu kişi). İlişki bu kişinin cinsiyetine göre
                     anne/baba olur (belirsizse baba varsayılır, cinsiyet atanınca sonrakiler düzelir). */}
                 <div className="tag-row">
@@ -1227,7 +1229,7 @@ export default function EntityPage({
                         const child = await findOrCreate(nm)
                         if (child === null || child === id) return
                         // İlişki bu kişinin (çıkarılan) cinsiyetine göre: kadın→anne, değilse baba
-                        const rel = inferredGender === 'F' ? 'anne' : 'baba'
+                        const rel = inferredGender === 'F' ? 'mother' : 'father'
                         await api.addLink(child, id, rel)
                         reloadFamily()
                       }}

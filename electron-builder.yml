@@ -1,5 +1,5 @@
 appId: com.worldbuilding.app
-productName: Dünya
+productName: Worldbuilder
 directories:
   buildResources: build
 files:
@@ -15,10 +15,10 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: Dünya
+  executableName: Worldbuilder
   # Dosya adları ASCII: GitHub indirme bağlantılarında 'ü' yüzde-kodlamaya dönüşüp çirkinleşiyor.
   # Bu ad ZIP'e uygulanır; NSIS aşağıda kendi adını ezer.
-  artifactName: Dunya-${version}-portable.${ext}
+  artifactName: Worldbuilder-${version}-portable.${ext}
   target:
     - nsis
     # ZIP, electron-builder'ın 'portable' hedefinin YERİNE geçti: portable kendi kendini açan bir
@@ -31,10 +31,10 @@ win:
 # her açılışta HKCU'ya güncel exe yolunu yazar (bkz. index.ts) — taşınsa da bulunur.
 fileAssociations:
   - ext: dunya
-    name: Dünya
-    description: Dünya worldbuilding dosyası
+    name: Worldbuilder
+    description: Worldbuilder world file
 nsis:
-  artifactName: Dunya-${version}-Setup.${ext}
+  artifactName: Worldbuilder-${version}-Setup.${ext}
   # Sihirbaz açılır ve kurulum klasörü sorulur (tek tık sessiz kurulum değil)
   oneClick: false
   allowToChangeInstallationDirectory: true

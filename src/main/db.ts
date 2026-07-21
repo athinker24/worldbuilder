@@ -72,6 +72,68 @@ export function initDb(dataDir: string): void {
   notesDir = join(dataDir, 'notes')
   db = new DatabaseSync(dbFile)
   db.exec(SCHEMA)
+  migrateLegacyKeys()
+}
+
+// The codebase was Turkish; its data keys were too. Now that the code asks for English keys, a
+// world written by an older build would silently lose its parent chains, banners, notes and
+// dynasty links — the data would still be there, the code would just be looking elsewhere. This
+// renames the keys in place. It runs on every launch and on every .dunya opened, and is
+// idempotent: a key already migrated is simply absent, and an existing English key is never
+// overwritten by a stale Turkish one.
+const FIELD_RENAMES: Record<string, string> = {
+  sancak: 'banner',
+  üst: 'parent',
+  notlar: 'notes',
+  hiyerarşi: 'hierarchy',
+  yönetim: 'government',
+  yönetici: 'ruler',
+  hane: 'house',
+  renk: 'color',
+  cinsiyet: 'gender',
+  doğum: 'birth',
+  ölüm: 'death'
+}
+// Family links live in links.relation, so they need the same treatment
+const RELATION_RENAMES: Record<string, string> = {
+  anne: 'mother',
+  baba: 'father',
+  eş: 'spouse'
+}
+
+/** Rename legacy Turkish data keys to their English equivalents; returns rows touched.
+ *  Only the fixed set above is renamed — map-mode dimensions (din, dil, kültür…) are the
+ *  user's own vocabulary and must be left exactly as typed. */
+export function migrateLegacyKeys(): number {
+  let changed = 0
+  const upd = db.prepare(`UPDATE entities SET fields = ? WHERE id = ?`)
+  for (const r of db.prepare(`SELECT id, fields FROM entities`).all() as {
+    id: number
+    fields: string
+  }[]) {
+    let obj: Record<string, unknown>
+    try {
+      obj = JSON.parse(r.fields || '{}') as Record<string, unknown>
+    } catch {
+      continue // malformed JSON is repairImportedJson's job, not ours
+    }
+    if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) continue
+    let touched = false
+    for (const [from, to] of Object.entries(FIELD_RENAMES)) {
+      if (!(from in obj)) continue
+      if (!(to in obj)) obj[to] = obj[from] // never clobber an already-English value
+      delete obj[from]
+      touched = true
+    }
+    if (touched) {
+      upd.run(JSON.stringify(obj), r.id)
+      changed++
+    }
+  }
+  const rel = db.prepare(`UPDATE links SET relation = ? WHERE relation = ?`)
+  for (const [from, to] of Object.entries(RELATION_RENAMES))
+    changed += Number(rel.run(to, from).changes ?? 0)
+  return changed
 }
 
 // Günde bir kez (uygulama açılışında): world.db'nin tarihli kopyasını al, eski kopyaları temizle.
@@ -139,6 +201,7 @@ export function unpackWorld(sourcePath: string): void {
     db.exec(`DROP TABLE assets`) // çalışma kopyası yalın kalsın (görseller diskte)
   }
   repairImportedJson() // bozuk JSON kolonları varsayılana düşür (aşağıdaki gerekçe)
+  migrateLegacyKeys() // eski (Türkçe anahtarlı) .dunya dosyaları da açılabilsin
   api.setSetting('worldFile', sourcePath)
   pruneUnusedAssets() // açılan dünyada kullanılmayan (önceki dünyadan kalan) görselleri temizle
 }
@@ -297,7 +360,7 @@ export const api = {
   searchContent(q: string): unknown[] {
     const needle = q.trim().toLocaleLowerCase('tr')
     if (needle.length < 2) return []
-    const TECH = new Set(['sancak', 'üst', 'yönetici', 'hane', 'notlar', 'renk'])
+    const TECH = new Set(['banner', 'parent', 'ruler', 'house', 'notes', 'color'])
     const rows = db.prepare(`SELECT id, type, name, content, fields FROM entities`).all() as {
       id: number
       type: string
@@ -314,7 +377,7 @@ export const api = {
         const f = JSON.parse(r.fields || '{}') as Record<string, string>
         for (const [k, v] of Object.entries(f))
           if (!TECH.has(k) && typeof v === 'string') texts.push(`${k}: ${v}`)
-        const notes = JSON.parse(f['notlar'] ?? '[]') as { title?: string; content?: string }[]
+        const notes = JSON.parse(f['notes'] ?? '[]') as { title?: string; content?: string }[]
         if (Array.isArray(notes))
           for (const n of notes) texts.push([n.title, n.content].filter(Boolean).join(': '))
       } catch {
@@ -445,16 +508,16 @@ export const api = {
   retypeEntities(oldType: string, newType: string): void {
     db.prepare(`UPDATE entities SET type = ? WHERE type = ?`).run(newType, oldType)
   },
-  // Hiyerarşi etiketleri: fields JSON'undaki "hiyerarşi" anahtarı, virgülle ayrılmış "#etiket" listesi.
-  // gov: fields'daki "yönetim" (yönetim biçimi — paralel kademe merdivenleri).
+  // Hiyerarşi etiketleri: fields JSON'undaki "hierarchy" anahtarı, virgülle ayrılmış "#etiket" listesi.
+  // gov: fields'daki "government" (yönetim biçimi — paralel kademe merdivenleri).
   // fields ham JSON olarak da döner: harita modları (din/dil boyutları) ve datalist önerileri
   // renderer'da buradan türetilir. Tüm maddeler döner — kişisel ölçekte sorun değil.
   hierarchy(): unknown {
     const rows = db
       .prepare(
         `SELECT id, type, name, fields,
-           json_extract(fields, '$.hiyerarşi') AS h,
-           json_extract(fields, '$.yönetim') AS gov
+           json_extract(fields, '$.hierarchy') AS h,
+           json_extract(fields, '$.government') AS gov
          FROM entities`
       )
       .all() as {
@@ -632,7 +695,7 @@ export const api = {
     return target
   },
 
-  // Her maddenin not sekmelerini (fields['notlar']) okunabilir .txt ağacına döker:
+  // Her maddenin not sekmelerini (fields['notes']) okunabilir .txt ağacına döker:
   //   notes/<harita adı>/<madde tipi>/<madde adı>/<not başlığı>.txt
   // Bir maddenin çizimi hangi harita(lar)daysa o harita(lar)ın altında görünür; hiçbir haritada
   // olmayanlar "(no map)", tipsizler "(no type)" altında (sistem klasör adları İngilizce). Tek yönlü
@@ -657,7 +720,7 @@ export const api = {
     }
     const parseNotes = (fields: string): { title: string; content: string }[] => {
       try {
-        const notlar = (JSON.parse(fields || '{}') as Record<string, string>)['notlar']
+        const notlar = (JSON.parse(fields || '{}') as Record<string, string>)['notes']
         const arr = JSON.parse(notlar ?? '[]')
         return Array.isArray(arr) ? arr : []
       } catch {
@@ -742,8 +805,8 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     // Not sekmesinde geçen bulunur; teknik alan (sancak dosya yolu) aramaya girmez
     api.updateEntity(b.id, {
       fields: JSON.stringify({
-        sancak: 'assets/GIZLI-YOL-birkelime.png',
-        notlar: JSON.stringify([{ title: 'Savaşlar', content: 'Kuzey seferi başladı' }])
+        banner: 'assets/GIZLI-YOL-birkelime.png',
+        notes: JSON.stringify([{ title: 'Savaşlar', content: 'Kuzey seferi başladı' }])
       })
     })
     const noteHits = api.searchContent('kuzey seferi') as { id: number; snippet: string }[]
@@ -753,8 +816,8 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   }
   api.updateEntity(a.id, {
     fields: JSON.stringify({
-      hiyerarşi: '#krallık, #güney-dilleri',
-      yönetim: 'feodal',
+      hierarchy: '#krallık, #güney-dilleri',
+      government: 'feodal',
       din: 'İslam'
     })
   })
@@ -781,7 +844,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   // notes/Dünya/krallık/Test Devleti/…; b (tip 'hanedan') hiçbir haritada değil → notes/(no map)/hanedan/…
   api.updateEntity(a.id, {
     fields: JSON.stringify({
-      notlar: JSON.stringify([{ title: 'Kuruluş', content: 'satır1\nsatır2' }])
+      notes: JSON.stringify([{ title: 'Kuruluş', content: 'satır1\nsatır2' }])
     })
   })
   const exp = api.exportNotes()
@@ -798,7 +861,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   {
     const evilEnt = api.createEntity({
       name: 'CON',
-      fields: JSON.stringify({ notlar: JSON.stringify([{ title: 'x\x07y', content: 'z' }]) })
+      fields: JSON.stringify({ notes: JSON.stringify([{ title: 'x\x07y', content: 'z' }]) })
     }) as { id: number }
     api.exportNotes()
     assert.ok(
@@ -810,7 +873,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   // pruneUnusedAssets: adı DB metninde geçen görsel korunur, geçmeyen silinir
   writeFileSync(join(dir, 'assets', 'used.png'), Buffer.from([9]))
   writeFileSync(join(dir, 'assets', 'unused.png'), Buffer.from([9]))
-  api.updateEntity(a.id, { fields: JSON.stringify({ sancak: 'assets/used.png' }) })
+  api.updateEntity(a.id, { fields: JSON.stringify({ banner: 'assets/used.png' }) })
   assert.equal(pruneUnusedAssets(), 1)
   assert.ok(existsSync(join(dir, 'assets', 'used.png')), 'kullanılan görsel kalmalı')
   assert.ok(!existsSync(join(dir, 'assets', 'unused.png')), 'kullanılmayan görsel silinmeli')
@@ -903,7 +966,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   // hem veri hem görsel aynen döner, assets tablosu çalışma kopyasında kalmaz
   writeFileSync(join(dir, 'assets', 'test.png'), Buffer.from([1, 2, 3]))
   // packWorld artık kullanılmayan görselleri temizler → test.png referanslı olmalı (yoksa silinir)
-  api.updateEntity(a.id, { fields: JSON.stringify({ sancak: 'assets/test.png' }) })
+  api.updateEntity(a.id, { fields: JSON.stringify({ banner: 'assets/test.png' }) })
   const dunya = join(dir, 'test.dunya')
   packWorld(dunya)
   assert.ok(existsSync(dunya))
@@ -929,7 +992,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     // Referanslı olmalı, yoksa unpackWorld sonundaki pruneUnusedAssets onu silerdi ve
     // "içeride kaldı" iddiası sınanamazdı
     ev.prepare(`UPDATE entities SET fields = ? WHERE id = ?`).run(
-      JSON.stringify({ sancak: 'assets/kacti.png' }),
+      JSON.stringify({ banner: 'assets/kacti.png' }),
       a.id
     )
     ev.close()
@@ -971,6 +1034,66 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.ok(!hasContent())
   assert.ok(!existsSync(join(dir, 'assets', 'test.png')))
   assert.equal(api.getSetting('worldFile'), null)
+
+  // Türkçe anahtarlı ESKİ bir dünya açılınca göç: veri kaybolmamalı. Bu, kod tabanı
+  // İngilizceleştirilirken tek gerçek veri riskiydi — kullanıcının yıllarca kurduğu üst
+  // zincirleri, sancakları ve hanedan bağları buna bakıyor.
+  {
+    const old = api.createEntity({ name: 'Eski Kayıt' }) as { id: number }
+    const kid = api.createEntity({ name: 'Eski Çocuk' }) as { id: number }
+    db.prepare(`UPDATE entities SET fields = ? WHERE id = ?`).run(
+      JSON.stringify({
+        üst: '[{"from":null,"id":7}]',
+        sancak: 'assets/eski.png',
+        notlar: '[{"title":"a","content":"b"}]',
+        hiyerarşi: '#kontluk',
+        yönetim: 'feodal',
+        renk: '#ff0000',
+        din: 'İslam' // harita modu boyutu — KULLANICININ kendi sözcüğü, ASLA çevrilmemeli
+      }),
+      old.id
+    )
+    db.prepare(`INSERT INTO links (from_id, to_id, relation) VALUES (?, ?, 'baba')`).run(
+      kid.id,
+      old.id
+    )
+    assert.ok(migrateLegacyKeys() > 0)
+    const f = JSON.parse((api.getEntity(old.id) as { fields: string }).fields) as Record<
+      string,
+      string
+    >
+    assert.equal(f['parent'], '[{"from":null,"id":7}]', 'üst → parent taşınmalı')
+    assert.equal(f['banner'], 'assets/eski.png')
+    assert.equal(f['hierarchy'], '#kontluk')
+    assert.equal(f['government'], 'feodal')
+    assert.equal(f['color'], '#ff0000')
+    assert.equal(f['din'], 'İslam', 'kullanıcının kendi alanına DOKUNULMAMALI')
+    assert.ok(!('üst' in f) && !('sancak' in f), 'eski anahtarlar silinmeli')
+    assert.equal(
+      (
+        db.prepare(`SELECT relation FROM links WHERE from_id = ?`).get(kid.id) as {
+          relation: string
+        }
+      ).relation,
+      'father',
+      'baba → father taşınmalı'
+    )
+    // İkinci kez çalıştırmak zararsız olmalı (her açılışta koşuyor)
+    assert.equal(migrateLegacyKeys(), 0, 'göç idempotent olmalı')
+    // İngilizce değer varken eski anahtar ÜSTÜNE YAZMAMALI
+    db.prepare(`UPDATE entities SET fields = ? WHERE id = ?`).run(
+      JSON.stringify({ üst: 'eski', parent: 'yeni' }),
+      old.id
+    )
+    migrateLegacyKeys()
+    const f2 = JSON.parse((api.getEntity(old.id) as { fields: string }).fields) as Record<
+      string,
+      string
+    >
+    assert.equal(f2['parent'], 'yeni', 'mevcut İngilizce değer korunmalı')
+    assert.ok(!('üst' in f2))
+  }
+
   db.close()
   rmSync(dir, { recursive: true, force: true })
   console.log('db self-check OK')

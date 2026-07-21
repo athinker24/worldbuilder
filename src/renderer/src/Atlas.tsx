@@ -131,7 +131,7 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
           return {
             key: `r${eid}`,
             label: name,
-            color: fieldsOf.get(eid)?.['renk'] ?? autoColor(name),
+            color: fieldsOf.get(eid)?.['color'] ?? autoColor(name),
             area,
             eid
           }
