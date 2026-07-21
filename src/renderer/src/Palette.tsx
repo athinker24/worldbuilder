@@ -7,7 +7,7 @@ interface Item {
   label: string
   badge: string
   color: string
-  sub?: string // içerik eşleşmesinin bağlam parçası (tam metin arama)
+  sub?: string // context snippet of a content match (full-text search)
   open: () => void
 }
 
@@ -34,7 +34,7 @@ export default function Palette({
   const [sel, setSel] = useState(0)
   const t = useT()
 
-  // Tam metin: içerik/notlarda geçenler (IPC'ye hafif debounce)
+  // Full text: content/note hits (light debounce before the IPC call)
   const [contentHits, setContentHits] = useState<
     { id: number; type: string; name: string; snippet: string }[]
   >([])
@@ -68,7 +68,7 @@ export default function Palette({
         color: typeColor(types, e.type),
         open: () => onOpenEntity(e.id)
       }))
-    // İçerik eşleşmeleri isim eşleşmelerinin altında, bağlam parçasıyla
+    // Content matches below name matches, with their context snippet
     const cs: Item[] = contentHits.map((h) => ({
       key: `c${h.id}`,
       label: h.name,

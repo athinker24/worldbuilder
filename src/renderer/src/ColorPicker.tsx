@@ -39,24 +39,24 @@ function rgbToHsv(r: number, g: number, b: number): { h: number; s: number; v: n
   return { h, s: max ? d / max : 0, v: max }
 }
 
-// Hazır renkler: altı BİRBİRİNDEN AYRI ton (kızıl / mavi / yeşil / altın / mor / turkuaz).
-// Amaç bir tema paleti değil, haritada yan yana durunca karışmayan bir başlangıç seti — bu
-// yüzden token DEĞİL sabit hex (harita içeriği iki temada da aynı görünmeli, bkz. CLAUDE.md).
-// Uygulamanın kendi çizim varsayılanları (pin #c0603a, poligon #7bb3ff) bilinçli olarak setin içinde.
+// Presets: six MUTUALLY DISTINCT tones (crimson / blue / green / gold / purple / turquoise).
+// Not a theme palette but a starter set that stays readable side by side on a map — hence
+// fixed hex, NOT tokens (map content must look the same in both themes, see CLAUDE.md).
+// The app's own drawing defaults (pin #c0603a, polygon #7bb3ff) are deliberately in the set.
 const PRESETS = ['#c0603a', '#7bb3ff', '#5f9e5f', '#d9a441', '#8e6bbf', '#4fb3a5']
 
 interface Props {
-  value: string // hex, ör. #7bb3ff
+  value: string // hex, e.g. #7bb3ff
   onChange: (hex: string) => void
 }
 
-/** Swatch: tıklanınca klasik renk seçici açılır (gradyan karesi + ton çubuğu + hex + RGB). */
+/** Swatch: clicking opens a classic color picker (gradient square + hue bar + hex + RGB). */
 export default function ColorPicker({ value, onChange }: Props): React.JSX.Element {
   const t = useT()
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
   const swatchRef = useRef<HTMLButtonElement>(null)
-  // Son yaydığımız hex — dışarıdan gerçekten farklı bir renk gelirse HSV'yi yeniden türet
-  // (gri/siyah tonlarında ton bilgisi kaybolmasın diye HSV ayrı state'te yaşar)
+  // The last hex we emitted — re-derive HSV only when a genuinely different color arrives
+  // from outside (HSV lives in separate state so hue survives grey/black tones)
   const [lastEmit, setLastEmit] = useState(value.toLowerCase())
   const [hsv, setHsv] = useState(() => {
     const [r, g, b] = hexToRgb(value) ?? [128, 128, 128]
@@ -91,10 +91,10 @@ export default function ColorPicker({ value, onChange }: Props): React.JSX.Eleme
     onChange(hex)
   }
 
-  // Basılı tutup sürüklemeyi tek yerden yönet: her mousemove'da elemanın içindeki orana çevir
+  // Drive press-and-drag from one place: map every mousemove to a ratio inside the element
   const drag = (
     e: React.MouseEvent,
-    apply: (fx: number, fy: number) => void // fx/fy: 0-1 arası oran
+    apply: (fx: number, fy: number) => void // fx/fy: ratios in 0-1
   ): void => {
     e.preventDefault()
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -112,8 +112,8 @@ export default function ColorPicker({ value, onChange }: Props): React.JSX.Eleme
     window.addEventListener('mouseup', onUp)
   }
 
-  // Son kullanılan renkler: kayda GEÇME anı popup'ın KAPANIŞI — sürükleme sırasında her kare
-  // emit ediliyor, o ara renkleri listeye yazmak şeridi çöple doldururdu.
+  // Recent colors: recording happens on popup CLOSE — dragging emits every frame, and
+  // writing those intermediate colors would fill the strip with noise.
   const [recent, setRecent] = useState<string[]>([])
   const open = (): void => {
     const rect = swatchRef.current!.getBoundingClientRect()
@@ -127,7 +127,7 @@ export default function ColorPicker({ value, onChange }: Props): React.JSX.Eleme
     setPos(null)
     void pushRecentColor(value).then(setRecent)
   }
-  // Şeritten seçim: hex girdisiyle aynı yol (HSV yeniden türetilir, gri tonlarında ton kaybolmaz)
+  // Picking from a strip: same path as hex input (HSV re-derived, hue survives greys)
   const applyHex = (hex: string): void => {
     const rgb = hexToRgb(hex)
     if (!rgb) return
@@ -194,7 +194,7 @@ export default function ColorPicker({ value, onChange }: Props): React.JSX.Eleme
                 spellCheck={false}
               />
             </div>
-            {/* İki şerit ayırt edilebilir olmalı: hazır = kare + başlık, son kullanılan = daire */}
+            {/* The two strips must be tellable apart: presets = squares + label, recent = circles */}
             <div className="cp-strip-label">{t('Presets')}</div>
             <div className="cp-recent">
               {PRESETS.map((c) => (

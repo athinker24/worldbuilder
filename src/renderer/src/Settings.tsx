@@ -23,7 +23,7 @@ import { useT } from './i18n'
 
 interface Props {
   types: TypeDef[]
-  onChanged: () => void // tip listesi değişti → App yeniden yüklesin
+  onChanged: () => void // the type list changed → make App reload
   lang: Lang
   onLangChange: (l: Lang) => void
   theme: Theme
@@ -77,7 +77,7 @@ export default function Settings({
     saveTemplates(next)
   }
   const tpl = tpls.find((x) => x.name === activeTpl)
-  // Seçili şablonun alanlarını değiştir (liste bütün olarak yeniden yazılır — updateModes deseni)
+  // Edit the selected template's fields (the whole list is rewritten — the updateModes pattern)
   const patchTpl = (patch: Partial<EntityTemplate>): void =>
     updateTpls(tpls.map((x) => (x.name === activeTpl ? { ...x, ...patch } : x)))
 
@@ -114,7 +114,7 @@ export default function Settings({
     return t && !t.startsWith('#') ? `#${t}` : t
   }
 
-  // Hiçbir merdivende olmayan etiketler
+  // Tags that sit on no ladder
   const unassigned = allTags.filter((t) => !hierCfg.govs.some((g) => g.tags.includes(t)))
 
   return (

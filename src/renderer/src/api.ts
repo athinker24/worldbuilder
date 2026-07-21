@@ -1,4 +1,4 @@
-// Main process'teki dar API'nin tipli istemci sarmalayıcısı.
+// Typed client wrapper around the narrow main-process API.
 const inv = <T>(method: string, ...args: unknown[]): Promise<T> =>
   window.api.invoke(method, ...args) as Promise<T>
 
@@ -61,28 +61,28 @@ export interface WorldMap extends MapRow {
 export interface TypeDef {
   name: string
   color: string
-  isPerson?: boolean // bu tip kişi maddeleri mi (anne/baba/eş/yönetici formları + harita bağlama bunu kullanır)
+  isPerson?: boolean // is this a person type (mother/father/spouse/ruler forms + map binding use it)
 }
 
 export interface Hierarchy {
   tags: string[]
-  govs: string[] // maddelerde geçen yönetim biçimleri (fields.yönetim)
+  govs: string[] // government forms seen on entities (fields.government)
   entities: {
     id: number
     type: string
     name: string
-    fields: string // ham JSON — harita modu değerleri (din/dil…) buradan okunur
+    fields: string // raw JSON — map-mode values (religion/language…) are read from it
     gov: string | null
     tags: string[]
   }[]
 }
 
-// Hiyerarşi yapılandırması: yönetim biçimi başına üst→alt kademe merdiveni
+// Hierarchy configuration: a top→bottom rank ladder per government form
 export interface HierConfig {
-  govs: { name: string; tags: string[] }[] // her yönetim biçiminin kendi sıralı merdiveni
+  govs: { name: string; tags: string[] }[] // each government form's own ordered ladder
 }
 
-// Boşluk vb. içeren dosya adları için her yol parçasını ayrı encode et
+// Encode each path segment separately, for file names containing spaces etc.
 export const assetUrl = (relPath: string): string =>
   'world://data/' + relPath.split('/').map(encodeURIComponent).join('/')
 
@@ -100,7 +100,7 @@ export const api = {
   retypeEntities: (oldType: string, newType: string) =>
     inv<void>('retypeEntities', oldType, newType),
   hierarchy: () => inv<Hierarchy>('hierarchy'),
-  // Tam metin arama: içerik/alanlarda geçenler (isim eşleşmeleri hariç), bağlam parçasıyla
+  // Full-text search: content/field hits (name matches excluded), with a context snippet
   searchContent: (q: string) =>
     inv<{ id: number; type: string; name: string; snippet: string }[]>('searchContent', q),
   restoreEntity: (
@@ -162,14 +162,14 @@ export const api = {
 
   pickImage: () => inv<string | null>('pickImage'),
   backupNow: () => inv<string>('backupNow'),
-  // Not sekmelerini okunabilir .txt ağacına döker (notes/<harita>/<tip>/<madde>/<not>.txt) + klasörü açar
+  // Dumps note tabs into a readable .txt tree (notes/<map>/<type>/<entity>/<note>.txt) + opens the folder
   exportNotes: () => inv<{ path: string; files: number }>('exportNotes'),
-  // .dunya dosya modeli (Wonderdraft tarzı): kaydet/farklı kaydet/aç + kirli durum
+  // The .dunya file model (Wonderdraft-style): save / save as / open + dirty state
   saveWorld: () => inv<string | null>('saveWorld'),
   saveWorldAs: () => inv<string | null>('saveWorldAs'),
   openWorld: () => inv<string | null>('openWorld'),
   worldInfo: () => inv<{ file: string | null; dirty: boolean }>('worldInfo'),
-  // Başlangıç ekranı: son kullanılan dünyalar (userData/recent.json — çalışma kopyasından bağımsız)
+  // Start screen: recent worlds (userData/recent.json — independent of the working copy)
   recentWorlds: () => inv<{ path: string; name: string; missing: boolean }[]>('recentWorlds'),
   openRecent: (path: string) => inv<boolean>('openRecent', path),
   forgetRecent: (path: string) => inv<void>('forgetRecent', path),
@@ -195,11 +195,11 @@ export async function getHierConfig(): Promise<HierConfig> {
   const raw = await api.getSetting('hierarchyConfig')
   if (!raw) return { govs: [] }
   const parsed = JSON.parse(raw) as unknown
-  // Eski biçim: [{tag, mode}] dizisi → yeni biçime dönüştür
+  // Legacy shape: a [{tag, mode}] array → convert to the new shape
   if (Array.isArray(parsed)) {
     const old = parsed as { tag: string; mode: string }[]
     return {
-      govs: [{ name: 'Varsayılan', tags: old.filter((c) => c.mode === 'filtre').map((c) => c.tag) }]
+      govs: [{ name: 'Default', tags: old.filter((c) => c.mode === 'filtre').map((c) => c.tag) }]
     }
   }
   return { govs: (parsed as HierConfig).govs ?? [] }
@@ -208,7 +208,7 @@ export async function getHierConfig(): Promise<HierConfig> {
 export const saveHierConfig = (cfg: HierConfig): Promise<void> =>
   api.setSetting('hierarchyConfig', JSON.stringify(cfg))
 
-// Maddelerde keşfedilen yeni yönetim biçimleri için config'e boş merdiven ekle
+// Add an empty ladder to the config for government forms newly discovered on entities
 export function mergeHierConfig(cfg: HierConfig, discoveredGovs: string[]): HierConfig {
   const missing = discoveredGovs.filter((g) => !cfg.govs.some((x) => x.name === g))
   return missing.length
@@ -216,14 +216,14 @@ export function mergeHierConfig(cfg: HierConfig, discoveredGovs: string[]): Hier
     : cfg
 }
 
-// De-jure üst zinciri: maddenin yıl bazlı üst (ebeveyn) geçmişi fields["parent"]'te JSON durur.
-// Fetih = yeni {from, id} kaydı eklemek; slider geçmişe çekilince eski üst kendiliğinden döner.
+// De-jure parent chain: the entity's year-based parent history lives as JSON in fields["parent"].
+// Conquest = appending a {from, id} record; drag the slider back and the old parent returns by itself.
 export interface ParentRec {
-  from: number | null // null = başlangıçtan beri
-  id: number // üst maddenin id'si (ad değişimine dayanıklı)
+  from: number | null // null = since the beginning
+  id: number // the parent entity's id (survives renames)
 }
 
-/** fields[key] içindeki yıl bazlı {from, id} listesini oku (üst zinciri, yönetici geçmişi…). */
+/** Read the year-based {from, id} list in fields[key] (parent chain, ruler history…). */
 export function getYearRecs(fieldsJson: string, key: string): ParentRec[] {
   try {
     const f = JSON.parse(fieldsJson || '{}') as Record<string, string>
@@ -237,11 +237,11 @@ export function getYearRecs(fieldsJson: string, key: string): ParentRec[] {
 export const getParents = (fieldsJson: string): ParentRec[] => getYearRecs(fieldsJson, 'parent')
 
 /**
- * Cinsiyet çıkarımı (kişi id → 'M'|'F'). Öncelik:
- *   1. açık `fields.cinsiyet` ('erkek'/'kadın')
- *   2. rol: biri(leri)nin babası → erkek, annesi → kadın
- *   3. eşin tersi: erkeğin eşi → kadın, kadının eşi → erkek (sabit noktaya kadar yayılır)
- * Hem aile ağacı gösterimi hem çocuk-ekleme ilişkisi (anne/baba seçimi) bunu kullanır.
+ * Gender inference (person id → 'M'|'F'). Priority:
+ *   1. explicit `fields.gender` ('male'/'female')
+ *   2. role: someone's father → male, mother → female
+ *   3. spouse's opposite: a man's spouse → female and vice versa (propagated to a fixed point)
+ * Used by both the family-tree display and the add-child relation (mother/father pick).
  */
 export function inferGenders(
   entities: { id: number; fields: string }[],
@@ -266,12 +266,12 @@ export function inferGenders(
   const g = new Map<number, 'M' | 'F'>()
   for (const e of entities) {
     const c = (JSON.parse(e.fields || '{}') as Record<string, string>)['gender']
-    if (c === 'erkek') g.set(e.id, 'M')
-    else if (c === 'kadın') g.set(e.id, 'F')
+    if (c === 'male') g.set(e.id, 'M')
+    else if (c === 'female') g.set(e.id, 'F')
     else if (fatherSet.has(e.id)) g.set(e.id, 'M')
     else if (motherSet.has(e.id)) g.set(e.id, 'F')
   }
-  // Eş tersinden yay: eşi bilinen ama kendisi bilinmeyenlere karşı cinsiyet ata (sabit nokta)
+  // Propagate from spouses: assign the opposite gender where the spouse is known (fixed point)
   let changed = true
   while (changed) {
     changed = false
@@ -290,7 +290,7 @@ export function inferGenders(
   return g
 }
 
-/** Yıl Y'deki üst: from <= Y olan en büyük from'lu kayıt (null = -∞). */
+/** Parent in year Y: the record with the largest from <= Y (null = -∞). */
 export function parentAt(recs: ParentRec[], year: number): number | null {
   let best: ParentRec | null = null
   for (const r of recs) {
@@ -300,15 +300,15 @@ export function parentAt(recs: ParentRec[], year: number): number | null {
   return best?.id ?? null
 }
 
-/** Bir çizim/olay yıl aralığında (from/to; boş = sınırsız) görünür mü. */
+/** Is a feature/event visible in its year range (from/to; empty = unbounded). */
 export const inYearRange = (
   from: number | undefined,
   to: number | undefined,
   year: number
 ): boolean => (from ?? -Infinity) <= year && year <= (to ?? Infinity)
 
-/** Taban küme: her yönetim biçiminin merdivenindeki SON etikete sahip maddeler (harita taban
- *  poligonları + Atlas bu kümeyi ortak kullanır — tek kaynak). */
+/** Base set: entities carrying the LAST tag of each government form's ladder (map base
+ *  polygons + Atlas share this set — single source). */
 export function lowestRungSet(
   cfg: HierConfig,
   entities: { id: number; gov: string | null; tags: string[] }[]
@@ -323,8 +323,8 @@ export function lowestRungSet(
   return s
 }
 
-/** O yılki üst zincirinin TEPESİ (döngü korumalı). parentsOf: madde id'sinden o maddenin
- *  yıl bazlı üst kayıtları — çağıran ham fields'tan (Atlas) ya da önden ayrıştırılmış ref'ten
+/** The TOP of the parent chain in that year (cycle-guarded). parentsOf: entity id to its
+ *  year-based parent records — the caller feeds it from raw fields (Atlas) or a pre-parsed ref
  *  (MapView hot-path) besler. */
 export function rootAtYear(
   eid: number,
@@ -342,7 +342,7 @@ export function rootAtYear(
   return cur
 }
 
-/** Poligon halkasının alanı (shoelace, işaretsiz). CRS.Simple düz düzlem — projeksiyon yok. */
+/** Area of a polygon ring (shoelace, unsigned). CRS.Simple is a flat plane — no projection. */
 export function ringArea(ring: number[][]): number {
   let s = 0
   for (let i = 0; i < ring.length; i++) {
@@ -353,11 +353,11 @@ export function ringArea(ring: number[][]): number {
   return Math.abs(s) / 2
 }
 
-// Harita modları: kullanıcı tanımlı boyutlar (din, dil…) ve boyut+değer başına renkler.
-// Değer maddenin fields[dim] alanından okunur; renk atanmamışsa autoColor devreye girer.
+// Map modes: user-defined dimensions (religion, language…) and colors per dimension+value.
+// The value is read from the entity's fields[dim]; autoColor kicks in when no color is assigned.
 export interface MapModes {
   dims: string[]
-  colors: Record<string, Record<string, string>> // dim → değer → hex
+  colors: Record<string, Record<string, string>> // dim → value → hex
 }
 
 export async function getMapModes(): Promise<MapModes> {
@@ -370,19 +370,19 @@ export async function getMapModes(): Promise<MapModes> {
 export const saveMapModes = (m: MapModes): Promise<void> =>
   api.setSetting('mapModes', JSON.stringify(m))
 
-// Madde şablonları (settings 'templates'): yeni bir maddeye hazır alan iskeleti uygular.
-// DAYATMA DEĞİL başlangıç noktası — uygulandıktan sonra her alan silinip değiştirilebilir,
-// şablonun kendisi de. Uygulama saveFields'tan geçtiği için Ctrl+Z ile geri alınır.
+// Entity templates (settings 'templates'): apply a ready field skeleton to a new entity.
+// A starting point, NOT a constraint — every field stays editable and deletable afterwards,
+// as does the template itself. Application goes through saveFields, so Ctrl+Z undoes it.
 export interface EntityTemplate {
   name: string
-  type?: string // maddenin tipi boşsa atanır (TypeDef adı; tip silinse/yeniden adlandırılsa bile
-  // serbest metin olarak kalır — entities.type zaten serbest bir kolon)
-  fields: Record<string, string> // alan → varsayılan değer (boş değer = yalnız iskelet)
+  type?: string // assigned only when the entity has no type (a TypeDef name; survives type
+  // deletion/rename as free text — entities.type is a free column anyway)
+  fields: Record<string, string> // field → default value (empty value = skeleton only)
 }
 
-// Kendi bölümlerinde/mekanizmalarında yaşayan alanlar: şablona girmemeli (serbest metaveri değil).
-// db.ts'teki TECH kümesi (arama) ile EntityPage'in render filtresinin BİRLEŞİMİ + kişi alanları.
-// Harita modu boyutları (dims) çalışma anında gelir, çağıran ayrıca eler.
+// Fields that live in their own sections/mechanisms: they must not enter templates (not free
+// metadata). The UNION of db.ts's TECH set (search) and EntityPage's render filter + person
+// fields. Map-mode dimensions (dims) arrive at runtime; the caller filters them separately.
 export const RESERVED_FIELDS = [
   'banner',
   'parent',
@@ -395,7 +395,7 @@ export const RESERVED_FIELDS = [
   'gender',
   'birth',
   'death',
-  '_tpl' // uygulanan şablonun adı (salt bilgi, EntityPage'de select'i seçili göstermek için)
+  '_tpl' // name of the applied template (informational; keeps EntityPage's select in sync)
 ]
 
 export const getTemplates = async (): Promise<EntityTemplate[]> =>
@@ -404,10 +404,10 @@ export const getTemplates = async (): Promise<EntityTemplate[]> =>
 export const saveTemplates = (list: EntityTemplate[]): Promise<void> =>
   api.setSetting('templates', JSON.stringify(list))
 
-// Özel pin görselleri kütüphanesi (settings 'pinImages', global): kullanıcının pin olarak
-// kullanmak üzere yüklediği görseller. path = assets/ göreli yolu, ar = en/boy oranı.
-// Yalnız seçici kolaylığı — pinin kendi style'ı img+imgAR'ı ayrıca taşır, bu yüzden buradan
-// bir kayıt silinse de o görseli kullanan pinler doğru çizilmeye devam eder.
+// Custom pin image library (settings 'pinImages', global): images the user uploaded to use
+// as pins. path = assets/-relative path, ar = aspect ratio. Purely picker convenience — a
+// pin's own style carries img+imgAR itself, so pins keep rendering correctly even after a
+// record is removed from here.
 export interface PinImage {
   path: string
   ar: number
@@ -419,10 +419,11 @@ export const getPinImages = async (): Promise<PinImage[]> =>
 export const savePinImages = (list: PinImage[]): Promise<void> =>
   api.setSetting('pinImages', JSON.stringify(list))
 
-// Zeminler (settings 'mapBoards', harita başına): aynı harita üzerinde birden çok çizim katmanı
-// (Photoshop mantığı). Her çizim, yapıldığı zemine (id) `style.board` ile bağlanır; zemin değişince
-// diğerlerininki gizlenir. Dış görsel YOK — yalnız aynı zemin görselinin üstündeki çizimleri gruplar.
-// Etiketlenmemiş/artık-olmayan zemin id'li çizimler ilk zemine düşer (silme/rename bozmaz — bkz. MapView).
+// Boards (settings 'mapBoards', per map): multiple drawing layers on the same map (Photoshop
+// mental model). Each feature is tied to the board (id) it was drawn on via `style.board`;
+// switching boards hides the others'. NO external images — this only groups drawings over the
+// same base image. Features with a missing/stale board id fall to the first board (deletion/
+// rename cannot break them — see MapView).
 export interface BoardDef {
   id: string
   name: string
@@ -444,21 +445,21 @@ export const saveMapBoards = async (mapId: number, data: MapBoards): Promise<voi
   await api.setSetting('mapBoards', JSON.stringify(all))
 }
 
-// Zaman çizgisi: dönüm noktası tamamen kullanıcı tanımlı (MÖ/MS dayatması yok).
-// Yıllar işaretli tamsayı: negatif = dönümden önce. year = slider'ın son konumu (kalıcı).
+// Timeline: the epoch is entirely user-defined (no BC/AD imposed).
+// Years are signed integers: negative = before the epoch. year = the slider's last position (persisted).
 export interface TimelineConfig {
-  before: string // dönümden önceki çağ kısaltması (örn. "MÖ", "KÖ")
-  after: string // dönümden sonraki çağ kısaltması
+  before: string // era abbreviation before the epoch (e.g. "BC", or an invented one)
+  after: string // era abbreviation after the epoch
   min: number
   max: number
   year: number
-  periods: { name: string; from: number; to: number }[] // isimli dönemler (İlk Çağ…)
-  events: { name: string; year: number; fid?: number; mid?: number }[] // olaylar; fid/mid = bağlı çizim ve haritası
+  periods: { name: string; from: number; to: number }[] // named eras (Early Age…)
+  events: { name: string; year: number; fid?: number; mid?: number }[] // events; fid/mid = linked feature and its map
 }
 
 const TIMELINE_DEFAULT: TimelineConfig = {
-  before: 'MÖ',
-  after: 'MS',
+  before: 'BC', // defaults only — the user renames these freely in the timeline settings
+  after: 'AD',
   min: -500,
   max: 1500,
   year: 0,
@@ -489,7 +490,7 @@ export async function getLanguage(): Promise<Lang> {
 
 export const saveLanguage = (lang: Lang): Promise<void> => api.setSetting('language', lang)
 
-// Tema — koyu (teal) varsayılan; App.tsx <html data-theme> yazar, tüm renkler CSS token'larından.
+// Theme — dark (teal) is the default; App.tsx writes <html data-theme>, all colors come from CSS tokens.
 export type Theme = 'dark' | 'light'
 
 export async function getTheme(): Promise<Theme> {
@@ -499,8 +500,8 @@ export async function getTheme(): Promise<Theme> {
 
 export const saveTheme = (theme: Theme): Promise<void> => api.setSetting('theme', theme)
 
-// Renk seçicinin "son kullanılanlar" şeridi (settings 'recentColors'; en yeni başta, 12 kayıt).
-// Bellekte önbelleklenir — her açılışta DB'ye gidilmesin; sayfada birden çok seçici olabiliyor.
+// The color picker's "recent" strip (settings 'recentColors'; newest first, 12 entries).
+// Cached in memory — no DB round trip per open; a page can hold many pickers.
 const RECENT_COLORS = 12
 let recentColors: string[] | null = null
 export async function getRecentColors(): Promise<string[]> {
@@ -516,7 +517,7 @@ export async function pushRecentColor(hex: string): Promise<string[]> {
   return list
 }
 
-// Renk atanmamış değerler için string'den deterministik renk (hex — ColorPicker ile uyumlu)
+// Deterministic color from a string for unassigned values (hex — ColorPicker-compatible)
 export function autoColor(seed: string): string {
   let hash = 0
   for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0

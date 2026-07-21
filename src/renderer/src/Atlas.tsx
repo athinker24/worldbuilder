@@ -24,22 +24,23 @@ interface Props {
   onOpenEntity: (id: number) => void
 }
 
-// Bir grubun (devlet / din / dil…) alan payı satırı
+// One group's (state / religion / language…) share-of-area row
 interface Row {
   key: string
   label: string
   color: string
   area: number
-  eid?: number // devlet satırında tıkla → madde sayfası
+  eid?: number // on a state row, click → entity page
 }
 
 const fmtArea = (v: number): string =>
   v >= 100 ? Math.round(v).toLocaleString() : v >= 1 ? v.toFixed(1) : v.toFixed(2)
 
-// Atlas: dünyanın sayısal görünümü. Seçilen yılda her haritanın taban poligonları (en alt kademe)
-// gerçek alanlarıyla (shoelace × harita ölçeği²) toplanır; devlet (o yılki üst zincirinin tepesi)
-// ve her harita modu boyutu (din/dil/kültür) için alan dağılımı renkli çubuklarla gösterilir.
-// Yeni veri yok — features geometrisi + fields + mapScales'in salt-okunur bir görünümü.
+// Atlas: the world in numbers. For the chosen year, each map's base polygons (lowest rank)
+// are summed with their real areas (shoelace × map scale²); the area distribution is shown
+// as colored bars per state (top of that year's parent chain) and per map-mode dimension
+// (religion/language/culture). No new data — a read-only view over feature geometry +
+// fields + mapScales.
 export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
   const t = useT()
   const [maps, setMaps] = useState<WorldMap[]>([])
@@ -48,7 +49,7 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
   const [modes, setModes] = useState<MapModes>({ dims: [], colors: {} })
   const [scales, setScales] = useState<Record<string, MapScale>>({})
   const [tl, setTl] = useState<TimelineConfig | null>(null)
-  const [year, setYear] = useState<number | null>(null) // null = timeline yılı yüklenene dek
+  const [year, setYear] = useState<number | null>(null) // null = until the timeline year loads
 
   useEffect(() => {
     let alive = true
@@ -80,8 +81,8 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
     const fieldsOf = new Map(
       ents.map((e) => [e.id, JSON.parse(e.fields || '{}') as Record<string, string>])
     )
-    // Taban küme + zincir tepesi: MapView ile ORTAK yardımcılar (tek kaynak — kural değişirse ikisi
-    // birden güncellenir). rootAt harita başına değil çağrı başına memo'lu.
+    // Base set + chain top: helpers SHARED with MapView (single source — a rule change
+    // updates both). rootAt is memoised per call, not per map.
     const baseSet = lowestRungSet(cfg, ents)
     const rootMemo = new Map<number, number>()
     const rootAt = (eid: number): number => {
@@ -93,14 +94,14 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
     }
     const out: {
       map: WorldMap
-      unit: string | null // null = ölçek yok (harita birimi²)
+      unit: string | null // null = no scale (map units²)
       total: number
       realms: Row[]
       dims: { dim: string; rows: Row[] }[]
     }[] = []
     for (const wm of maps) {
       const sc = scales[wm.id]
-      const k = sc ? sc.perUnit * sc.perUnit : 1 // alan çarpanı (birim²)
+      const k = sc ? sc.perUnit * sc.perUnit : 1 // area multiplier (units²)
       const realms = new Map<number, number>()
       const dimAreas = new Map<string, Map<string, number>>()
       for (const d of modes.dims) dimAreas.set(d, new Map())
@@ -195,7 +196,7 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
               max={tl.max}
               onChange={(e) => {
                 const v = Number(e.target.value)
-                if (Number.isFinite(v)) setYear(v) // '-'/boş → NaN, yıl'ı bozma
+                if (Number.isFinite(v)) setYear(v) // '-'/empty → NaN, don't break the year
               }}
             />
             <span className="hint">{formatYear(year, tl)}</span>

@@ -13,20 +13,20 @@ import {
 import ColorPicker from './ColorPicker'
 import { useT } from './i18n'
 
-// Haritanın aktif modu: kademe (taban poligonları o kademedeki ataya göre boya — CK3 realm
-// görünümü) ya da boya (din/dil gibi bir boyuta göre renklendir)
+// The map's active mode: rank (paint base polygons by their ancestor at that rank — the CK3
+// realm view) or paint (color by a dimension like religion/language)
 export type ActiveMode = { kind: 'kademe' | 'boya'; key: string } | null
 
 interface Props {
   active: ActiveMode
-  reloadToken: number // etiketler değişince (undo dahil) tazelemek için
+  reloadToken: number // to refresh when tags change (undo included)
   onMode: (m: ActiveMode) => void
-  onConquest: () => void // ⚔ Fetih akışını başlat (yalnız kademe modunda görünür)
+  onConquest: () => void // start the ⚔ Conquest flow (visible only in rank mode)
   onOpenEntity: (id: number) => void
   onLocate: (id: number) => void
 }
 
-/** CK3 tarzı sağ alt hiyerarşi paneli: yönetim biçimi sekmeleri + kademe görünümleri + harita modları. */
+/** CK3-style bottom-right hierarchy panel: government tabs + rank views + map modes. */
 export default function HierarchyPanel({
   active,
   reloadToken,
@@ -67,7 +67,7 @@ export default function HierarchyPanel({
   const paintDim = active?.kind === 'boya' ? active.key : null
   const list = rungTag ? hier.entities.filter((e) => e.tags.includes(rungTag)) : []
 
-  // Boya lejantı: aktif boyutta geçen benzersiz değerler
+  // Paint legend: unique values present in the active dimension
   const dimValues = paintDim
     ? [
         ...new Set(
@@ -78,7 +78,7 @@ export default function HierarchyPanel({
       ].sort((a, b) => a.localeCompare(b, 'tr'))
     : []
 
-  // Boyut değerinin rengini mapModes'a yaz, aynı modu tekrar tetikleyerek haritayı yeniden boyat
+  // Write the value's color into mapModes and re-trigger the mode to repaint the map
   const setDimColor = async (value: string, hex: string): Promise<void> => {
     if (!paintDim) return
     const next: MapModes = {
@@ -90,7 +90,7 @@ export default function HierarchyPanel({
     onMode(active)
   }
 
-  // Kademe maddesinin rengini fields.renk'e yaz (kademe boyaması buradan okur)
+  // Write the rank entity's color into fields.color (rank painting reads it from there)
   const setEntityColor = async (eid: number, hex: string): Promise<void> => {
     const e = await api.getEntity(eid)
     if (!e) return

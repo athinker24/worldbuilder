@@ -11,7 +11,7 @@ import ErrorBoundary from './ErrorBoundary'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {/* Bozuk/düşman bir .dunya render'ı patlatırsa beyaz ekranda kalınmasın — bkz. ErrorBoundary */}
+    {/* If a corrupt/hostile .dunya crashes the render, never strand a blank screen — see ErrorBoundary */}
     <ErrorBoundary>
       <App />
     </ErrorBoundary>

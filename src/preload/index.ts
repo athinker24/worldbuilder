@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-// Renderer'a açılan tek kapı: main process'teki dar api nesnesine isimle çağrı
+// The single gate exposed to the renderer: named calls into the narrow main-process api object
 const api = {
   invoke: (method: string, ...args: unknown[]): Promise<unknown> =>
     ipcRenderer.invoke('api', method, ...args)

@@ -16,7 +16,7 @@ import {
 import { tmpdir } from 'os'
 import assert from 'assert'
 
-// Elektron'dan bağımsız tutuldu ki `node src/main/db.ts` ile self-check çalışabilsin.
+// Kept free of Electron imports so `node src/main/db.ts` can run the self-check standalone.
 let db!: DatabaseSync
 let assetsDir: string
 let dbFile: string
@@ -125,6 +125,11 @@ export function migrateLegacyKeys(): number {
       delete obj[from]
       touched = true
     }
+    // Gender VALUES are persisted vocabulary too ('erkek'/'kadın' → 'male'/'female')
+    if (obj['gender'] === 'erkek' || obj['gender'] === 'kadın') {
+      obj['gender'] = obj['gender'] === 'erkek' ? 'male' : 'female'
+      touched = true
+    }
     if (touched) {
       upd.run(JSON.stringify(obj), r.id)
       changed++
@@ -136,8 +141,8 @@ export function migrateLegacyKeys(): number {
   return changed
 }
 
-// Günde bir kez (uygulama açılışında): world.db'nin tarihli kopyasını al, eski kopyaları temizle.
-// Geri yükleme elle: backups/ klasöründeki bir dosyayı uygulama kapalıyken world.db üzerine kopyala.
+// Once a day (at app launch): take a dated copy of world.db and prune old copies.
+// Restore is deliberately manual: with the app closed, copy a file from backups/ over world.db.
 export function backupIfNeeded(): void {
   mkdirSync(backupsDir, { recursive: true })
   const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
@@ -150,17 +155,17 @@ export function backupIfNeeded(): void {
   }
 }
 
-// --- .dunya dosya biçimi (Wonderdraft'ın kendi dosyası gibi): tek dosyada HER ŞEY ---
-// Biçim = aynı şemalı bir SQLite kopyası + ekstra `assets` tablosu (görseller BLOB olarak gömülü).
-// Çalışma kopyası (world.db + assets/) hiç değişmedi — Save paketler, Open paketi açar.
-// settings.worldFile dosyanın kendi yolunu taşır (Ctrl+S hedefi; açılınca gerçek yolla güncellenir).
+// --- The .dunya file format (like Wonderdraft's own file): EVERYTHING in one file ---
+// Format = a SQLite copy with the same schema + an extra `assets` table (images embedded as BLOBs).
+// The working copy (world.db + assets/) is untouched by this — Save packs, Open unpacks.
+// settings.worldFile carries the file's own path (the Ctrl+S target; updated with the real path on open).
 
-/** Çalışma kopyasını (db + assets/ görselleri) tek .dunya dosyasına paketle. */
+/** Pack the working copy (db + the images in assets/) into a single .dunya file. */
 export function packWorld(targetPath: string): void {
-  pruneUnusedAssets() // kaydetmeden önce kullanılmayan görselleri temizle → .dunya + çalışma kopyası yalın
+  pruneUnusedAssets() // drop unused images before saving → lean .dunya and working copy
   const tmp = targetPath + '.tmp'
   rmSync(tmp, { force: true })
-  db.exec(`VACUUM INTO '${tmp.replaceAll("'", "''")}'`) // temiz, atomik anlık kopya
+  db.exec(`VACUUM INTO '${tmp.replaceAll("'", "''")}'`) // clean, atomic snapshot
   const out = new DatabaseSync(tmp)
   out.exec(`CREATE TABLE IF NOT EXISTS assets (name TEXT PRIMARY KEY, data BLOB NOT NULL)`)
   const ins = out.prepare(`INSERT OR REPLACE INTO assets (name, data) VALUES (?, ?)`)
@@ -174,11 +179,11 @@ export function packWorld(targetPath: string): void {
     )
     .run(targetPath)
   out.close()
-  renameSync(tmp, targetPath) // önce tmp'ye yaz sonra adlandır — yarım dosya kalmaz
+  renameSync(tmp, targetPath) // write to tmp then rename — a half-written file can never remain
 }
 
-/** Bir .dunya dosyasını çalışma kopyasının ÜZERİNE aç (mevcut çalışma kopyası ezilir —
- *  çağıran taraf önce onay/yedek almalı). Gömülü görseller assets/ klasörüne çıkarılır. */
+/** Open a .dunya file OVER the working copy (the current working copy is overwritten —
+ *  the caller must confirm/back up first). Embedded images are extracted into assets/. */
 export function unpackWorld(sourcePath: string): void {
   db.close()
   copyFileSync(sourcePath, dbFile)
@@ -192,25 +197,25 @@ export function unpackWorld(sourcePath: string): void {
       name: string
       data: Uint8Array
     }[]) {
-      // .dunya PAYLAŞILAN bir dosya: gömülü ad güvenilmez girdi. basename olmadan
-      // `../../…` ya da `C:\…` biçiminde bir ad assets/ DIŞINA yazardı (dosya üzerine yazma).
-      // packWorld zaten yalnız basename yazar, bu yüzden kayıp yok.
+      // A .dunya is a SHARED file: the embedded name is untrusted input. Without basename,
+      // a name like `../../…` or `C:\…` would write OUTSIDE assets/ (overwriting files).
+      // packWorld only ever writes basenames, so nothing is lost.
       const name = basename(row.name)
       if (name && name !== '.' && name !== '..') writeFileSync(join(assetsDir, name), row.data)
     }
-    db.exec(`DROP TABLE assets`) // çalışma kopyası yalın kalsın (görseller diskte)
+    db.exec(`DROP TABLE assets`) // keep the working copy lean (the images live on disk)
   }
-  repairImportedJson() // bozuk JSON kolonları varsayılana düşür (aşağıdaki gerekçe)
-  migrateLegacyKeys() // eski (Türkçe anahtarlı) .dunya dosyaları da açılabilsin
+  repairImportedJson() // reset malformed JSON columns to defaults (rationale below)
+  migrateLegacyKeys() // so old .dunya files (with Turkish keys) still open
   api.setSetting('worldFile', sourcePath)
-  pruneUnusedAssets() // açılan dünyada kullanılmayan (önceki dünyadan kalan) görselleri temizle
+  pruneUnusedAssets() // drop images the opened world does not use (leftovers from the previous one)
 }
 
-/** Dışarıdan gelen bir .dunya'daki bozuk JSON kolonlarını varsayılana düşür; onarılan satır
- *  sayısını döner. TEK YERDE olması bilinçli: renderer bu kolonları 20'den fazla noktada
- *  `JSON.parse` ediyor ve bir tek satır bozuksa o görünüm komple çökerdi (harita hiç açılmaz,
- *  madde sayfası beyaz kalırdı). Her çağrı noktasını try/catch'e sarmak yerine veri, uygulamaya
- *  girdiği kapıda onarılıyor. Satır SİLİNMEZ — yalnız bozuk alan sıfırlanır, gerisi durur. */
+/** Reset malformed JSON columns in an imported .dunya to defaults; returns rows repaired.
+ *  Deliberately in ONE place: the renderer JSON.parses these columns in 20+ spots and a
+ *  single bad row would take down that whole view (the map never opens, the entity page
+ *  stays blank). Rather than wrapping every call site in try/catch, the data is repaired at
+ *  the gate where it enters the app. Rows are NEVER deleted — only the bad column is reset. */
 function repairImportedJson(): number {
   let fixed = 0
   const isPlainObject = (v: string): boolean => {
@@ -259,8 +264,8 @@ function repairImportedJson(): number {
     `UPDATE maps SET layers = ? WHERE id = ?`,
     '[]'
   )
-  // settings: değerlerin bir kısmı düz metin ('dark', 'tr', dosya yolu) — yalnız JSON GÖRÜNÜMLÜ
-  // olanlar ({ ya da [ ile başlayanlar) denetlenir, bozuksa satır silinir → kod varsayılana düşer
+  // settings: some values are plain text ('dark', 'tr', a file path) — only JSON-LOOKING ones
+  // (starting with { or [) are checked; a bad one is deleted so the code falls back to defaults
   const del = db.prepare(`DELETE FROM settings WHERE key = ?`)
   for (const r of db.prepare(`SELECT key, value FROM settings`).all() as {
     key: string
@@ -274,7 +279,7 @@ function repairImportedJson(): number {
   return fixed
 }
 
-/** Çalışma kopyasında kayda değer içerik var mı? (boş açılışta gereksiz anlık paket alınmasın) */
+/** Does the working copy hold anything worth keeping? (avoids a pointless snapshot on blank launch) */
 export function hasContent(): boolean {
   return (
     !!db.prepare(`SELECT 1 FROM entities LIMIT 1`).get() ||
@@ -282,8 +287,8 @@ export function hasContent(): boolean {
   )
 }
 
-/** Çalışma kopyasını sıfırla: boş şema + boş assets/ (Photoshop'un boş belgeyle açılışı).
- *  Çağıran taraf önce packWorld ile anlık paket almalı — burada yedek alınmaz. */
+/** Reset the working copy: empty schema + empty assets/ (Photoshop's blank-document launch).
+ *  The caller must snapshot with packWorld first — no backup is taken here. */
 export function resetWorld(): void {
   db.close()
   rmSync(dbFile, { force: true })
@@ -295,12 +300,12 @@ export function resetWorld(): void {
   }
 }
 
-// Kullanılmayan görselleri assets/'ten sil ve silinen sayısını döndür. Bir dosya, adı veritabanı
-// METNİNDE hiçbir yerde geçmiyorsa (fields+content, features.style, maps.image_path+layers,
-// settings.value) kullanılmıyor sayılır. Ada göre eşleşme bilinçli KORUYUCU — alt-dize çakışması
-// yalnız fazla dosya TUTMAYA yol açar, asla kullanımdaki bir dosyayı silmez. packWorld (kaydet) ve
-// unpackWorld (aç) içinde otomatik çağrılır (undo yığınının önemsiz olduğu checkpoint/yeniden-yükleme
-// anları). Tamamen otomatik — UI yok.
+// Delete unused images from assets/ and return how many were removed. A file counts as unused
+// when its name appears NOWHERE in the database text (fields+content, features.style,
+// maps.image_path+layers, settings.value). Matching by name is deliberately CONSERVATIVE — a
+// substring collision can only KEEP an extra file, never delete one in use. Called automatically
+// inside packWorld (save) and unpackWorld (open) — checkpoint/reload moments where the undo
+// stack is irrelevant. Fully automatic — no UI.
 function pruneUnusedAssets(): number {
   const files = readdirSync(assetsDir).filter((f) => statSync(join(assetsDir, f)).isFile())
   const texts: string[] = []
@@ -331,7 +336,7 @@ function pruneUnusedAssets(): number {
   return removed
 }
 
-// Sadece izin verilen kolonlardan dinamik SET cümlesi kurar.
+// Builds a dynamic SET clause from allow-listed columns only.
 function patchSql(
   table: string,
   allowed: string[],
@@ -352,11 +357,11 @@ export const api = {
       .prepare(`SELECT id, type, name FROM entities WHERE name LIKE ? ORDER BY type, name`)
       .all(`%${search}%`)
   },
-  // Tam metin arama: içerik + not sekmeleri + serbest alan değerlerinde geçen maddeler,
-  // eşleşme çevresinden kısa bir bağlam parçasıyla. Teknik alanlar (sancak dosya yolu,
-  // üst/yönetici/hane JSON geçmişleri, renk) aramaya girmez — snippet hep insan-okur metin.
-  // Türkçe büyük/küçük harf doğru katlansın diye filtre JS'te (SQLite LIKE/lower yalnız
-  // ASCII katlar). ponytail: kişisel ölçekte tüm satırları tarar, yavaşlarsa FTS5'e geçilir.
+  // Full-text search: entities whose content, note tabs or free-field values match, with a
+  // short context snippet around the hit. Technical fields (banner file path, parent/ruler/house
+  // JSON histories, color) are excluded — the snippet is always human-readable text.
+  // Filtering happens in JS so Turkish case folds correctly (SQLite LIKE/lower folds ASCII
+  // only). ponytail: scans all rows at personal scale; switch to FTS5 if it ever gets slow.
   searchContent(q: string): unknown[] {
     const needle = q.trim().toLocaleLowerCase('tr')
     if (needle.length < 2) return []
@@ -370,8 +375,8 @@ export const api = {
     }[]
     const hits: { id: number; type: string; name: string; snippet: string }[] = []
     for (const r of rows) {
-      if (r.name.toLocaleLowerCase('tr').includes(needle)) continue // isim eşleşmesi zaten listede
-      // Aranabilir metinler: içerik, not sekmeleri (başlık + metin), serbest alan değerleri
+      if (r.name.toLocaleLowerCase('tr').includes(needle)) continue // name matches are already in the list
+      // Searchable text: content, note tabs (title + body), free-field values
       const texts: string[] = [r.content]
       try {
         const f = JSON.parse(r.fields || '{}') as Record<string, string>
@@ -381,7 +386,7 @@ export const api = {
         if (Array.isArray(notes))
           for (const n of notes) texts.push([n.title, n.content].filter(Boolean).join(': '))
       } catch {
-        /* bozuk fields → yalnız içerikte ara */
+        /* malformed fields → search content only */
       }
       for (const src of texts) {
         const i = src.toLocaleLowerCase('tr').indexOf(needle)
@@ -411,7 +416,7 @@ export const api = {
         `SELECT l.id, l.relation, l.notes, l.from_id, e.name AS from_name FROM links l JOIN entities e ON e.id = l.from_id WHERE l.to_id = ?`
       )
       .all(id)
-    // İçerikte [[Bu Madde]] geçen diğer maddeler (backlink)
+    // Other entities whose content mentions [[This Entity]] (backlinks)
     const mentions = db
       .prepare(`SELECT id, name FROM entities WHERE id != ? AND content LIKE ?`)
       .all(id, `%[[${(entity as { name: string }).name}]]%`)
@@ -440,7 +445,7 @@ export const api = {
   deleteEntity(id: number): void {
     db.prepare(`DELETE FROM entities WHERE id = ?`).run(id)
   },
-  // Silinen bir maddeyi aynı id ile, ilişkileri ve harita çizim bağlarıyla geri getirir (Ctrl+Z için)
+  // Bring a deleted entity back under the same id, with its links and map-feature bindings (for Ctrl+Z)
   restoreEntity(
     row: {
       id: number
@@ -466,8 +471,8 @@ export const api = {
     for (const fid of featureIds)
       db.prepare(`UPDATE features SET entity_id = ? WHERE id = ?`).run(row.id, fid)
   },
-  // Toplu geri yükleme (çoklu silme undo'su): önce TÜM madde satırları, sonra (dedup'lanmış)
-  // ilişkiler, sonra çizim bağları — böylece iki silinen madde arası link FK'yı bozmaz.
+  // Bulk restore (multi-delete undo): ALL entity rows first, then the (deduplicated) links,
+  // then feature bindings — so a link between two deleted entities cannot violate the FK.
   restoreEntities(
     rows: {
       id: number
@@ -508,10 +513,10 @@ export const api = {
   retypeEntities(oldType: string, newType: string): void {
     db.prepare(`UPDATE entities SET type = ? WHERE type = ?`).run(newType, oldType)
   },
-  // Hiyerarşi etiketleri: fields JSON'undaki "hierarchy" anahtarı, virgülle ayrılmış "#etiket" listesi.
-  // gov: fields'daki "government" (yönetim biçimi — paralel kademe merdivenleri).
-  // fields ham JSON olarak da döner: harita modları (din/dil boyutları) ve datalist önerileri
-  // renderer'da buradan türetilir. Tüm maddeler döner — kişisel ölçekte sorun değil.
+  // Hierarchy tags: the "hierarchy" key in the fields JSON, a comma-separated "#tag" list.
+  // gov: "government" in fields (government form — parallel rank ladders).
+  // fields is also returned as raw JSON: map modes (religion/language dimensions) and datalist
+  // suggestions are derived from it in the renderer. Returns every entity — fine at personal scale.
   hierarchy(): unknown {
     const rows = db
       .prepare(
@@ -546,7 +551,7 @@ export const api = {
     return { tags, govs, entities }
   },
 
-  // --- ilişkiler ---
+  // --- links ---
   addLink(from_id: number, to_id: number, relation: string): unknown {
     const r = db
       .prepare(`INSERT INTO links (from_id, to_id, relation) VALUES (?, ?, ?)`)
@@ -556,15 +561,15 @@ export const api = {
   deleteLink(id: number): void {
     db.prepare(`DELETE FROM links WHERE id = ?`).run(id)
   },
-  // Hanedan ağacı gibi tüm-graf görünümleri için: bütün bağlar (kişisel ölçekte sorun değil)
+  // For whole-graph views like the dynasty tree: every link (fine at personal scale)
   listLinks(): unknown[] {
     return db.prepare(`SELECT id, from_id, to_id, relation FROM links`).all()
   },
 
   // --- haritalar ---
   listMaps(): unknown[] {
-    // Sıra = EKLENME sırası (id), alfabetik değil: kullanıcı haritalarını kendi kurduğu düzende
-    // görmek istiyor (araç çubuğu menüsü ve "ilk harita" seçimi bu listeden okur).
+    // Order = INSERTION order (id), not alphabetical: the user wants maps in the order they
+    // built them (the toolbar menu and the "first map" pick both read this list).
     return db.prepare(`SELECT id, name, parent_map_id FROM maps ORDER BY id`).all()
   },
   getMap(id: number): unknown {
@@ -584,7 +589,7 @@ export const api = {
     height?: number
     parent_map_id?: number
   }): unknown {
-    // ponytail: layers JSON heightmap vb. için tesisat — şimdilik tek image katmanı yazılıyor, okunmuyor
+    // ponytail: the layers JSON is plumbing for heightmaps etc. — currently written, never read
     const layers = m.image_path ? JSON.stringify([{ type: 'image', path: m.image_path }]) : '[]'
     const r = db
       .prepare(
@@ -611,8 +616,8 @@ export const api = {
   deleteMap(id: number): void {
     db.prepare(`DELETE FROM maps WHERE id = ?`).run(id)
   },
-  // Harita silme undo'su: satır + çizimler ORİJİNAL id'leriyle geri gelir (zaman çizgisi olayları /
-  // madde harita geçmişi fid'e bağlı — id korunmalı), alt haritaların üst bağı yeniden kurulur.
+  // Map-delete undo: the row + features come back with their ORIGINAL ids (timeline events and
+  // entity map history are keyed by fid — ids must survive), child maps get their parent link back.
   restoreMap(
     map: {
       id: number
@@ -643,7 +648,7 @@ export const api = {
       db.prepare(`UPDATE maps SET parent_map_id = ? WHERE id = ?`).run(map.id, cid)
   },
 
-  // --- harita çizimleri ---
+  // --- map features ---
   createFeature(f: {
     map_id: number
     entity_id?: number
@@ -677,7 +682,7 @@ export const api = {
 
   // --- dosyalar ---
   importAsset(srcPath: string): string {
-    if (!/\.(png|jpe?g|webp|gif)$/i.test(srcPath)) throw new Error('Yalnız görsel dosyaları')
+    if (!/\.(png|jpe?g|webp|gif)$/i.test(srcPath)) throw new Error('Images only')
     let name = basename(srcPath)
     if (existsSync(join(assetsDir, name))) {
       name = `${basename(name, extname(name))}-${Date.now()}${extname(name)}`
@@ -686,7 +691,7 @@ export const api = {
     return `assets/${name}`
   },
 
-  // Elle "şimdi yedekle" — saat damgalı, günlük otomatik yedekten bağımsız ayrı bir kopya
+  // Manual "back up now" — a timestamped copy independent of the daily automatic one
   backupNow(): string {
     mkdirSync(backupsDir, { recursive: true })
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
@@ -695,11 +700,11 @@ export const api = {
     return target
   },
 
-  // Her maddenin not sekmelerini (fields['notes']) okunabilir .txt ağacına döker:
-  //   notes/<harita adı>/<madde tipi>/<madde adı>/<not başlığı>.txt
-  // Bir maddenin çizimi hangi harita(lar)daysa o harita(lar)ın altında görünür; hiçbir haritada
-  // olmayanlar "(no map)", tipsizler "(no type)" altında (sistem klasör adları İngilizce). Tek yönlü
-  // dışa aktarım (app → .txt); ağaç her seferinde sıfırdan yeniden üretilir (rename/silme temiz yansır).
+  // Dump every entity's note tabs (fields['notes']) into a readable .txt tree:
+  //   notes/<map name>/<entity type>/<entity name>/<note title>.txt
+  // An entity appears under every map it is drawn on; ones on no map go under "(no map)",
+  // untyped ones under "(no type)". One-way export (app → .txt); the tree is rebuilt from
+  // scratch every time, so renames and deletions come out clean.
   exportNotes(): { path: string; files: number } {
     const ents = db.prepare(`SELECT id, type, name, fields FROM entities`).all() as {
       id: number
@@ -713,7 +718,7 @@ export const api = {
       .all() as { map_id: number; entity_id: number }[]
 
     const mapName = new Map(maps.map((m) => [m.id, m.name]))
-    const entMaps = new Map<number, Set<number>>() // madde id → çizimi olan harita id'leri
+    const entMaps = new Map<number, Set<number>>() // entity id → ids of maps it is drawn on
     for (const f of feats) {
       if (!entMaps.has(f.entity_id)) entMaps.set(f.entity_id, new Set())
       entMaps.get(f.entity_id)!.add(f.map_id)
@@ -727,20 +732,20 @@ export const api = {
         return []
       }
     }
-    // Windows dosya adı güvenli: yasak karakterler → _, sondaki nokta/boşluk atılır, boşsa yedek
-    // (kontrol karakterleri not başlıklarında oluşmaz — sadece Windows'un yasak sembolleri elenir)
+    // Windows-safe file name: forbidden characters → _, trailing dots/spaces dropped, fallback
+    // when empty (control characters are also stripped along with Windows' forbidden symbols)
     const safe = (name: string, fallback: string): string => {
       const s = name
-        // eslint-disable-next-line no-control-regex -- kontrol karakterleri de dosya adında geçersiz
+        // eslint-disable-next-line no-control-regex -- control characters are invalid in file names too
         .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
         .replace(/[. ]+$/, '')
         .trim()
-      // Windows aygıt adları (CON, NUL, COM1…) dosya/klasör olamaz — yazma hata verirdi
+      // Windows device names (CON, NUL, COM1…) cannot be files/folders — writing would error
       const out = (s || fallback).slice(0, 120)
       return /^(CON|PRN|AUX|NUL|COM\d|LPT\d)$/i.test(out) ? `_${out}` : out
     }
 
-    rmSync(notesDir, { recursive: true, force: true }) // eski ağacı temizle → yeniden üret
+    rmSync(notesDir, { recursive: true, force: true }) // wipe the old tree → regenerate
     mkdirSync(notesDir, { recursive: true })
 
     let files = 0
@@ -754,7 +759,7 @@ export const api = {
           : ['(no map)']
       const typeFolder = ent.type ? safe(ent.type, '(no type)') : '(no type)'
       for (const mf of mapFolders) {
-        // Aynı ad/tip altında ad çakışırsa madde id'siyle benzersizleştir
+        // On a name clash under the same name/type, disambiguate with the entity id
         let entDir = join(notesDir, mf, typeFolder, safe(ent.name, `entity-${ent.id}`))
         if (existsSync(entDir)) entDir += ` (#${ent.id})`
         mkdirSync(entDir, { recursive: true })
@@ -764,7 +769,7 @@ export const api = {
           let fname = baseName
           for (let k = 2; used.has(fname.toLowerCase()); k++) fname = `${baseName} (${k})`
           used.add(fname.toLowerCase())
-          // Windows Not Defteri uyumu için \r\n
+          // \r\n for Windows Notepad compatibility
           writeFileSync(
             join(entDir, `${fname}.txt`),
             (n.content ?? '').replace(/\r?\n/g, '\r\n'),
@@ -795,14 +800,14 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.equal(got.mentions.length, 1)
   api.retypeEntities('devlet', 'krallık')
   assert.equal((api.getEntity(a.id) as { type: string }).type, 'krallık')
-  // Tam metin arama: içerikte geçen (Türkçe küçük harfle) bulunur, isim eşleşmesi hariç tutulur
+  // Full-text search: content hits found (with Turkish lowercasing), name matches excluded
   {
     const hits = api.searchContent('test devleti') as { id: number; snippet: string }[]
-    assert.equal(hits.length, 1) // yalnız b (içeriğinde [[Test Devleti]]); a isim eşleşmesi sayılır
+    assert.equal(hits.length, 1) // only b (content mentions [[Test Devleti]]); a counts as a name match
     assert.equal(hits[0].id, b.id)
     assert.ok(hits[0].snippet.includes('Test Devleti'))
     assert.equal((api.searchContent('yokböylebirşey') as unknown[]).length, 0)
-    // Not sekmesinde geçen bulunur; teknik alan (sancak dosya yolu) aramaya girmez
+    // Note-tab hits are found; technical fields (banner file path) are not searched
     api.updateEntity(b.id, {
       fields: JSON.stringify({
         banner: 'assets/GIZLI-YOL-birkelime.png',
@@ -828,7 +833,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   }
   assert.deepEqual(hier.tags, ['#güney-dilleri', '#krallık'])
   assert.deepEqual(hier.govs, ['feodal'])
-  assert.equal(hier.entities.length, 2) // WHERE yok: etiketsiz madde de döner
+  assert.equal(hier.entities.length, 2) // no WHERE: untagged entities are returned too
   const he = hier.entities.find((e) => e.id === a.id)!
   assert.equal(he.tags.length, 2)
   assert.equal(he.gov, 'feodal')
@@ -840,24 +845,24 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     geometry: '{"type":"Point","coordinates":[1,2]}'
   })
   assert.equal((api.getMap(m.id) as { features: unknown[] }).features.length, 1)
-  // exportNotes: a (tip 'krallık' — yukarıda retype edildi) Dünya haritasında →
-  // notes/Dünya/krallık/Test Devleti/…; b (tip 'hanedan') hiçbir haritada değil → notes/(no map)/hanedan/…
+  // exportNotes: a (type 'krallık' — retyped above) is on the Dünya map →
+  // notes/Dünya/krallık/Test Devleti/…; b (type 'hanedan') is on no map → notes/(no map)/hanedan/…
   api.updateEntity(a.id, {
     fields: JSON.stringify({
       notes: JSON.stringify([{ title: 'Kuruluş', content: 'satır1\nsatır2' }])
     })
   })
   const exp = api.exportNotes()
-  assert.equal(exp.files, 2) // a (haritada) + b (haritasız)
+  assert.equal(exp.files, 2) // a (on a map) + b (mapless)
   const onMap = join(dir, 'notes', 'Dünya', 'krallık', 'Test Devleti', 'Kuruluş.txt')
-  assert.ok(existsSync(onMap), 'haritadaki maddenin notu yazılmalı')
+  assert.ok(existsSync(onMap), 'note of an on-map entity must be written')
   assert.equal(readFileSync(onMap, 'utf8'), 'satır1\r\nsatır2') // \n → \r\n (Windows)
   assert.ok(
     existsSync(join(dir, 'notes', '(no map)', 'hanedan', 'Test Hanedanı', 'Savaşlar.txt')),
-    'haritasız madde (no map) altında olmalı'
+    'a mapless entity must land under (no map)'
   )
-  // safe(): Windows aygıt adı (CON) klasör olamaz → _CON; kontrol karakteri _ olur.
-  // Bunlarsız exportNotes Windows'ta EPERM/yanlış hedefle patlardı.
+  // safe(): the Windows device name CON cannot be a folder → _CON; control chars become _.
+  // Without these, exportNotes would blow up on Windows with EPERM or a wrong target.
   {
     const evilEnt = api.createEntity({
       name: 'CON',
@@ -870,15 +875,15 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     )
     api.deleteEntity(evilEnt.id)
   }
-  // pruneUnusedAssets: adı DB metninde geçen görsel korunur, geçmeyen silinir
+  // pruneUnusedAssets: an image named in the DB text survives, an unnamed one is deleted
   writeFileSync(join(dir, 'assets', 'used.png'), Buffer.from([9]))
   writeFileSync(join(dir, 'assets', 'unused.png'), Buffer.from([9]))
   api.updateEntity(a.id, { fields: JSON.stringify({ banner: 'assets/used.png' }) })
   assert.equal(pruneUnusedAssets(), 1)
-  assert.ok(existsSync(join(dir, 'assets', 'used.png')), 'kullanılan görsel kalmalı')
-  assert.ok(!existsSync(join(dir, 'assets', 'unused.png')), 'kullanılmayan görsel silinmeli')
+  assert.ok(existsSync(join(dir, 'assets', 'used.png')), 'a used image must survive')
+  assert.ok(!existsSync(join(dir, 'assets', 'unused.png')), 'an unused image must be deleted')
   rmSync(join(dir, 'assets', 'used.png')) // sonraki packWorld testini etkilemesin
-  api.updateEntity(a.id, { fields: '{}' }) // sonraki testler için temizle
+  api.updateEntity(a.id, { fields: '{}' }) // clean up for the following tests
   const full = api.getEntity(a.id) as {
     id: number
     type: string
@@ -898,7 +903,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     (api.getMap(m.id) as { features: { entity_id: number }[] }).features[0].entity_id,
     a.id
   )
-  // Toplu geri yükleme (çoklu silme undo'su): aralarında link olan a+b'yi birlikte sil, geri yükle
+  // Bulk restore (multi-delete undo): delete linked a+b together, then restore
   const bFull = api.getEntity(b.id) as typeof full
   const aFeat = api.entityFeatureIds(a.id) as number[]
   api.deleteEntity(a.id)
@@ -906,7 +911,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.equal(api.getEntity(b.id) as unknown, null)
   api.restoreEntities(
     [full, bFull],
-    [{ from_id: b.id, to_id: a.id, relation: 'yönetir', notes: '' }], // iki taraftan gelse de tek kayıt
+    [{ from_id: b.id, to_id: a.id, relation: 'yönetir', notes: '' }], // one record even when captured from both sides
     aFeat.map((fid) => ({ entity_id: a.id, feature_id: fid }))
   )
   const ra = api.getEntity(a.id) as { inLinks: unknown[] }
@@ -916,9 +921,9 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     (api.getMap(m.id) as { features: { entity_id: number }[] }).features[0].entity_id,
     a.id
   )
-  // Harita silme undo'su: satır + çizim orijinal id ile geri gelir, alt harita üst bağı korunur
+  // Map-delete undo: row + feature return with original ids, the child map keeps its parent link
   const child = api.createMap({ name: 'Şehir', parent_map_id: m.id }) as { id: number }
-  // listMaps sırası EKLENME sırası (alfabetik değil): 'Ada' en son eklendi → listede de son
+  // listMaps order is INSERTION order (not alphabetical): 'Ada' was added last → last in the list
   const late = api.createMap({ name: 'Ada' }) as { id: number }
   assert.equal((api.listMaps() as { id: number }[]).at(-1)?.id, late.id)
   api.deleteMap(late.id)
@@ -955,17 +960,17 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   )
   const mBack = api.getMap(m.id) as { features: { id: number }[] }
   assert.equal(mBack.features.length, 1)
-  assert.equal(mBack.features[0].id, savedFid) // fid korundu (zaman çizgisi/harita geçmişi bağı)
+  assert.equal(mBack.features[0].id, savedFid) // fid preserved (timeline / map-history binding)
   assert.equal((api.getMap(child.id) as { parent_map_id: number | null }).parent_map_id, m.id)
   backupIfNeeded()
   assert.ok(existsSync(join(dir, 'backups')))
   assert.ok(readdirSync(join(dir, 'backups')).length >= 1)
   const manual = api.backupNow()
   assert.ok(existsSync(manual))
-  // .dunya paketle/aç gidiş-dönüşü: görsel gömülür, çalışma kopyası ezilip geri açılınca
-  // hem veri hem görsel aynen döner, assets tablosu çalışma kopyasında kalmaz
+  // .dunya pack/unpack round trip: the image is embedded; after the working copy is overwritten
+  // and reopened, both data and image come back intact, and no assets table remains
   writeFileSync(join(dir, 'assets', 'test.png'), Buffer.from([1, 2, 3]))
-  // packWorld artık kullanılmayan görselleri temizler → test.png referanslı olmalı (yoksa silinir)
+  // packWorld now prunes unused images → test.png must be referenced (or it would be deleted)
   api.updateEntity(a.id, { fields: JSON.stringify({ banner: 'assets/test.png' }) })
   const dunya = join(dir, 'test.dunya')
   packWorld(dunya)
@@ -973,13 +978,13 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   api.updateEntity(a.id, { name: 'Paketten Sonra Değişti' })
   rmSync(join(dir, 'assets', 'test.png'))
   unpackWorld(dunya)
-  assert.equal((api.getEntity(a.id) as { name: string }).name, 'Test Devleti') // paket anındaki hâl
-  assert.deepEqual([...readFileSync(join(dir, 'assets', 'test.png'))], [1, 2, 3]) // görsel geri çıktı
+  assert.equal((api.getEntity(a.id) as { name: string }).name, 'Test Devleti') // the state at pack time
+  assert.deepEqual([...readFileSync(join(dir, 'assets', 'test.png'))], [1, 2, 3]) // the image came back out
   assert.equal(api.getSetting('worldFile'), dunya)
   assert.ok(
     !db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assets'`).get()
   )
-  // Kötü niyetli .dunya: gömülü görsel adı assets/ DIŞINA yazamamalı (paylaşılan dosya!)
+  // Malicious .dunya: an embedded image name must not write OUTSIDE assets/ (shared file!)
   {
     const evil = join(dir, 'evil.dunya')
     copyFileSync(dunya, evil)
@@ -989,29 +994,29 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       join('..', '..', 'kacti.png'),
       Buffer.from([9])
     )
-    // Referanslı olmalı, yoksa unpackWorld sonundaki pruneUnusedAssets onu silerdi ve
-    // "içeride kaldı" iddiası sınanamazdı
+    // Must be referenced, or pruneUnusedAssets at the end of unpackWorld would delete it and
+    // the "stayed inside" claim could not be tested
     ev.prepare(`UPDATE entities SET fields = ? WHERE id = ?`).run(
       JSON.stringify({ banner: 'assets/kacti.png' }),
       a.id
     )
     ev.close()
     unpackWorld(evil)
-    // Adın işaret ettiği yer: assets/../../kacti.png (temp kökünün bir üstü) — orada OLMAMALI
+    // Where the name points: assets/../../kacti.png (above the temp root) — must NOT be there
     assert.ok(
       !existsSync(join(dir, 'assets', '..', '..', 'kacti.png')),
-      'gömülü ad assets/ dışına yazdı!'
+      'embedded name escaped assets/!'
     )
-    assert.ok(existsSync(join(dir, 'assets', 'kacti.png'))) // basename'e indirgenip içeride kaldı
+    assert.ok(existsSync(join(dir, 'assets', 'kacti.png'))) // reduced to basename, stayed inside
   }
-  // Bozuk JSON kolonlu .dunya: açılışta onarılmalı — yoksa renderer'daki 20+ JSON.parse
-  // noktasından biri patlar ve o görünüm komple çöker (harita hiç açılmaz)
+  // A .dunya with malformed JSON columns must be repaired on open — otherwise one of the 20+
+  // JSON.parse sites in the renderer throws and that whole view goes down (the map never opens)
   {
     const broken = join(dir, 'broken.dunya')
     copyFileSync(dunya, broken)
     const bd = new DatabaseSync(broken)
     bd.exec(`UPDATE entities SET fields = 'BOZUK{{'`)
-    bd.exec(`UPDATE features SET style = '[1,2]'`) // geçerli JSON ama DİZİ — nesne bekleniyor
+    bd.exec(`UPDATE features SET style = '[1,2]'`) // valid JSON but an ARRAY — an object is expected
     bd.exec(`UPDATE maps SET layers = 'yok'`)
     bd.exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('mapModes', '{bozuk')`)
     bd.exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('theme', 'dark')`)
@@ -1020,24 +1025,24 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.equal(
       (api.getEntity(a.id) as { fields: string }).fields,
       '{}',
-      'bozuk fields onarılmalı'
+      'malformed fields must be repaired'
     )
     const bm = api.getMap(m.id) as { layers: string; features: { style: string }[] }
-    assert.equal(bm.features[0].style, '{}', 'bozuk style onarılmalı')
-    assert.equal(bm.layers, '[]', 'bozuk layers onarılmalı')
-    assert.equal(api.getSetting('mapModes'), null, 'bozuk JSON ayarı silinmeli')
-    assert.equal(api.getSetting('theme'), 'dark', 'düz METİN ayar korunmalı (JSON değil)')
+    assert.equal(bm.features[0].style, '{}', 'malformed style must be repaired')
+    assert.equal(bm.layers, '[]', 'malformed layers must be repaired')
+    assert.equal(api.getSetting('mapModes'), null, 'a malformed JSON setting must be deleted')
+    assert.equal(api.getSetting('theme'), 'dark', 'a plain-TEXT setting must survive (not JSON)')
   }
-  // Boş açılış: içerik algılanır, reset sonrası db + assets bomboş
+  // Blank launch: content is detected; after reset both db and assets are empty
   assert.ok(hasContent())
   resetWorld()
   assert.ok(!hasContent())
   assert.ok(!existsSync(join(dir, 'assets', 'test.png')))
   assert.equal(api.getSetting('worldFile'), null)
 
-  // Türkçe anahtarlı ESKİ bir dünya açılınca göç: veri kaybolmamalı. Bu, kod tabanı
-  // İngilizceleştirilirken tek gerçek veri riskiydi — kullanıcının yıllarca kurduğu üst
-  // zincirleri, sancakları ve hanedan bağları buna bakıyor.
+  // Migration when an OLD world with Turkish keys is opened: no data may be lost. This was the
+  // one real data risk of anglicising the codebase — years of parent chains, banners and
+  // dynasty links depend on it. Turkish fixtures below are the point of the test.
   {
     const old = api.createEntity({ name: 'Eski Kayıt' }) as { id: number }
     const kid = api.createEntity({ name: 'Eski Çocuk' }) as { id: number }
@@ -1062,13 +1067,25 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       string,
       string
     >
-    assert.equal(f['parent'], '[{"from":null,"id":7}]', 'üst → parent taşınmalı')
+    assert.equal(f['parent'], '[{"from":null,"id":7}]', 'üst must migrate to parent')
     assert.equal(f['banner'], 'assets/eski.png')
     assert.equal(f['hierarchy'], '#kontluk')
     assert.equal(f['government'], 'feodal')
     assert.equal(f['color'], '#ff0000')
-    assert.equal(f['din'], 'İslam', 'kullanıcının kendi alanına DOKUNULMAMALI')
-    assert.ok(!('üst' in f) && !('sancak' in f), 'eski anahtarlar silinmeli')
+    assert.equal(f['din'], 'İslam', 'user-defined fields must be LEFT ALONE')
+    // gender VALUE migration
+    db.prepare(`UPDATE entities SET fields = ? WHERE id = ?`).run(
+      JSON.stringify({ cinsiyet: 'kadın' }),
+      kid.id
+    )
+    migrateLegacyKeys()
+    assert.equal(
+      (JSON.parse((api.getEntity(kid.id) as { fields: string }).fields) as { gender: string })
+        .gender,
+      'female',
+      'gender value must migrate too'
+    )
+    assert.ok(!('üst' in f) && !('sancak' in f), 'legacy keys must be removed')
     assert.equal(
       (
         db.prepare(`SELECT relation FROM links WHERE from_id = ?`).get(kid.id) as {
@@ -1076,11 +1093,11 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
         }
       ).relation,
       'father',
-      'baba → father taşınmalı'
+      'baba must migrate to father'
     )
-    // İkinci kez çalıştırmak zararsız olmalı (her açılışta koşuyor)
-    assert.equal(migrateLegacyKeys(), 0, 'göç idempotent olmalı')
-    // İngilizce değer varken eski anahtar ÜSTÜNE YAZMAMALI
+    // Running twice must be harmless (it runs on every launch)
+    assert.equal(migrateLegacyKeys(), 0, 'migration must be idempotent')
+    // A stale Turkish key must NOT overwrite an existing English value
     db.prepare(`UPDATE entities SET fields = ? WHERE id = ?`).run(
       JSON.stringify({ üst: 'eski', parent: 'yeni' }),
       old.id
@@ -1090,7 +1107,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       string,
       string
     >
-    assert.equal(f2['parent'], 'yeni', 'mevcut İngilizce değer korunmalı')
+    assert.equal(f2['parent'], 'yeni', 'the existing English value must win')
     assert.ok(!('üst' in f2))
   }
 

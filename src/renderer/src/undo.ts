@@ -1,6 +1,6 @@
-// Geri al / yinele yığınları. Her işlem {undo, redo} çifti olarak kaydedilir.
-// Kimlik kayması (silinen kaydın yeni id ile geri gelmesi) için çağıranlar
-// closure'larda ortak bir mutable ref nesnesi kullanır — bkz. MapView pm:remove.
+// Undo / redo stacks. Every operation is recorded as an {undo, redo} pair.
+// For identity drift (a deleted row returning under a new id) callers share a mutable
+// ref object across the closures — see MapView pm:remove.
 export interface UndoEntry {
   undo: () => Promise<unknown>
   redo: () => Promise<unknown>
@@ -13,12 +13,12 @@ const MAX = 50
 export function pushUndo(entry: UndoEntry): void {
   undoStack.push(entry)
   if (undoStack.length > MAX) undoStack.shift()
-  redoStack.length = 0 // yeni işlem ileri dalı geçersiz kılar
+  redoStack.length = 0 // a new operation invalidates the forward branch
 }
 
-// Başarısız bir adım (ör. silinmiş bir haritaya çizim geri yüklenmeye çalışılırsa FK hatası)
-// yığını BOZMAMALI: kayıt geldiği yığına geri konur, çağırana false döner. Yoksa kayıt yutulur
-// ve hata yakalanmamış promise reddi olarak sessizce kaybolurdu.
+// A failing step (e.g. an FK error restoring a feature onto a deleted map) must NOT corrupt
+// the stack: the entry is pushed back where it came from and the caller gets false. Otherwise
+// the entry was swallowed and the error vanished as an unhandled promise rejection.
 async function run(
   entry: UndoEntry,
   step: 'undo' | 'redo',
@@ -28,7 +28,7 @@ async function run(
   try {
     await entry[step]()
   } catch (err) {
-    console.error(`${step} başarısız:`, err)
+    console.error(`${step} failed:`, err)
     from.push(entry)
     return false
   }
@@ -36,13 +36,13 @@ async function run(
   return true
 }
 
-/** Son işlemi geri alır; bir şey geri alındıysa true döner. */
+/** Undo the last operation; returns true when something was undone. */
 export async function undo(): Promise<boolean> {
   const entry = undoStack.pop()
   return entry ? run(entry, 'undo', undoStack, redoStack) : false
 }
 
-/** Son geri alınan işlemi yineler; bir şey yinelendiyse true döner. */
+/** Redo the last undone operation; returns true when something was redone. */
 export async function redo(): Promise<boolean> {
   const entry = redoStack.pop()
   return entry ? run(entry, 'redo', redoStack, undoStack) : false

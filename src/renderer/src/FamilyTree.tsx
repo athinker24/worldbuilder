@@ -11,9 +11,9 @@ import {
 } from './api'
 import { useT } from './i18n'
 
-// Hanedan ağacı (CK3 hane ağacı tarzı): ayrı veri yapısı yok — kişi maddeleri arasındaki
-// 'mother'/'father'/'spouse' bağlarından türetilir. Kök babayı tercih ederek kurucuya tırmanılır,
-// oradan tüm soy (couple-node) aşağı inilir. Tıklanan kişi merkez olur, ağaç ona göre kurulur.
+// Dynasty tree (CK3 house-tree style): no separate data structure — derived from the
+// 'mother'/'father'/'spouse' links between person entities. Climb to the founder preferring
+// fathers, then descend the whole line (couple-nodes). Clicking a person recenters the tree.
 interface Props {
   rootId: number
   onOpenEntity: (id: number) => void
@@ -32,10 +32,10 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
   const [centerId, setCenterId] = useState(rootId)
   const [entities, setEntities] = useState<Hierarchy['entities']>([])
   const [links, setLinks] = useState<Link[]>([])
-  const [tl, setTl] = useState<TimelineConfig | null>(null) // doğum/ölüm yılını biçimlemek için
+  const [tl, setTl] = useState<TimelineConfig | null>(null) // to format birth/death years
 
   useEffect(() => {
-    // hierarchy() hem id+name hem ham fields döner (fields.yönetici'den yönetici seti çıkarılır)
+    // hierarchy() returns both id+name and raw fields (the ruler set comes from fields.ruler)
     api.hierarchy().then((h) => setEntities(h.entities))
     api.listLinks().then(setLinks)
     getTimeline().then(setTl)
@@ -56,8 +56,8 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
       const parentsOf = new Map<number, number[]>()
       const childrenOf = new Map<number, number[]>()
       const spousesOf = new Map<number, number[]>()
-      const fatherOf = new Map<number, number>() // çocuk → baba (patrilineal tırmanış)
-      const motherOf = new Map<number, number>() // çocuk → anne (baba yoksa yedek)
+      const fatherOf = new Map<number, number>() // child → father (patrilineal climb)
+      const motherOf = new Map<number, number>() // child → mother (fallback without a father)
       const push = (m: Map<number, number[]>, k: number, v: number): void => {
         const arr = m.get(k) ?? []
         if (!arr.includes(v)) arr.push(v)
@@ -74,17 +74,17 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
           push(spousesOf, l.to_id, l.from_id)
         }
       }
-      // Cinsiyet çıkarımı (açık alan > anne/baba rolü > eşin tersi) — ortak yardımcı
+      // Gender inference (explicit field > mother/father role > spouse's opposite) — shared helper
       const genderOf = inferGenders(entities, links)
-      // Yönetici seti: herhangi bir maddenin fields.yönetici'sinde geçen her kişi bir yöneticidir
-      const rulerOf = new Map<number, string[]>() // kişi → yönettiği madde adları
+      // Ruler set: any person appearing in any entity's fields.ruler is a ruler
+      const rulerOf = new Map<number, string[]>() // person → names of entities they rule
       for (const e of entities)
         for (const rec of getYearRecs(e.fields, 'ruler')) {
           const arr = rulerOf.get(rec.id) ?? []
           if (!arr.includes(e.name)) arr.push(e.name)
           rulerOf.set(rec.id, arr)
         }
-      // Kart bilgisi: portre (sancak), doğum/ölüm yılı — kişinin fields'ından
+      // Card info: portrait (banner), birth/death years — from the person's fields
       const infoOf = new Map<number, { banner?: string; birth?: number; death?: number }>()
       for (const e of entities) {
         const f = JSON.parse(e.fields || '{}') as Record<string, string>
@@ -106,7 +106,7 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
       }
     }, [entities, links])
 
-  // Merkez kişiden babayı tercih ederek kurucuya tırman (baba yoksa anne; döngü korumalı)
+  // Climb from the centred person to the founder preferring fathers (mother as fallback; cycle-guarded)
   const treeRoot = useMemo(() => {
     let cur = centerId
     const seen = new Set<number>()
@@ -123,7 +123,7 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
     const ruled = rulerOf.get(pid)
     const g = genderOf.get(pid)
     const info = infoOf.get(pid)
-    // Alt satır: doğum–ölüm yılı (biçimlenmiş) · birincil unvan (yönettiği ilk yer)
+    // Bottom line: birth–death years (formatted) · primary title (first place they rule)
     const years =
       tl && info && (info.birth !== undefined || info.death !== undefined)
         ? `${info.birth !== undefined ? formatYear(info.birth, tl) : ''}–${
@@ -150,7 +150,7 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
             src={assetUrl(info.banner)}
             alt=""
             onError={(e) => {
-              // Görsel yüklenemezse yer tutucuya düş (kart hep portre yeri göstersin)
+              // Fall back to the placeholder when the image fails (cards always show a portrait slot)
               e.currentTarget.style.display = 'none'
               e.currentTarget.nextElementSibling?.removeAttribute('hidden')
             }}
@@ -185,12 +185,13 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
     )
   }
 
-  // Couple-node: her düğüm bir kan bağlı üye + eş(ler)i; çocuklar YALNIZ üyenin childrenOf'undan
-  // gelir (hane kan hattı boyunca akar). Eş süslemedir, kendi çocuklarına inilmez. seen döngüyü
-  // ve çift render'ı önler (kuzen/hanedanlar arası evlilik). Çok eşlide tüm çocuklar tek grupta.
+  // Couple-node: each node is one blood member + their spouse(s); children come ONLY from the
+  // member's childrenOf (the house flows along the bloodline). Spouses are decoration, never
+  // descended into. seen prevents cycles and double renders (cousin/inter-dynasty marriages).
+  // With multiple spouses all children sit in one group.
   const renderNode = (pid: number, seen: Set<number>): React.JSX.Element => {
     seen.add(pid)
-    // Partnerler = ortak-çocuk eşleri (co-parent) + resmi 'spouse' bağları (seen'de olmayanlar)
+    // Partners = co-parents of shared children + formal 'spouse' links (those not in seen)
     const kids = (childrenOf.get(pid) ?? []).filter((k) => !seen.has(k))
     const coParents: number[] = []
     for (const k of kids)

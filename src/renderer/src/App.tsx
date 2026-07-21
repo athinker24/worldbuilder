@@ -44,12 +44,12 @@ export default function App(): React.JSX.Element {
   const [palette, setPalette] = useState(false)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [focus, setFocus] = useState<{ featureId: number; token: number } | null>(null)
-  const [bump, setBump] = useState(0) // undo sonrası açık sayfayı yeniden yüklet
+  const [bump, setBump] = useState(0) // reload the open page after an undo
   const [lang, setLang] = useState<Lang>('en')
   const [theme, setTheme] = useState<Theme>('dark')
-  const [selected, setSelected] = useState<Set<number>>(new Set()) // çoklu silme seçimi
+  const [selected, setSelected] = useState<Set<number>>(new Set()) // multi-delete selection
   const histRef = useRef<{ stack: View[]; idx: number }>({ stack: [], idx: -1 })
-  // Del kısayolu için güncel seçim/görünümü stale closure olmadan oku
+  // Read the current selection/view for the Del shortcut without a stale closure
   const selectedRef = useRef(selected)
   const viewRef = useRef(view)
   useEffect(() => {
@@ -64,7 +64,7 @@ export default function App(): React.JSX.Element {
     getTheme().then(setTheme)
   }, [])
 
-  // Tema <html data-theme> ile uygulanır — CSS token'ları (main.css) oradan dallanır
+  // The theme is applied via <html data-theme> — the CSS tokens (main.css) branch on it
   useEffect(() => {
     document.documentElement.dataset.theme = theme
   }, [theme])
@@ -80,7 +80,7 @@ export default function App(): React.JSX.Element {
     refresh()
   }, [refresh])
 
-  // Gezinme: entity/map görünümleri geçmişe girer, Alt+←/→ ile gezilir
+  // Navigation: entity/map views enter the history, browsed with Alt+←/→
   const navigate = useCallback((v: View): void => {
     setView(v)
     if (v.kind !== 'entity' && v.kind !== 'map') return
@@ -94,9 +94,9 @@ export default function App(): React.JSX.Element {
   }, [])
 
   const openEntity = useCallback((id: number): void => navigate({ kind: 'entity', id }), [navigate])
-  // Her harita açılışı 'lastMapId'e yazılır (tüm geçişler — araç çubuğu menüsü dahil — buradan
-  // geçer) → uygulamaya/haritalara dönünce en son bakılan harita açılır. settings tablosunda
-  // olduğu için .dunya ile birlikte taşınır.
+  // Every map open writes 'lastMapId' (all switches — toolbar menu included — pass through
+  // here) → returning to the app/maps reopens the last viewed map. Lives in the settings
+  // table, so it travels inside the .dunya.
   const openMap = useCallback(
     (id: number): void => {
       api.setSetting('lastMapId', String(id))
@@ -105,8 +105,8 @@ export default function App(): React.JSX.Element {
     [navigate]
   )
 
-  // Kenar çubuğu "Haritalar" girişi: bir haritaya gir (son kullanılan, yoksa ilki, hiç yoksa
-  // oluştur). Haritalar arası geçiş harita araç çubuğundaki açılır menüden.
+  // The sidebar "Maps" entry: open a map (last used, else the first, else create one).
+  // Switching between maps happens in the map toolbar's dropdown.
   const openMaps = useCallback(async (): Promise<void> => {
     if (maps.length) {
       const last = Number(await api.getSetting('lastMapId'))
@@ -118,7 +118,7 @@ export default function App(): React.JSX.Element {
     }
   }, [maps, openMap, refresh, lang])
 
-  // Seçili maddeleri sil (buton + Del kısayolu ortak) — tek onay + tek undo
+  // Delete the selected entities (button + Del shortcut share this) — one confirm + one undo
   const deleteSelected = useCallback(async (): Promise<void> => {
     const sel = selectedRef.current
     if (!sel.size) return
@@ -130,7 +130,7 @@ export default function App(): React.JSX.Element {
     }
   }, [refresh])
 
-  // Maddenin haritadaki ilk çizimine git
+  // Jump to the entity's first drawing on a map
   const locateEntity = useCallback(
     async (entityId: number): Promise<void> => {
       const feats = await api.featuresByEntity(entityId)
@@ -144,11 +144,11 @@ export default function App(): React.JSX.Element {
     [openMap, lang]
   )
 
-  // Dünyayı .dunya dosyası olarak kaydet / dosyadan aç (Wonderdraft modeli).
-  // Açma çalışma kopyasını ezer → kirliyse önce onay; sonra tam sayfa yeniden yükleme
-  // (tüm ref/undo/state temiz başlar).
-  // Kısa bildirim (kaydetme onayı) — modal değil, kendi kaybolur. Ctrl+S'in gerçekten yazdığına
-  // dair görsel onay yoktu; otomatik kaydetme de aynı kanaldan haber veriyor.
+  // Save the world as a .dunya / open one from disk (Wonderdraft model). Opening overwrites
+  // the working copy → confirm first when dirty; then a full page reload (all refs/undo/state
+  // start clean).
+  // Toast (save confirmation) — not modal, disappears on its own. There was no visual proof
+  // that Ctrl+S actually wrote; auto-save reports through the same channel.
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const showToast = useCallback((msg: string): void => {
@@ -166,9 +166,9 @@ export default function App(): React.JSX.Element {
     [showToast, lang]
   )
 
-  // Otomatik kaydetme (Photoshop/Krita deseni): açık bir .dunya varsa ve değişiklik olduysa
-  // sessizce paketle. Dosya YOKSA hiçbir şey yapılmaz — kaydetme iletişim kutusu açıp odak
-  // çalmak istenmiyor (kaydedilmemiş oturum zaten kapanışta backups/'a paketleniyor).
+  // Auto-save (Photoshop/Krita pattern): when a .dunya is open and there are changes, pack
+  // silently. With NO file, do nothing — popping a save dialog would steal focus (an unsaved
+  // session is packed into backups/ on close anyway).
   useEffect(() => {
     const iv = setInterval(
       async () => {
@@ -181,7 +181,7 @@ export default function App(): React.JSX.Element {
     )
     return () => clearInterval(iv)
   }, [showToast, lang])
-  // Çalışma kopyasını ezen her eylemin (aç / son kullanılanı aç / yeni) ortak kapısı
+  // The shared gate for every action that overwrites the working copy (open / open recent / new)
   const discardOk = useCallback(async (): Promise<boolean> => {
     const info = await api.worldInfo()
     return (
@@ -191,13 +191,13 @@ export default function App(): React.JSX.Element {
   }, [lang])
   const openWorld = useCallback(async (): Promise<void> => {
     if (!(await discardOk())) return
-    await api.openWorld() // yenilemeyi main yapar (webContents.reload — will-navigate engeline takılmaz)
+    await api.openWorld() // main does the reload (webContents.reload — immune to the will-navigate block)
   }, [discardOk])
 
-  // Başlangıç ekranı (Photoshop/Krita): son kullanılan .dunya dosyaları. Liste userData'da
-  // tutulur — çalışma kopyası her açılışta sıfırlandığı için settings'te yaşayamaz.
-  // worldFile: bir dünya açıkken başlangıç ekranı gösterilmez (Photoshop'ta da "home" yalnız
-  // belge yokken) — boş görünüm sade ipucuna döner.
+  // Start screen (Photoshop/Krita): recent .dunya files. The list lives in userData — the
+  // working copy is reset on every launch, so it cannot live in settings.
+  // worldFile: with a world open the start screen is hidden (Photoshop shows "home" only
+  // with no document too) — the empty view falls back to a plain hint.
   const [recent, setRecent] = useState<{ path: string; name: string; missing: boolean }[]>([])
   const [worldFile, setWorldFile] = useState<string | null>(null)
   useEffect(() => {
@@ -207,9 +207,9 @@ export default function App(): React.JSX.Element {
   const openRecent = useCallback(
     async (path: string): Promise<void> => {
       if (!(await discardOk())) return
-      if (await api.openRecent(path)) return // main yeniden yükler
+      if (await api.openRecent(path)) return // main reloads
       await alertDialog(translate(lang, 'File not found: {p}', { p: path }))
-      setRecent(await api.recentWorlds()) // 'missing' işaretini tazele
+      setRecent(await api.recentWorlds()) // refresh the 'missing' marks
     },
     [discardOk, lang]
   )
@@ -218,10 +218,10 @@ export default function App(): React.JSX.Element {
     setRecent(await api.recentWorlds())
   }, [])
   const newWorld = useCallback(async (): Promise<void> => {
-    if (await discardOk()) await api.newWorld() // main sıfırlar + yeniden yükler
+    if (await discardOk()) await api.newWorld() // main resets + reloads
   }, [discardOk])
 
-  // Global kısayollar: Ctrl+K palet, Ctrl+S kaydet, Ctrl+O aç, Ctrl+Z geri al, Alt+←/→ geçmiş
+  // Global shortcuts: Ctrl+K palette, Ctrl+S save, Ctrl+O open, Ctrl+Z undo, Alt+←/→ history
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const t = e.target as HTMLElement
@@ -258,7 +258,7 @@ export default function App(): React.JSX.Element {
         !typing &&
         selectedRef.current.size > 0
       ) {
-        // Seçili maddeleri Del/Backspace ile sil (haritadaki çizim silme MapView'da ayrı)
+        // Delete selected entities with Del/Backspace (map feature deletion is separate, in MapView)
         e.preventDefault()
         deleteSelected()
       } else if (e.altKey && e.key === 'ArrowLeft') {
@@ -279,7 +279,7 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [refresh, deleteSelected, saveWorld, openWorld])
 
-  // Tipe göre grupla (tipsizler "—" altında)
+  // Group by type (untyped under "—")
   const groups = new Map<string, EntityRow[]>()
   for (const e of entities) {
     const key = e.type || '—'
@@ -287,7 +287,7 @@ export default function App(): React.JSX.Element {
     groups.get(key)!.push(e)
   }
 
-  // Çoklu seçim: tek madde toggle, grup başlığı tüm alt maddeleri seçer/kaldırır
+  // Multi-select: a single entity toggles, a group header selects/clears all its entities
   const toggleOne = (eid: number): void =>
     setSelected((prev) => {
       const next = new Set(prev)

@@ -7,21 +7,21 @@ import { useT } from './i18n'
 export type Tool =
   'polygon' | 'line' | 'marker' | 'label' | 'scale' | 'nav' | 'edit' | 'drag' | 'remove'
 
-// Harita ölçeği (MapView'daki settings 'mapScales' kaydının şekli)
+// Map scale (the shape of MapView's settings 'mapScales' record)
 export interface MapScale {
   perUnit: number
   unit: string
 }
 
-// Seyahat modu (settings 'travelModes', global): hız = harita biriminde/gün
+// Travel mode (settings 'travelModes', global): speed = map units/day
 export interface TravelMode {
   name: string
   speed: number
 }
 
-// Navigasyon rotası (MapView'da hesaplanır, panelde gösterilir)
+// Navigation route (computed in MapView, displayed in the panel)
 export interface NavLeg {
-  fid: number // -1 = yol dışı
+  fid: number // -1 = off-road
   name: string | null
   px: number
 }
@@ -33,11 +33,11 @@ export interface NavRoute {
 }
 
 export type LineDash = 'solid' | 'dashed' | 'dotted'
-// Yol yön oku: yok / sonda (varış noktası — sefer/göç yönü)
+// Path direction arrow: none / at the end (destination — campaign/migration direction)
 export type LineArrow = 'none' | 'end'
 
 export interface DrawSettings {
-  // img: özel pin görseli (assets/ göreli yolu); yoksa düz renkli rozet
+  // img: custom pin image (assets/-relative path); plain colored badge without one
   marker: {
     size: number
     color: string
@@ -45,7 +45,7 @@ export interface DrawSettings {
     imgFree?: boolean
     imgAR?: number
   }
-  // fillImg: dolgu görseli (assets/ göreli yolu) — poligon SVG pattern ile döşenir
+  // fillImg: fill image (assets/-relative path) — the polygon is tiled via an SVG pattern
   polygon: {
     color: string
     fillOpacity: number
@@ -59,7 +59,7 @@ export interface DrawSettings {
     opacity: number
     dash: LineDash
     arrow: LineArrow
-    curviness: number // 0-100; render-only eğrilik (LegendKeeper path tool deseni)
+    curviness: number // 0-100; render-only curvature (LegendKeeper path-tool pattern)
   }
   // Serbest metin etiketi (LegendKeeper "Labels" + Wonderdraft curved text)
   label: {
@@ -68,7 +68,7 @@ export interface DrawSettings {
     font: string
     size: number
     angle: number
-    curve: number // -100..100; 0 = düz (SVG textPath yayı)
+    curve: number // -100..100; 0 = straight (SVG textPath arc)
   }
 }
 
@@ -85,7 +85,7 @@ export const ARROW_LABELS: Record<LineArrow, string> = {
   end: 'Arrow at end'
 }
 
-// Çizgi desenini Leaflet dashArray'ine çevir (kalınlığa orantılı; dotted + round cap = nokta)
+// Convert the line pattern to a Leaflet dashArray (proportional to weight; dotted + round cap = dots)
 export const lineDashArray = (dash: LineDash | undefined, weight: number): string =>
   dash === 'dashed' ? `${weight * 3} ${weight * 2}` : dash === 'dotted' ? `0 ${weight * 2.5}` : ''
 
@@ -96,11 +96,11 @@ export const DASH_LABELS: Record<LineDash, string> = {
   dotted: 'Dotted'
 }
 
-// Mesafe gösterimi (MapView'daki fmtDist ile aynı sözleşme — orası modül-özel)
+// Distance display (same contract as MapView's fmtDist — that one is module-private)
 const fmtNav = (v: number): string =>
   v >= 100 ? Math.round(v).toLocaleString() : v >= 10 ? v.toFixed(1) : v.toFixed(2)
 
-// Etiket fontları (@fontsource ile gömülü, OFL lisanslı)
+// Label fonts (bundled via @fontsource, OFL-licensed)
 export const FONTS = ['Cinzel', 'IM Fell English', 'MedievalSharp', 'Uncial Antiqua', 'system-ui']
 
 const TOOLS: { key: Tool; icon: string; name: string; hint?: string }[] = [
@@ -145,25 +145,25 @@ interface Props {
   settings: DrawSettings
   onTool: (t: Tool) => void
   onSettings: (s: DrawSettings) => void
-  // 📏 Ölçek aracı (durum MapView'da yaşar; panel yalnız gösterir/tetikler)
+  // 📏 Scale tool (state lives in MapView; the panel only displays/triggers)
   scale: MapScale | null
-  mapWidthPx: number | null // zemin görselinin piksel genişliği (Wonderdraft yöntemi); görsel yoksa null
+  mapWidthPx: number | null // base image width in pixels (Wonderdraft method); null without an image
   measuring: 'dist' | 'area' | null
   onCalibrate: () => void
   onMeasure: (k: 'dist' | 'area') => void
   onScaleSave: (perUnit: number, unit: string) => void
   onScaleClear: () => void
-  // 🧭 Navigasyon aracı (oturum durumu MapView'da; panel gösterir/tetikler)
+  // 🧭 Navigation tool (session state in MapView; the panel displays/triggers)
   navStep: 'a' | 'b' | 'result' | null
   navResult: { aName: string; bName: string; route: NavRoute | null } | null
-  navBlocked: boolean // kademe/boya modu açık → pinler render edilmiyor, tıklanamaz
+  navBlocked: boolean // rank/paint mode active → pins are not rendered, cannot be clicked
   travelModes: TravelMode[]
   travelModeIdx: number
   onNavStart: () => void
   onNavEnd: () => void
   onTravelModes: (list: TravelMode[]) => void
   onTravelModeIdx: (i: number) => void
-  // 📍 Özel pin görselleri (kütüphane MapView'da; panel gösterir/tetikler)
+  // 📍 Custom pin images (library in MapView; the panel displays/triggers)
   pinImages: PinImage[]
   onUploadPinImage: (onPicked: (path: string, ar: number) => void) => void
   onRemovePinImage: (path: string) => void
@@ -196,7 +196,7 @@ export default function ToolPanel({
 }: Props): React.JSX.Element {
   const t = useT()
   const activeDef = TOOLS.find((tool) => tool.key === active)
-  // Birim iki yöntemin ortak girdisi; kayıtlı ölçek değişince (ör. kalibrasyonla) senkronlanır
+  // The unit feeds both methods; re-synced when the saved scale changes (e.g. via calibration)
   const [unit, setUnit] = useState(scale?.unit ?? 'km')
   useEffect(() => {
     if (scale?.unit) setUnit(scale.unit)
@@ -400,7 +400,7 @@ export default function ToolPanel({
         )}
         {active === 'marker' && (
           <>
-            {/* Serbest modda rozet yok → rengin bir etkisi olmaz, kontrolü gösterme */}
+            {/* Free mode has no badge → color has no effect, hide the control */}
             {!(settings.marker.img && settings.marker.imgFree) && (
               <>
                 <label>{t('Color')}</label>
@@ -555,7 +555,7 @@ export default function ToolPanel({
               onBlur={commitUnit}
               onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
             />
-            {/* Yöntem A (Wonderdraft): haritanın tüm genişliği = N birim */}
+            {/* Method A (Wonderdraft): the map's full width = N units */}
             <label>{t('Map width ({unit})', { unit: unit.trim() || 'km' })}</label>
             {mapWidthPx ? (
               <input
@@ -574,7 +574,7 @@ export default function ToolPanel({
             ) : (
               <p className="hint">{t('No base image — measure a known distance instead.')}</p>
             )}
-            {/* Yöntem B: haritada bilinen mesafeyi ölç */}
+            {/* Method B: measure a known distance on the map */}
             <button className="mini" onClick={onCalibrate}>
               📏 {t('Measure known distance…')}
             </button>

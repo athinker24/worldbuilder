@@ -4,8 +4,8 @@ import { translate } from './i18n'
 import { pushUndo } from './undo'
 
 /**
- * Maddeyi onaylatıp siler; Ctrl+Z için tam durumu (satır + ilişkiler + harita
- * çizim bağları) yakalar. Silme yapıldıysa true döner.
+ * Confirm and delete an entity; captures full state for Ctrl+Z (row + links + map
+ * feature bindings). Returns true when the deletion happened.
  */
 export async function deleteEntityWithUndo(id: number): Promise<boolean> {
   const entity = await api.getEntity(id)
@@ -29,7 +29,7 @@ export async function deleteEntityWithUndo(id: number): Promise<boolean> {
     }))
   ]
   const featureIds = await api.entityFeatureIds(id)
-  // restoreEntity aynı id ile geri yükler; redo aynı id'yi silebilir
+  // restoreEntity restores under the same id; redo can delete that same id
   pushUndo({
     undo: () => api.restoreEntity(entity, links, featureIds),
     redo: () => api.deleteEntity(id)
@@ -39,9 +39,9 @@ export async function deleteEntityWithUndo(id: number): Promise<boolean> {
 }
 
 /**
- * Birden çok maddeyi tek onay + tek undo ile siler. İki silinen madde arası ilişki
- * FK'yı bozmasın diye geri yükleme sırası (satır → link → çizim) db.restoreEntities'te.
- * Silme yapıldıysa true döner.
+ * Delete several entities with one confirm + one undo record. The restore order
+ * (rows → links → features) lives in db.restoreEntities so a link between two deleted
+ * entities cannot violate the FK. Returns true when the deletion happened.
  */
 export async function deleteEntitiesWithUndo(ids: number[]): Promise<boolean> {
   if (!ids.length) return false
@@ -50,7 +50,7 @@ export async function deleteEntitiesWithUndo(ids: number[]): Promise<boolean> {
     return false
 
   const rows: Parameters<typeof api.restoreEntities>[0] = []
-  // İki silinen madde arası link her iki taraftan da yakalanır — anahtarla dedup et
+  // A link between two deleted entities is captured from both sides — dedup by key
   const linkMap = new Map<
     string,
     { from_id: number; to_id: number; relation: string; notes: string }

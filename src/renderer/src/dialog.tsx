@@ -1,22 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import { useT } from './i18n'
 
-// Uygulama-içi confirm/alert — yerli window.confirm/alert yerine.
-// Neden: Electron'da art arda yerli diyaloglardan sonra pencere klavye odağı bozulabiliyor
-// (diyalogtan sonra input'a tıklansa da yazılamıyor). Bu modal DOM içinde kaldığı için odak kaybolmaz.
+// In-app confirm/alert — replaces native window.confirm/alert.
+// Why: in Electron, keyboard focus can break after consecutive native dialogs (clicking an
+// input after a dialog and still not being able to type). This modal stays in the DOM, so
+// focus is never lost.
 interface Req {
   message: string
-  confirm: boolean // true = İptal butonu da var; false = yalnız Tamam (alert)
+  confirm: boolean // true = has a Cancel button too; false = OK only (alert)
   resolve: (ok: boolean) => void
 }
 
-// Bileşen olmayan modüllerden (entityOps.ts) da çağrılabilsin diye modül düzeyinde köprü.
+// Module-level bridge so non-component modules (entityOps.ts) can call it too.
 let notify: ((r: Req) => void) | null = null
 
 export function confirmDialog(message: string): Promise<boolean> {
   return new Promise((resolve) => {
     if (notify) notify({ message, confirm: true, resolve })
-    else resolve(window.confirm(message)) // host bağlı değilse yerli diyaloga düş
+    else resolve(window.confirm(message)) // fall back to the native dialog when no host is mounted
   })
 }
 

@@ -36,11 +36,11 @@ function adoptLegacyDataDir(): void {
   try {
     renameSync(legacy, DATA_DIR)
   } catch {
-    /* farklı sürücü/kilitli dosya: taşıyamazsak boş bir dünyayla açılırız, veri yerinde durur */
+    /* different drive / locked file: if the move fails we open with a blank world, data stays put */
   }
 }
 
-// world://data/assets/x.png → DATA_DIR/assets/x.png (görselleri renderer'a servis eder)
+// world://data/assets/x.png → DATA_DIR/assets/x.png (serves images to the renderer)
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'world',
@@ -48,21 +48,21 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-// exportMapImage capturePage için pencereye ihtiyaç duyar; createWindow'da atanır
+// exportMapImage needs the window for capturePage; assigned in createWindow
 let mainWindow: BrowserWindow | null = null
 
-// --- Wonderdraft tarzı dosya modeli: çalışma kopyası (DATA_DIR) anlık kayıtlı kalır,
-// Ctrl+S onu tek bir .dunya dosyasına paketler, Open paketi çalışma kopyasının üzerine açar.
-// currentFile = Ctrl+S hedefi (settings.worldFile'da kalıcı); dirty = son kayıttan beri değişiklik.
+// --- Wonderdraft-style file model: the working copy (DATA_DIR) is saved instantly at all times,
+// Ctrl+S packs it into a single .dunya file, Open unpacks a file over the working copy.
+// currentFile = Ctrl+S target (persisted in settings.worldFile); dirty = changes since last save.
 let currentFile: string | null = null
 let dirty = false
-// Ad + kirli yıldızı pencere başlığında (Photoshop deseni). Renderer document.title kullanmıyor.
+// Name + dirty star in the window title (Photoshop pattern). The renderer never sets document.title.
 function updateTitle(): void {
   mainWindow?.setTitle(
     `${APP_NAME} — ${currentFile ? basename(currentFile) : 'unsaved'}${dirty ? ' *' : ''}`
   )
 }
-// Kaydetme: pack + bayrak temizle. Yol yoksa iletişim kutusuyla sor ('as' hep sorar).
+// Save: pack + clear the flag. Prompt with a dialog when there is no path ('as' always prompts).
 async function saveWorld(as = false): Promise<string | null> {
   let target = as ? null : currentFile
   if (!target) {
@@ -82,35 +82,35 @@ async function saveWorld(as = false): Promise<string | null> {
   return target
 }
 
-// Kirliyken dünya değiştirme/kapatma onayı için ikili dil (main'de i18n yok — settings'ten oku)
+// Two-language confirms for switching/closing while dirty (main has no i18n — read settings)
 const isTr = (): boolean => dbApi.getSetting('language') === 'tr'
 
-// argv'den .dunya yolu (çift tıkla açma — Windows dosya ilişkilendirmesi yolu argüman geçer)
+// .dunya path from argv (double-click open — the Windows file association passes it as an argument)
 const dunyaArg = (argv: string[]): string | null =>
   argv.find((a) => a.toLowerCase().endsWith('.dunya') && existsSync(a)) ?? null
 
-// Son kullanılan .dunya dosyaları (Photoshop/Krita başlangıç ekranı). DATA_DIR'e YAZILMAZ:
-// çalışma kopyası her normal açılışta sıfırlanıyor, liste onu atlatmalı → userData/recent.json.
+// Recent .dunya files (Photoshop/Krita start screen). NOT written into DATA_DIR: the working
+// copy is reset on every normal launch, and the list must outlive that → userData/recent.json.
 const RECENT = join(app.getPath('userData'), 'recent.json')
 const readRecent = (): string[] => {
   try {
     const l = JSON.parse(readFileSync(RECENT, 'utf8'))
     return Array.isArray(l) ? (l as string[]) : []
   } catch {
-    return [] // ilk açılış / bozuk dosya: boş listeyle başla
+    return [] // first launch / corrupt file: start with an empty list
   }
 }
 const writeRecent = (l: string[]): void => {
   try {
     writeFileSync(RECENT, JSON.stringify(l.slice(0, 12)))
   } catch {
-    /* disk yazılamıyorsa liste önemsiz — açılışı engellemesin */
+    /* if the disk cannot be written the list is expendable — never block launch over it */
   }
 }
 const addRecent = (path: string): void =>
   writeRecent([path, ...readRecent().filter((p) => p !== path)])
 
-// Bir .dunya dosyasını çalışma kopyasının üzerine aç (önce güvenlik yedeği)
+// Open a .dunya file over the working copy (safety backup first)
 function openWorldFile(path: string): void {
   dbApi.backupNow()
   unpackWorld(path)
@@ -122,7 +122,7 @@ function openWorldFile(path: string): void {
 
 const mainApi = {
   ...dbApi,
-  // Notları .txt ağacına döker + gözat için klasörü açar (buton tetikli, tek yönlü)
+  // Dumps notes into the .txt tree + opens the folder for browsing (button-triggered, one-way)
   exportNotes: async (): Promise<{ path: string; files: number }> => {
     const r = dbApi.exportNotes()
     await shell.openPath(r.path)
@@ -131,8 +131,8 @@ const mainApi = {
   saveWorld: (): Promise<string | null> => saveWorld(false),
   saveWorldAs: (): Promise<string | null> => saveWorld(true),
   worldInfo: (): { file: string | null; dirty: boolean } => ({ file: currentFile, dirty }),
-  // Dosya seç + aç. Kaydedilmemiş-değişiklik onayı RENDERER'da (worldInfo ile sorulur) —
-  // burada yalnız seçim + açma. Dönen yol renderer'a "yeniden yükle" işareti.
+  // Pick + open a file. The unsaved-changes confirm lives in the RENDERER (asked via worldInfo)
+  // — here it is just pick + open. The returned path signals "reload" to the renderer.
   async openWorld(): Promise<string | null> {
     const r = await dialog.showOpenDialog(mainWindow!, {
       filters: [{ name: APP_NAME, extensions: ['dunya'] }],
@@ -140,32 +140,32 @@ const mainApi = {
     })
     if (r.canceled || !r.filePaths[0]) return null
     openWorldFile(r.filePaths[0])
-    // Yenileme MAIN'den: renderer'daki window.location.reload() will-navigate güvenlik
-    // engeline takılıp URL'yi dış tarayıcıya gönderiyordu (webContents.reload engele girmez)
+    // Reload from MAIN: window.location.reload() in the renderer hit the will-navigate
+    // security block and shipped the URL to the external browser (webContents.reload does not)
     mainWindow?.webContents.reload()
     return r.filePaths[0]
   },
-  // Başlangıç ekranı (Photoshop/Krita): son kullanılan dünyalar. 'missing' = dosya taşınmış/silinmiş
-  // — satır listede kalır (kullanıcı × ile atar), sessizce yok sayılmaz.
+  // Start screen (Photoshop/Krita): recent worlds. 'missing' = the file was moved/deleted —
+  // the row stays listed (the user dismisses it with ×), it is not silently dropped.
   recentWorlds: (): { path: string; name: string; missing: boolean }[] =>
     readRecent().map((p) => ({ path: p, name: basename(p), missing: !existsSync(p) })),
   forgetRecent: (path: string): void => writeRecent(readRecent().filter((p) => p !== path)),
-  // Listeden aç. Dosya yoksa listede bırakılır (kullanıcı görsün), false döner.
-  // YALNIZ recent.json'da kayıtlı yollar açılabilir: IPC'den gelen path güvenilmez girdi —
-  // ele geçirilmiş bir renderer keyfî bir dosyayı çalışma kopyasının üzerine açamamalı
-  // (dialog'lu openWorld bundan muaf: yolu kullanıcı seçiyor, renderer değil).
+  // Open from the list. A missing file stays listed (so the user sees it) and returns false.
+  // ONLY paths recorded in recent.json can be opened: a path arriving over IPC is untrusted —
+  // a compromised renderer must not be able to open an arbitrary file over the working copy
+  // (the dialog-based openWorld is exempt: there the user picks the path, not the renderer).
   openRecent(path: string): boolean {
     if (!readRecent().includes(path) || !existsSync(path)) return false
     openWorldFile(path)
     mainWindow?.webContents.reload()
     return true
   },
-  // "Yeni": açılıştaki boş-belge yolunun aynısı — mevcut çalışma kopyası .dunya paketi olarak
-  // backups/'a alınır, sonra şema boşaltılır. Kaydedilmemiş-değişiklik onayı renderer'da.
+  // "New": same path as the blank launch — the current working copy is packed into backups/
+  // as a .dunya, then the schema is emptied. The unsaved-changes confirm lives in the renderer.
   newWorld(): void {
     if (hasContent()) {
       const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-      packWorld(join(DATA_DIR, 'backups', `son-oturum-${stamp}.dunya`))
+      packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.dunya`))
     }
     resetWorld()
     currentFile = null
@@ -175,14 +175,14 @@ const mainApi = {
   },
   async pickImage(): Promise<string | null> {
     const r = await dialog.showOpenDialog({
-      filters: [{ name: 'Görseller', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
       properties: ['openFile']
     })
     if (r.canceled || !r.filePaths[0]) return null
     return dbApi.importAsset(r.filePaths[0])
   },
-  // Ekranda görüneni (rect: CSS piksel, .leaflet-host sınırları) PNG olarak dışa aktarır.
-  // Wonderdraft'ın "Export" kavramının karşılığı — düzenlenebilir değil, tek yönlü paylaşım çıktısı.
+  // Exports what is on screen (rect: CSS pixels, the .leaflet-host bounds) as a PNG.
+  // The equivalent of Wonderdraft's "Export" — not editable, a one-way sharing artifact.
   async exportMapImage(
     rect: { x: number; y: number; width: number; height: number },
     defaultName: string
@@ -217,7 +217,7 @@ function createWindow(): void {
     win.show()
   })
 
-  // Kirliyken kapatma koruması (Photoshop deseni): Kaydet / Kaydetme / İptal
+  // Close guard while dirty (Photoshop pattern): Save / Don't Save / Cancel
   win.on('close', (e) => {
     if (!dirty) return
     const tr = isTr()
@@ -243,7 +243,7 @@ function createWindow(): void {
             filters: [{ name: APP_NAME, extensions: ['dunya'] }]
           }) ?? null
         if (!target) {
-          e.preventDefault() // yer seçilmedi → kapatma iptal
+          e.preventDefault() // no location picked → cancel the close
           return
         }
       }
@@ -251,11 +251,11 @@ function createWindow(): void {
     }
   })
 
-  // Uygulama hiçbir tarayıcı izni (kamera, konum, bildirim…) kullanmaz — hepsi kapalı.
-  // Uzak içerik zaten yüklenemiyor; bu, ileride bir şey sızarsa diye ucuz bir emniyet kilidi.
+  // The app uses no browser permissions (camera, location, notifications…) — all denied.
+  // Remote content cannot load anyway; this is a cheap safety latch in case something ever slips.
   win.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
 
-  // Dış linkler yalnız tarayıcıda ve yalnız http(s) — file:// vb. çalıştırılamaz
+  // External links only in the browser and only http(s) — file:// and friends cannot run
   const openSafe = (url: string): void => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url)
   }
@@ -263,8 +263,8 @@ function createWindow(): void {
     openSafe(details.url)
     return { action: 'deny' }
   })
-  // Pencerenin kendisi asla uygulama dışına gidemez (notlardaki bir link
-  // pencereyi ele geçirip window.api üzerinden veritabanına erişemesin)
+  // The window itself can never navigate away from the app (a link in a note must not
+  // hijack the window and reach the database through window.api)
   win.webContents.on('will-navigate', (e, url) => {
     e.preventDefault()
     openSafe(url)
@@ -277,8 +277,8 @@ function createWindow(): void {
   }
 }
 
-// Tek kopya: uygulama açıkken .dunya'ya çift tıklanınca ikinci pencere yerine mevcut pencere
-// o dünyaya geçer (kirliyse önce onay)
+// Single instance: double-clicking a .dunya while the app is open switches the existing
+// window to that world instead of spawning a second one (confirm first when dirty)
 if (!app.requestSingleInstanceLock()) app.quit()
 app.on('second-instance', (_e, argv) => {
   if (!mainWindow) return
@@ -310,24 +310,24 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  adoptLegacyDataDir() // eski Belgeler\Dünya klasörünü devral (initDb'den ÖNCE)
+  adoptLegacyDataDir() // adopt the old Documents\Dünya folder (BEFORE initDb)
   initDb(DATA_DIR)
-  backupIfNeeded() // günde bir kez world.db'nin tarihli kopyası — geri yükleme elle (backups/ klasörü)
+  backupIfNeeded() // daily dated copy of world.db — restore is manual (the backups/ folder)
   const arg = dunyaArg(process.argv)
   if (arg) {
-    openWorldFile(arg) // çift tıkla gelen dosyayla açıl
+    openWorldFile(arg) // launch with the double-clicked file
   } else if (hasContent()) {
-    // Photoshop deseni: normal açılış HER ZAMAN boş belge. Önceki oturumun çalışma kopyası
-    // (görselleri dahil) tam .dunya paketi olarak backups/'a alınır — kaydedilmemiş olsa bile
-    // veri kaybolmaz (30 günlük yedek temizliğine tabi).
+    // Photoshop pattern: a normal launch is ALWAYS a blank document. The previous session's
+    // working copy (images included) is packed into backups/ as a full .dunya — nothing is
+    // lost even if it was never saved (subject to the 30-day backup pruning).
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    packWorld(join(DATA_DIR, 'backups', `son-oturum-${stamp}.dunya`))
+    packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.dunya`))
     resetWorld()
   }
 
-  // .dunya uzantısını her açılışta GÜNCEL exe yoluna kaydet (HKCU — yönetici gerekmez):
-  // kurulumsuz/taşınabilir Dünya.exe de nereye taşınırsa taşınsın çift tıkla bulunur.
-  // Dev modda kapalı (process.execPath electron.exe olurdu). Hata sessizce yutulur.
+  // Register the .dunya extension to the CURRENT exe path on every launch (HKCU — no admin
+  // needed): even the portable exe stays double-clickable wherever it is moved or renamed.
+  // Disabled in dev (process.execPath would be electron.exe). Errors are swallowed.
   if (process.platform === 'win32' && !is.dev) {
     const reg = (args: string[]): void => {
       execFile('reg.exe', args, () => {})
@@ -354,18 +354,18 @@ app.whenReady().then(() => {
   protocol.handle('world', (req) => {
     const rel = decodeURIComponent(new URL(req.url).pathname)
     const full = normalize(join(DATA_DIR, rel))
-    // prefix + ayraç: "Dünya-baska" gibi kardeş klasörler geçmesin
+    // prefix + separator: sibling folders like "Worldbuilder-other" must not pass
     if (!full.startsWith(normalize(DATA_DIR) + sep))
       return new Response('forbidden', { status: 403 })
     return net.fetch(pathToFileURL(full).toString())
   })
 
   ipcMain.handle('api', (_e, method: string, ...args: unknown[]) => {
-    // hasOwn: 'constructor' gibi prototype üyeleri metot sayılmasın
+    // hasOwn: prototype members like 'constructor' must not count as methods
     if (!Object.hasOwn(mainApi, method)) throw new Error(`Bilinmeyen api metodu: ${method}`)
     const fn = (mainApi as Record<string, (...a: unknown[]) => unknown>)[method]
-    // Kirli bayrağı: mutasyon metotları son kayıttan beri değişiklik var demektir
-    // (ponytail: metot-adı sezgiseli — get/list/search/export eşleşmez, save/open kendini yönetir)
+    // Dirty flag: mutation methods mean changes since the last save (ponytail: a method-name
+    // heuristic — get/list/search/export do not match, save/open manage themselves)
     if (/^(create|update|delete|add|set|restore|retype|import|pick)/.test(method)) {
       dirty = true
       updateTitle()

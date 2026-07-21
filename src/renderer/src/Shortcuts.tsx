@@ -1,8 +1,8 @@
 import React from 'react'
 import { useT } from './i18n'
 
-// Klavye/fare kısayolları — tek kaynak. Uygulama kısayol dolu ama hiçbiri arayüzde görünmüyordu;
-// bu sayfa kenar çubuğundan ve F1 ile açılır. Yeni kısayol eklerken buraya da bir satır eklenmeli.
+// Keyboard/mouse shortcuts — single source. The app is full of shortcuts and none were visible
+// anywhere; this page opens from the sidebar and F1. New shortcuts must add a row here too.
 const GROUPS: { title: string; rows: [string, string][] }[] = [
   {
     title: 'General',

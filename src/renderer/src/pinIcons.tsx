@@ -1,8 +1,8 @@
 import { assetUrl, PinImage } from './api'
 import { useT } from './i18n'
 
-// Görsel kütüphanesi şeridi (settings 'pinImages' — pin ve poligon dolgusu ortak kullanır):
-// önizleme butonları + hover'da kütüphaneden çıkarma × + yükleme butonu.
+// Image library strip (settings 'pinImages' — shared by pins and polygon fills):
+// preview buttons + a hover × that removes from the library + an upload button.
 export function ImageStrip({
   img,
   images,
@@ -51,7 +51,7 @@ export function ImageStrip({
       {images.length > 0 && (
         <p className="hint">
           {t(
-            'Removing only takes it out of this list; the file stays in your Dünya\\assets folder.'
+            'Removing only takes it out of this list; the file stays in your assets folder.'
           )}
         </p>
       )}

@@ -3,15 +3,15 @@ import { autoColor, formatYear, getTimeline, saveTimeline, TimelineConfig } from
 import { useT } from './i18n'
 
 interface Props {
-  changeYears: number[] // çizimlerin başladığı/bittiği/el değiştirdiği yıllar (rayda tik olarak görünür)
-  eventsToken: number // MapView haritadan olay ekleyince artar → config yeniden yüklenir
-  onYear: (year: number) => void // her yıl değişiminde — DB'siz, yumuşak
-  onLocate: (fid: number, mid?: number) => void // olaya tıklanınca bağlı çizime uç + vurgula (mid = çizimin haritası)
+  changeYears: number[] // years features start/end/change hands (shown as ticks on the rail)
+  eventsToken: number // bumped when MapView adds an event from the map → config reloads
+  onYear: (year: number) => void // on every year change — DB-free, smooth
+  onLocate: (fid: number, mid?: number) => void // clicking an event flies to + flashes its feature (mid = its map)
 }
 
-const SPEEDS = [1, 5, 20] // oynatma hızları (yıl/sn)
+const SPEEDS = [1, 5, 20] // playback speeds (years/sec)
 
-/** Haritanın üstünde tarih şeridi: oynatma + slider + dönem bantları + olaylar + ⚙ takvim ayarları. */
+/** Date strip above the map: playback + slider + era bands + events + ⚙ calendar settings. */
 export default function Timeline({
   changeYears,
   eventsToken,
@@ -22,7 +22,7 @@ export default function Timeline({
   const [open, setOpen] = useState(false)
   const [cfgOpen, setCfgOpen] = useState(false)
   const [cfg, setCfg] = useState<TimelineConfig | null>(null)
-  // rAF döngüsü ve basılı-tut tekrarı güncel değeri buradan okur (stale closure yok)
+  // The rAF loop and hold-to-repeat read the current value from here (no stale closures)
   const cfgRef = useRef<TimelineConfig | null>(null)
   const [editingYear, setEditingYear] = useState(false)
   const [playing, setPlaying] = useState(false)
@@ -35,23 +35,23 @@ export default function Timeline({
   const [periodTo, setPeriodTo] = useState('')
   const [eventName, setEventName] = useState('')
   const [eventYear, setEventYear] = useState('')
-  // Slider spam'inde her tikte DB'ye yazmamak için kaydetme gecikmeli
+  // Saving is debounced so slider spam does not hit the DB every tick
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
     getTimeline().then((t) => {
       const first = !cfgRef.current
-      // Haritadan olay eklenince yeniden yüklenir; kullanıcının o anki slider konumu korunur
+      // Reloaded when an event is added from the map; the user's slider position is kept
       const next = first ? t : { ...t, year: cfgRef.current!.year }
       setCfg(next)
       cfgRef.current = next
-      if (first) onYear(next.year) // kayıtlı konumu haritaya uygula (açılışta)
+      if (first) onYear(next.year) // apply the saved position to the map (on startup)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventsToken])
 
   const update = (next: TimelineConfig): void => {
-    // aralık daralınca yılı içeride tut
+    // keep the year inside when the range shrinks
     next = { ...next, year: Math.min(next.max, Math.max(next.min, Math.round(next.year))) }
     const prev = cfgRef.current
     setCfg(next)
@@ -67,7 +67,7 @@ export default function Timeline({
     if (c) setYear(c.year + d)
   }
 
-  // ▶ Oynatma: rAF ile yıl akar; applyYear DB'siz olduğu için timelapse akıcıdır
+  // ▶ Playback: years flow via rAF; applyYear is DB-free so the timelapse stays smooth
   const stopPlay = (): void => {
     if (playRef.current) cancelAnimationFrame(playRef.current.raf)
     playRef.current = null
@@ -76,7 +76,7 @@ export default function Timeline({
   const startPlay = (): void => {
     const c = cfgRef.current
     if (playRef.current || !c) return
-    if (c.year >= c.max) setYear(c.min) // sondaysa baştan oynat
+    if (c.year >= c.max) setYear(c.min) // at the end, play from the start
     setPlaying(true)
     const state = { raf: 0, last: performance.now(), acc: 0 }
     playRef.current = state
@@ -98,9 +98,9 @@ export default function Timeline({
     }
     state.raf = requestAnimationFrame(tick)
   }
-  useEffect(() => stopPlay, []) // unmount'ta döngüyü durdur
+  useEffect(() => stopPlay, []) // stop the loop on unmount
 
-  // Şerit açıkken ←/→ yıl adımlar (bir girdi alanına yazarken değil)
+  // With the strip open, ←/→ steps years (not while typing in an input)
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent): void => {
@@ -108,7 +108,7 @@ export default function Timeline({
       if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault()
-        // Shift = ±10, Ctrl = ±100 yıl
+        // Shift = ±10, Ctrl = ±100 years
         const mag = e.ctrlKey ? 100 : e.shiftKey ? 10 : 1
         step(e.key === 'ArrowLeft' ? -mag : mag)
       }
@@ -118,7 +118,7 @@ export default function Timeline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // ⏪/⏩ basılı tutunca tekrarla (400ms gecikme, sonra 120ms aralık)
+  // ⏪/⏩ repeat while held (400ms delay, then 120ms interval)
   const startHold = (d: number): void => {
     step(d)
     const rep = (): void => {
@@ -140,13 +140,13 @@ export default function Timeline({
 
   const period = cfg.periods.find((p) => cfg.year >= p.from && cfg.year <= p.to)
   const range = Math.max(1, cfg.max - cfg.min)
-  // Ray tikleri: harita değişim yılları + dönem sınırları (aralık dışındakiler elenir)
+  // Rail ticks: map change years + era boundaries (out-of-range ones dropped)
   const ticks = [
     ...new Set([...changeYears, ...cfg.periods.flatMap((p) => [p.from, p.to + 1])])
   ].filter((y) => y >= cfg.min && y <= cfg.max)
   const todayEvents = cfg.events.filter((e) => e.year === cfg.year)
 
-  // Olaya atla: yılı ayarla, bağlı çizim varsa haritada uç + vurgula (StoryMap deseni)
+  // Jump to an event: set the year; with a linked feature, fly + flash on the map (StoryMap pattern)
   const jumpEvent = (e: { year: number; fid?: number; mid?: number }): void => {
     setYear(e.year)
     if (e.fid !== undefined) onLocate(e.fid, e.mid)
@@ -154,9 +154,9 @@ export default function Timeline({
 
   return (
     <div className="timeline-strip">
-      {/* Kontroller ve ray AYRI satırlarda: tek satırdayken 11 kontrol ~400px yiyor, şeridin
-          genişliği içerikten geldiği için flex:1 olan raya birkaç piksel kalıyordu (kullanılamaz
-          hale gelmişti). Ray artık şeridin tam genişliğini alır. */}
+      {/* Controls and rail on SEPARATE rows: on one row the 11 controls ate ~400px and, the
+          strip's width being content-driven, the flex:1 rail was left a few pixels (unusably
+          narrow). The rail now gets the strip's full width. */}
       <div className="timeline-row">
         <div className="tl-group">
           <button
@@ -351,7 +351,7 @@ export default function Timeline({
           </div>
           <div className="field-row">
             <span className="field-key">{t('Year range')}</span>
-            {/* onBlur: yazım ortasındaki yarım değerler ('' → 0) aralığı ve yılı bozmasın */}
+            {/* onBlur: half-typed values ('' → 0) must not corrupt the range or the year */}
             <input
               type="number"
               defaultValue={cfg.min}

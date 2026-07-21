@@ -7,19 +7,19 @@ interface Props {
   onOpenEntity: (id: number) => void
 }
 
-// Aile ilişkileri hanedan sistemine ait — diplomasi ağına girmez (şema/durum sabitleri)
+// Family relations belong to the dynasty system — excluded from the diplomacy web (schema constants)
 const FAMILY = new Set(['mother', 'father', 'spouse'])
 
-// Diplomasi ağı (World Anvil "diplomacy web" deseni): kişi olmayan maddeler bir çember
-// üzerinde, aralarındaki linkler ilişki türüne göre renkli kavisli çizgiler. Yeni veri yok —
-// mevcut links tablosunun görsel bir görünümü. Yerleşim deterministik dairesel (fizik yok).
+// Diplomacy web (World Anvil's "diplomacy web" pattern): non-person entities on a circle,
+// their links drawn as curved lines colored by relation type. No new data — a visual view
+// over the existing links table. Layout is deterministic circular (no physics).
 export default function Diplomasi({ types, onOpenEntity }: Props): React.JSX.Element {
   const t = useT()
   const [ents, setEnts] = useState<{ id: number; type: string; name: string }[]>([])
   const [links, setLinks] = useState<
     { id: number; from_id: number; to_id: number; relation: string }[]
   >([])
-  const [hidden, setHidden] = useState<Set<string>>(new Set()) // gizlenen ilişki türleri
+  const [hidden, setHidden] = useState<Set<string>>(new Set()) // hidden relation types
 
   useEffect(() => {
     Promise.all([api.hierarchy(), api.listLinks()]).then(([h, l]) => {
@@ -49,14 +49,14 @@ export default function Diplomasi({ types, onOpenEntity }: Props): React.JSX.Ele
     return { nodes, edges, relations }
   }, [ents, links, types])
 
-  const S = 720 // SVG tasarım alanı (viewBox — responsive ölçeklenir)
-  const R = S / 2 - 90 // çember yarıçapı (dışta ad etiketlerine pay)
+  const S = 720 // SVG design space (viewBox — scales responsively)
+  const R = S / 2 - 90 // circle radius (margin outside for name labels)
   const cx = S / 2
   const cy = S / 2
   const pos = useMemo(() => {
     const m = new Map<number, { x: number; y: number; deg: number }>()
     web.nodes.forEach((n, i) => {
-      const a = (2 * Math.PI * i) / web.nodes.length - Math.PI / 2 // üstten başla
+      const a = (2 * Math.PI * i) / web.nodes.length - Math.PI / 2 // start from the top
       m.set(n.id, { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a), deg: (a * 180) / Math.PI })
     })
     return m
@@ -105,8 +105,8 @@ export default function Diplomasi({ types, onOpenEntity }: Props): React.JSX.Ele
             .map((l) => {
               const a = pos.get(l.from_id)!
               const b = pos.get(l.to_id)!
-              // Kavis: orta nokta merkeze doğru çekilir; paralel kenarlar üst üste binmesin
-              // diye çekme oranı link id'sinden deterministik hafifçe oynar
+              // Curve: the midpoint is pulled toward the center; the pull ratio varies
+              // deterministically by link id so parallel edges do not overlap
               const k = 0.35 + ((l.id % 5) - 2) * 0.06
               const qx = (a.x + b.x) / 2 + (cx - (a.x + b.x) / 2) * k
               const qy = (a.y + b.y) / 2 + (cy - (a.y + b.y) / 2) * k
@@ -125,7 +125,7 @@ export default function Diplomasi({ types, onOpenEntity }: Props): React.JSX.Ele
             })}
           {web.nodes.map((n) => {
             const p = pos.get(n.id)!
-            const right = p.x >= cx // etiket çemberin dışına, yönüne göre hizalı
+            const right = p.x >= cx // label outside the circle, aligned by direction
             const lx = p.x + (right ? 14 : -14)
             return (
               <g key={n.id} className="diplo-node" onClick={() => onOpenEntity(n.id)}>

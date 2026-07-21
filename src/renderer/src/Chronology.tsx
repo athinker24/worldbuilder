@@ -21,16 +21,17 @@ interface Moment {
   onClick?: () => void
 }
 
-// Haritadan bağımsız dikey zaman çizelgesi: mevcut olaylar (timeline.events), isimli dönem
-// bantları (timeline.periods) ve her maddenin yönetici geçmişi (fields['ruler']) tek listede
-// birleştirilir. Yeni veri yok — hepsi zaten var olan settings/entities verisinin görünümü.
+// Map-independent vertical chronology: existing events (timeline.events), named era bands
+// (timeline.periods) and every entity's ruler history (fields['ruler']) merged into one
+// list. No new data — a view over settings/entities data that already exists.
 export default function Kronoloji({ onOpenEntity, onLocateFeature }: Props): React.JSX.Element {
   const t = useT()
   const [cfg, setCfg] = useState<TimelineConfig | null>(null)
   const [ents, setEnts] = useState<Hierarchy['entities']>([])
 
-  // Ham veri mount'ta bir kez çekilir; sunum (çeviri + tıklama) render'da hesaplanır — yoksa
-  // effect `t`'ye bağımlı olurdu, `t` her render'da yeni fonksiyon → setMoments → sonsuz döngü.
+  // Raw data is fetched once on mount; presentation (translation + clicks) is computed at
+  // render — otherwise the effect would depend on `t`, a new function every render →
+  // setMoments → infinite loop.
   useEffect(() => {
     let alive = true
     Promise.all([getTimeline(), api.hierarchy()]).then(([c, h]) => {
@@ -56,7 +57,7 @@ export default function Kronoloji({ onOpenEntity, onLocateFeature }: Props): Rea
     }))
     for (const e of ents) {
       for (const r of getYearRecs(e.fields, 'ruler')) {
-        if (r.from === null) continue // belirsiz başlangıç — zaman çizgisinde gösterilemez
+        if (r.from === null) continue // indeterminate start — cannot be placed on a timeline
         list.push({
           year: r.from,
           text: t('{ruler} became ruler of {realm}', {

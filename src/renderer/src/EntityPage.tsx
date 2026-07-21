@@ -345,7 +345,7 @@ export default function EntityPage({
   // Cinsiyet kutusu açık değer yoksa bunu gösterir ("otomatik"); çocuk-ekleme ilişkisi de bunu kullanır.
   const inferredGender = inferGenders(hierEntities, allLinks).get(id)
   const genderValue =
-    fields['gender'] ?? (inferredGender === 'M' ? 'erkek' : inferredGender === 'F' ? 'kadın' : '')
+    fields['gender'] ?? (inferredGender === 'M' ? 'male' : inferredGender === 'F' ? 'female' : '')
   const genderIsAuto = !fields['gender'] && !!inferredGender
 
   // Ortak çocuğu olanlar birbirinin eşi sayılır (çocuk tek yandan yapıştırılsa bile
@@ -1164,8 +1164,8 @@ export default function EntityPage({
                     }}
                   >
                     <option value="">—</option>
-                    <option value="erkek">♂ {t('Male')}</option>
-                    <option value="kadın">♀ {t('Female')}</option>
+                    <option value="male">♂ {t('Male')}</option>
+                    <option value="female">♀ {t('Female')}</option>
                   </select>
                   {genderIsAuto && <span className="hint">{t('(auto from relations)')}</span>}
                 </div>

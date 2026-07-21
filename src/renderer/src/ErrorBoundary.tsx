@@ -2,11 +2,11 @@ import { Component, type ReactNode } from 'react'
 import { api, getLanguage, type Lang } from './api'
 import { translate } from './i18n'
 
-// Açılan .dunya çalışma kopyasının ÜZERİNE yazılır: bozuk/düşman bir dosya render sırasında
-// hata fırlatırsa, sınır olmadan ekranda boş beyaz bir pencere kalırdı — üstelik başka dosya
-// açacak arayüz de gitmiş olurdu, yani uygulama kurtarılamazdı. Bu sınır her zaman bir çıkış
-// yolu bırakır: boş dünya (çalışma kopyası backups/'a paketlenip sıfırlanır) ya da başka dosya aç.
-// Sınıf bileşeni ŞART — React'te hata yakalamanın hook karşılığı yok.
+// An opened .dunya is written OVER the working copy: if a corrupt/hostile file throws during
+// render, without a boundary the window would sit blank — and the UI for opening a different
+// file would be gone with it, leaving the app unrecoverable. This boundary always leaves an
+// exit: a blank world (the working copy is packed into backups/ and reset) or opening another
+// file. A class component is REQUIRED — React has no hook equivalent for error catching.
 interface State {
   error: Error | null
   lang: Lang
@@ -20,8 +20,9 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
   }
 
   componentDidCatch(error: Error): void {
-    console.error('Yakalanan render hatası:', error)
-    // Dil çalışma kopyasının settings'inde; o da bozuk olabilir → hata yutulur, İngilizce kalır
+    console.error('Caught render error:', error)
+    // The language lives in the working copy's settings, which may itself be broken →
+    // errors are swallowed and English stays
     getLanguage()
       .then((lang) => this.setState({ lang }))
       .catch(() => {})

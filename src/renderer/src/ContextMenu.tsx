@@ -16,7 +16,7 @@ interface Props {
 }
 
 export default function ContextMenu({ menu, onClose }: Props): React.JSX.Element {
-  // Ekran kenarından taşmayı kırp
+  // Clamp overflow past the screen edge
   const x = Math.min(menu.x, window.innerWidth - 190)
   const y = Math.min(menu.y, window.innerHeight - menu.items.length * 32 - 16)
 
