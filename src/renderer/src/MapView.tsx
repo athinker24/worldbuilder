@@ -64,7 +64,7 @@ import { pushUndo } from './undo'
 
 L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl })
 
-// Feature.style JSON'unun şekli (hepsi opsiyonel — eski kayıtlar varsayılanlara düşer)
+// Shape of the Feature.style JSON (all optional — old records fall back to defaults)
 interface FeatureStyle {
   color?: string
   fillOpacity?: number
@@ -72,28 +72,28 @@ interface FeatureStyle {
   size?: number
   font?: string
   childMapId?: number
-  from?: number // çizimin var olduğu yıl aralığı (zaman çizgisi); boş = her zaman
+  from?: number // year range the feature exists in (timeline); empty = always
   to?: number
-  opacity?: number // çizgi (yol) opaklığı
-  dash?: LineDash // çizgi deseni (yol aracı)
-  arrow?: LineArrow // yön oku: yok / sonda / akış (göç, sefer, ticaret)
-  curviness?: number // eğrilik 0-100 (yalnız çizgi; görsel overlay, vertex'leri değiştirmez)
-  img?: string // özel pin görseli (assets/ göreli yolu); varsa glyph ikonun yerine geçer
-  imgFree?: boolean // true = rozetsiz serbest görsel (en-boy korunur), false/boş = rozet içinde
-  imgAR?: number // görselin en/boy oranı — serbest modda yükseklik buradan (kütüphaneden değil)
-  fillImg?: string // poligon dolgu görseli (assets/ göreli yolu) — SVG pattern ile döşenir
-  text?: string // serbest metin etiketi (Point geometry + bu alan = etiket, pin değil)
-  angle?: number // etiket döndürme açısı (derece)
-  curve?: number // etiket eğriliği -100..100 (Wonderdraft curved text; 0 = düz)
-  board?: string // ait olduğu zemin (çizim katmanı) id'si — settings.mapBoards ile eşleşir
-  minZoom?: number // bu zoom altında gizle (kalabalık haritada uzaklaşınca pin/etiket saklama)
-  maxZoom?: number // bu zoom üstünde gizle
+  opacity?: number // line (path) opacity
+  dash?: LineDash // line pattern (path tool)
+  arrow?: LineArrow // direction arrow: none / at the end (migration, campaign, trade)
+  curviness?: number // curvature 0-100 (lines only; a visual overlay, never touches vertices)
+  img?: string // custom pin image (assets/-relative); replaces the glyph icon when set
+  imgFree?: boolean // true = free image without a badge (aspect kept), false/empty = inside the badge
+  imgAR?: number // the image's aspect ratio — free-mode height comes from here (not the library)
+  fillImg?: string // polygon fill image (assets/-relative) — tiled via an SVG pattern
+  text?: string // free text label (Point geometry + this field = a label, not a pin)
+  angle?: number // label rotation angle (degrees)
+  curve?: number // label curvature -100..100 (Wonderdraft curved text; 0 = straight)
+  board?: string // id of the board (drawing layer) it belongs to — matches settings.mapBoards
+  minZoom?: number // hide below this zoom (declutter pins/labels when zoomed out)
+  maxZoom?: number // hide above this zoom
 }
 
 interface Props {
   id: number
-  focus?: { featureId: number; token: number } | null // kenar çubuğundan "haritada göster" — ilgili çizime uç
-  reloadToken: number // undo/redo sonrası çizimleri yerinde tazelet (harita remount edilmez, zoom korunur)
+  focus?: { featureId: number; token: number } | null // "show on map" from the sidebar — fly to the feature
+  reloadToken: number // refresh features in place after undo/redo (no map remount, zoom kept)
   maps: MapRow[]
   types: TypeDef[]
   onNavigate: (mapId: number) => void
@@ -103,14 +103,14 @@ interface Props {
 
 interface FeatureLayer extends L.Layer {
   featureId?: number
-  // true = bu katman gerçek/düzenlenebilir düz çizgidir ama üstüne eğri overlay'i bindirilmiş,
-  // bu yüzden applyYear'da neredeyse görünmez opaklığa (0.03) düşürülür (bkz. curvePoints)
+  // true = this layer is the real/editable straight line with a curve overlay on top, so
+  // applyYear drops it to near-invisible opacity (0.03) (see curvePoints)
   isCurveControl?: boolean
 }
 
-// geoman'ın çizim örneğinin (map.pm.Draw.Marker/Line/Polygon) tiplenmemiş iç alanları —
-// açık bir çizim oturumunu YENİDEN KURMADAN stilini güncellemek için gerekli (bkz.
-// updateDrawSettings). Yalnız kullandığımız alanlar.
+// Untyped internals of geoman's draw instances (map.pm.Draw.Marker/Line/Polygon) — needed to
+// restyle an open draw session WITHOUT re-creating it (see updateDrawSettings). Only the
+// fields we use.
 interface DrawInstance {
   enabled?: () => boolean
   setOptions?: (o: { markerStyle?: L.MarkerOptions }) => void
@@ -119,12 +119,12 @@ interface DrawInstance {
   _layer?: { setStyle?: (o: L.PathOptions) => void }
 }
 
-// Pin = renkli yuvarlak rozet + içinde beyaz kartografik ikon (divIcon). Merkez çapa: rozet
-// noktanın üstünde ortalı. Taban çap PIN_BASE; zoom'la ölçekleme updateOverlaySizes'ta.
+// Pin = colored round badge with a white cartographic icon inside (divIcon). Center anchor:
+// the badge sits centered on the point. Base diameter PIN_BASE; zoom scaling in updateOverlaySizes.
 const PIN_BASE = 28
 const PIN_DEFAULT_COLOR = '#c0603a'
-// Üç görünüm: (1) serbest özel görsel — rozetsiz, en-boy korunur (şeffaf PNG sembolleri);
-// (2) rozet içinde özel görsel — daireye kırpılır (arma/portre); (3) gömülü SVG glyph (varsayılan).
+// Three looks: (1) free custom image — no badge, aspect kept (transparent PNG symbols);
+// (2) custom image inside the badge — clipped to a circle (crest/portrait); (3) plain badge.
 const pinDivIcon = (m: {
   size?: number
   color?: string
@@ -136,8 +136,8 @@ const pinDivIcon = (m: {
   const w = PIN_BASE * s
   const color = m.color ?? PIN_DEFAULT_COLOR
   if (m.img && m.imgFree) {
-    // Serbest: iconSize/iconAnchor [0,0] + içte translate(-50%,-50%) (etiket deseni) →
-    // yükseklik orandan gelir, DOM ölçümü (reflow) gerekmez
+    // Free: iconSize/iconAnchor [0,0] + inner translate(-50%,-50%) (the label pattern) →
+    // height comes from the ratio, no DOM measurement (reflow) needed
     const h = w / (m.imgAR || 1)
     return L.divIcon({
       className: 'pin-marker',
@@ -146,7 +146,7 @@ const pinDivIcon = (m: {
       iconAnchor: [0, 0]
     })
   }
-  // Görsel varsa rozet içinde daireye kırpılır; yoksa düz renkli rozet (glyph ikon seti kaldırıldı)
+  // With an image it is clipped to a circle inside the badge; else a plain colored badge (the glyph set was removed)
   const inner = m.img ? `<img class="pin-badge-img" src="${escapeHtml(assetUrl(m.img))}">` : ''
   return L.divIcon({
     className: 'pin-marker',
@@ -157,26 +157,27 @@ const pinDivIcon = (m: {
   })
 }
 
-// Serbest metin etiketi (LegendKeeper "Labels"): poligonsuz/pinsiz harita yazısı — deniz, dağ
-// sırası, bölge adı. iconSize/iconAnchor [0,0]: ikonun sol-üstü tam noktada durur, içteki div
-// kendini translate(-50%,-50%) ile ortalar → metin uzunluğuna göre genişlik matematiği gerekmez.
-// Font boyutu zoom'a göre updateOverlaySizes'ta yazılır (LABEL_BASE = zoom-0 taban, harita birimi).
+// Free text label (LegendKeeper "Labels"): map text without polygon or pin — a sea, a
+// mountain range, a region name. iconSize/iconAnchor [0,0]: the icon's top-left sits exactly
+// on the point and the inner div centers itself via translate(-50%,-50%) → no width math per
+// text length. Font size is written by zoom in updateOverlaySizes (LABEL_BASE = zoom-0 base).
 const LABEL_BASE = 16
-// Türetilmiş mod etiketi (kademe/boya): taban font (harita birimi) bunun altındaysa bölge çok
-// küçük demektir, etiket çizilmez (CK3 de küçük bölgeleri adlandırmaz)
+// Derived-mode label (rank/paint): a base font (map units) below this means the region is too
+// small, so no label is drawn (CK3 does not name tiny regions either)
 const LABEL_MIN = 5
-// Metin kullanıcı girdisi ve html string'ine gömülüyor → kaçırılmalı (paylaşılan world.db'den XSS
-// gelmesin; markdown'da ham HTML'in kapatılmasıyla aynı gerekçe).
+// The text is user input embedded into an html string → must be escaped (no XSS from a shared
+// world.db; same rationale as blocking raw HTML in markdown).
 const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
-// textPath'in href'i belge genelinde çözülür → her etiketin yol id'si benzersiz olmalı
+// A textPath href resolves document-wide → every label's path id must be unique
 let labelSeq = 0
-// Çizim panosu (Ctrl+C/V). MODÜL düzeyinde: MapView harita geçişinde remount oluyor
-// (App'te key={`m-${id}`}) — component ref'i olsaydı pano harita değişince silinirdi ve
-// haritalar arası yapıştırma imkânsız olurdu.
+// Feature clipboard (Ctrl+C/V). MODULE level: MapView remounts on map switch (App keys it
+// with `m-${id}`) — as a component ref the clipboard would be wiped on switch and pasting
+// across maps would be impossible.
 type ClipItem = { geometry: string; style: string; entity_id: number | null }
 let clipboard: ClipItem[] = []
-// Yazma/okuma MODÜL düzeyinde fonksiyonla: react-hooks/immutability bileşen içinden dış
-// değişkene yazmayı (haklı olarak) engelliyor — pano render'a girmiyor, state olması gereksiz.
+// Reads/writes go through module-level functions: react-hooks/immutability (rightly) bans
+// writing an outer variable from inside a component — the clipboard never enters render, so
+// state would be pointless.
 const setClipboard = (v: ClipItem[]): void => {
   clipboard = v
 }
@@ -191,15 +192,16 @@ const labelDivIcon = (s: {
   const color = escapeHtml(s.color ?? '#ffffff')
   const angle = Number(s.angle) || 0
   const curve = Number(s.curve) || 0
-  // Düz metin de SVG textPath ile çizilir (curve=0 → yay düz bir çizgiye çöker; ölçüldü: HTML
-  // div ile aynı konum/genişlik). Tek yol olmasının sebebi TIKLAMA: div'de isabet alanı hep
-  // kutunun tamamıdır (harflerin dışına basınca da seçilir), SVG'de visiblePainted ile yalnız
-  // harfler tıklanır. Tasarım uzayı font-size=100; SVG em cinsinden boyutlanır → _icon'a yazılan
-  // fontSize metni ve yayı BİRLİKTE ölçekler, zoom dalı değişmez. Yay bir quadratic Bézier:
-  // orta noktası (t=0.5) tam çapada durur (cy = H/2 + sag).
+  // Straight text renders through SVG textPath too (curve=0 → the arc collapses to a line;
+  // measured: same position/width as an HTML div). The single path exists for CLICKING: a
+  // div's hit area is always the whole box (clicks beside the letters still select), while
+  // SVG with visiblePainted makes only the letters clickable. Design space font-size=100;
+  // the SVG sizes in em → the fontSize written to _icon scales text and arc TOGETHER, the
+  // zoom branch stays unchanged. The arc is a quadratic Bézier: its midpoint (t=0.5) sits
+  // exactly on the anchor (cy = H/2 + sag).
   const F = 100
-  const w = Math.max(text.length * F * 0.62, F) // metin genişliği tahmini (harf başına ~0.62em)
-  const sag = (curve / 100) * w * 0.3 // yay yüksekliği (sagitta); + yukarı, − aşağı bükülür
+  const w = Math.max(text.length * F * 0.62, F) // estimated text width (~0.62em per letter)
+  const sag = (curve / 100) * w * 0.3 // arc height (sagitta); + bends up, − bends down
   const pad = F
   const W = w + 2 * pad
   const H = 3 * F + 2 * Math.abs(sag)
@@ -209,26 +211,26 @@ const labelDivIcon = (s: {
   return L.divIcon({ className: 'map-label', html, iconSize: [0, 0], iconAnchor: [0, 0] })
 }
 
-// Poligon dolgu görseli (LegendKeeper region fills): SVG <pattern> belge genelinde url(#id) ile
-// çözülür (worldArrow marker'ıyla aynı mekanizma). Desen GÖRSEL BAŞINA bir kez tanımlanır,
-// poligon başına değil. objectBoundingBox: görsel, REFERANS VEREN poligonun sınır kutusuna
-// gerilir → poligona yapışık kalır, zoom'da onunla ölçeklenir (ekran-sabit karo denendi,
-// uzaklaşınca desen tekrar edip bozuluyordu — kullanıcı görselin poligonda sabit kalmasını istedi).
-// Tek def çok poligona hizmet eder (bbox her referans verende ayrı çözülür). fill-opacity desen
-// üstünde doğal çalıştığı için mevcut opaklık kaydırıcısı değişmeden işler.
+// Polygon fill image (LegendKeeper region fills): the SVG <pattern> resolves document-wide via
+// url(#id) (same mechanism as the worldArrow marker). One pattern def PER IMAGE, not per
+// polygon. objectBoundingBox: the image is stretched over the REFERENCING polygon's bbox → it
+// sticks to the polygon and scales with it on zoom (screen-fixed tiling was tried; zoomed out,
+// the pattern repeated and broke — the user wanted the image pinned to the polygon). One def
+// serves many polygons (the bbox resolves per referencer). fill-opacity works naturally over a
+// pattern, so the existing opacity slider needed no change.
 const fillPatternId = (path: string): string => `fillpat-${path.replace(/[^a-zA-Z0-9]/g, '_')}`
 
-// Harita ölçeği: perUnit = gerçek mesafe / harita birimi (px). İki yöntem: sayısal harita
-// genişliği (Wonderdraft) ya da haritada bilinen mesafeyi ölçme. settings 'mapScales' =
-// { [mapId]: {perUnit, unit} }. CRS.Simple düzlemsel olduğu için hesap saf Öklid — projeksiyon yok.
+// Map scale: perUnit = real distance / map unit (px). Two methods: numeric map width
+// (Wonderdraft) or measuring a known distance on the map. settings 'mapScales' =
+// { [mapId]: {perUnit, unit} }. CRS.Simple is planar, so the math is pure Euclid — no projection.
 const ringLen = (ring: number[][]): number => {
   let s = 0
   for (let i = 1; i < ring.length; i++)
     s += Math.hypot(ring[i][0] - ring[i - 1][0], ring[i][1] - ring[i - 1][1])
   return s
 }
-// ringArea api.ts'te (Atlas ile ortak, saf geometri — ağır MapView modülüne bağlı olmasın)
-// ponytail: köşe ortalaması — shoelace centroid değil, etiket çapası için yeterli
+// ringArea lives in api.ts (shared with Atlas, pure geometry — no dependency on the heavy
+// MapView module). ponytail: vertex average — not a shoelace centroid, fine for a label anchor
 const ringCentroid = (ring: number[][]): [number, number] => {
   let sx = 0
   let sy = 0
@@ -238,8 +240,8 @@ const ringCentroid = (ring: number[][]): [number, number] => {
   }
   return [sx / ring.length, sy / ring.length]
 }
-// PCA ana ekseni: köşe bulutunun kovaryansından uzun eksen açısı (radyan) + o eksendeki genişlik.
-// CK3/kartografi medial-axis kullanır; kişisel ölçekte PCA yeterli (ponytail: medial axis overkill).
+// PCA main axis: long-axis angle (radians) from the vertex cloud's covariance + width along it.
+// CK3/cartography use medial axis; PCA is enough at personal scale (ponytail: medial axis is overkill).
 const pcaAxis = (verts: number[][]): { theta: number; extent: number } => {
   let mx = 0
   let my = 0
@@ -274,14 +276,14 @@ const pcaAxis = (verts: number[][]): { theta: number; extent: number } => {
 const fmtDist = (v: number): string =>
   v >= 100 ? Math.round(v).toLocaleString() : v >= 10 ? v.toFixed(1) : v.toFixed(2)
 
-// Yol/nehir/sınır çizgilerine LegendKeeper tarzı eğrilik: RENDER-ONLY Cardinal spline (Hermite).
-// Ham vertex'lere hiç dokunmaz (geoman Edit aracı hâlâ gerçek köşeleri sürükler) — yalnız görsel
-// bir overlay üretir (bkz. reloadFeatures/applyYear'daki isCurveControl kullanımı).
-// curviness 0-100 → tanjant gücü s (0 = düz çizgiye yakın, 0.5 = klasik Catmull-Rom).
+// LegendKeeper-style curvature for roads/rivers/borders: a RENDER-ONLY Cardinal spline
+// (Hermite). Never touches the raw vertices (geoman's Edit tool still drags the real corners)
+// — it only produces a visual overlay (see isCurveControl in reloadFeatures/applyYear).
+// curviness 0-100 → tangent strength s (0 = near-straight, 0.5 = classic Catmull-Rom).
 const curvePoints = (coords: number[][], curviness: number): L.LatLng[] => {
   if (coords.length < 3) return coords.map(([x, y]) => L.latLng(y, x))
   const s = (Math.max(0, Math.min(100, curviness)) / 100) * 0.5
-  const steps = coords.length > 150 ? 4 : 12 // ponytail: çok uzun yollarda alt bölme azaltılır
+  const steps = coords.length > 150 ? 4 : 12 // ponytail: fewer subdivisions on very long paths
   const pt = (i: number): number[] => coords[Math.max(0, Math.min(coords.length - 1, i))]
   const out: L.LatLng[] = []
   for (let i = 0; i < coords.length - 1; i++) {
@@ -291,7 +293,7 @@ const curvePoints = (coords: number[][], curviness: number): L.LatLng[] => {
     const p3 = pt(i + 2)
     const m1 = [(p2[0] - p0[0]) * s, (p2[1] - p0[1]) * s]
     const m2 = [(p3[0] - p1[0]) * s, (p3[1] - p1[1]) * s]
-    const n = i === coords.length - 2 ? steps + 1 : steps // eklem noktası yalnız son segmentte dahil edilir
+    const n = i === coords.length - 2 ? steps + 1 : steps // the joint point is included only on the last segment
     for (let j = 0; j < n; j++) {
       const t = j / steps
       const t2 = t * t
@@ -311,17 +313,18 @@ const curvePoints = (coords: number[][], curviness: number): L.LatLng[] => {
   return out
 }
 
-// ——— Navigasyon (LegendKeeper "navigation mode"): iki pin arası rota, çizilmiş yol ağı üzerinden.
-// Graf yalnız rota istendiğinde kurulur (her karede değil). Koordinatlar ham GeoJSON [x, y] =
-// harita pikseli; CRS.Simple düzlemsel olduğu için ağırlıklar saf Öklid (ringLen ile aynı sözleşme).
+// ——— Navigation (LegendKeeper "navigation mode"): a route between two pins over the drawn
+// road network. The graph is built only when a route is requested (not per frame). Coordinates
+// are raw GeoJSON [x, y] = map pixels; CRS.Simple is planar so weights are pure Euclid (same
+// contract as ringLen).
 interface NavEdge {
   to: number
   w: number
-  fid: number // kenarın geldiği yol feature'ı; -1 = yol dışı bağlantı
+  fid: number // the path feature this edge came from; -1 = off-road connection
 }
 type NavLine = { fid: number; coords: number[][] }
 type NavPin = { fid: number; xy: number[] }
-// Bir pinin yol ağındaki en yakın izdüşümü (li: yol, si: segment, t: segment üzerinde 0-1)
+// A pin's nearest projection onto the road network (li: path, si: segment, t: 0-1 along it)
 interface NavProj {
   li: number
   si: number
@@ -331,7 +334,7 @@ interface NavProj {
   d: number
 }
 
-// Bir noktanın segmente izdüşümü: t = segment üzerindeki 0-1 konumu, d = dik mesafe
+// A point's projection onto a segment: t = 0-1 position along it, d = perpendicular distance
 const projectOnSeg = (
   p: number[],
   a: number[],
@@ -347,10 +350,10 @@ const projectOnSeg = (
   return { t, x, y, d: Math.hypot(p[0] - x, p[1] - y) }
 }
 
-// Yol ağından yönsüz graf kur. Kavşaklar `eps` içinde çakışan köşelerin tek düğüme düşmesiyle
-// kendiliğinden oluşur (weld kodundaki Chebyshev karşılaştırma konvansiyonu).
-// Pinler en yakın segmente izdüşürülür ve o segmentin zincirine düğüm olarak KATILIR — böylece
-// aynı yol parçası üzerindeki iki pin arası rota köşeye kadar gidip geri dönmez.
+// Build an undirected graph from the road network. Junctions emerge naturally as vertices
+// within `eps` collapse into one node (the Chebyshev comparison convention from the weld
+// code). Pins are projected onto their nearest segment and JOIN that segment's chain as
+// nodes — so a route between two pins on the same stretch never detours to a corner and back.
 const buildNavGraph = (
   lines: NavLine[],
   pins: NavPin[],
@@ -358,7 +361,7 @@ const buildNavGraph = (
 ): { nodes: number[][]; adj: NavEdge[][]; pinNode: Map<number, number> } => {
   const nodes: number[][] = []
   const adj: NavEdge[][] = []
-  // ponytail: O(n²) lineer tarama — kişisel ölçekte birkaç yüz düğüm, spatial index gereksiz
+  // ponytail: O(n²) linear scan — a few hundred nodes at personal scale, no spatial index needed
   const findOrAdd = (x: number, y: number): number => {
     for (let i = 0; i < nodes.length; i++)
       if (Math.abs(nodes[i][0] - x) < eps && Math.abs(nodes[i][1] - y) < eps) return i
@@ -367,12 +370,12 @@ const buildNavGraph = (
     return nodes.length - 1
   }
   const addEdge = (a: number, b: number, fid: number): void => {
-    if (a === b) return // birleşen köşeler → sıfır uzunluklu self-loop olmasın
+    if (a === b) return // merged vertices → no zero-length self-loops
     const w = Math.hypot(nodes[a][0] - nodes[b][0], nodes[a][1] - nodes[b][1])
     adj[a].push({ to: b, w, fid })
     adj[b].push({ to: a, w, fid })
   }
-  // 1. her pini en yakın segmente izdüşür (tüm yollar taranır; mesafe kapsız)
+  // 1. project every pin onto its nearest segment (all paths scanned; distance uncapped)
   const proj: (NavProj | null)[] = pins.map((p): NavProj | null => {
     let best: NavProj | null = null
     lines.forEach((ln, li) => {
@@ -383,7 +386,7 @@ const buildNavGraph = (
     })
     return best
   })
-  // 2. her yolu zincir olarak kur: v0 → (o segmente düşen pin izdüşümleri, t sırasıyla) → v1 → …
+  // 2. build each path as a chain: v0 → (pin projections on that segment, in t order) → v1 → …
   lines.forEach((ln, li) => {
     const bySeg = new Map<number, { t: number; x: number; y: number }[]>()
     for (const pr of proj) {
@@ -404,7 +407,7 @@ const buildNavGraph = (
       prev = n
     }
   })
-  // 3. pinleri izdüşüm noktalarına bağla (pin zaten yolun üstündeyse aynı düğüme düşer, kenar yok)
+  // 3. connect pins to their projection points (a pin already on the road lands on the same node, no edge)
   const pinNode = new Map<number, number>()
   pins.forEach((p, i) => {
     const pinIdx = findOrAdd(p.xy[0], p.xy[1])
@@ -415,8 +418,8 @@ const buildNavGraph = (
   return { nodes, adj, pinNode }
 }
 
-// Dijkstra (ponytail: O(V²) düğüm seçimi — rota başına bir kez çalışır, heap gereksiz).
-// Rota bulunamazsa null. Ardışık aynı fid'li kenarlar tek NavLeg'e toplanır.
+// Dijkstra (ponytail: O(V²) node pick — runs once per route, no heap needed).
+// null when no route exists. Consecutive same-fid edges fold into one NavLeg.
 const navRoute = (
   g: { nodes: number[][]; adj: NavEdge[][] },
   from: number,
@@ -442,7 +445,7 @@ const navRoute = (
       }
   }
   if (dist[to] === Infinity) return null
-  // rotayı geri kur (to → from), sonra ters çevir
+  // rebuild the route backwards (to → from), then reverse
   const chain: { node: number; fid: number }[] = []
   for (let cur = to; cur !== from; cur = prev[cur]) {
     if (prev[cur] === -1) return null
@@ -460,7 +463,7 @@ const navRoute = (
     )
     const fid = chain[i].fid
     if (fid === -1) offRoadPx += w
-    // fid'e göre birleştir (ada göre DEĞİL: adsız yol ile yol-dışı aynı null'u paylaşır)
+    // merge by fid (NOT by name: an unnamed road and off-road share the same null)
     const last = legs[legs.length - 1]
     if (last && last.fid === fid) last.px += w
     else legs.push({ fid, name: fid === -1 ? null : nameOf(fid), px: w })
@@ -483,78 +486,78 @@ export default function MapView({
   const mapRef = useRef<L.Map | null>(null)
   const featureGroupRef = useRef<L.FeatureGroup | null>(null)
   const imageLayerRef = useRef<L.ImageOverlay | null>(null)
-  // Etiket taban boyutları harita birimi cinsinden (zoom 0 pikseli); her zoom'da piksele çevrilir
+  // Label base sizes in map units (zoom-0 pixels); converted to pixels on every zoom
   const labelMeta = useRef(new Map<number, { base: number; font: string }>())
-  // Serbest metin etiketleri (labelMeta'nın divIcon muadili; font boyutu zoom'la ölçeklenir)
+  // Free text labels (labelMeta's divIcon counterpart; font size scales with zoom)
   const labelText = useRef(new Map<number, { base: number; font: string }>())
-  // Pin boyut çarpanları; poligon etiketleri gibi zoom ile ölçeklenir (haritaya yapışık).
-  // ar yalnız SERBEST özel görselli pinlerde dolu (yükseklik = genişlik / ar; DOM ölçümü yok).
+  // Pin size multipliers; scale with zoom like polygon labels (glued to the map).
+  // ar is set only on FREE custom-image pins (height = width / ar; no DOM measurement).
   const markerSize = useRef(new Map<number, { size: number; ar?: number }>())
   const [worldMap, setWorldMap] = useState<WorldMap | null>(null)
-  const worldMapRef = useRef<WorldMap | null>(null) // handler'lar (navigasyon) güncel feature'ları görsün
+  const worldMapRef = useRef<WorldMap | null>(null) // so handlers (navigation) see current features
   const [selected, setSelected] = useState<Feature | null>(null)
-  const selectedRef = useRef<Feature | null>(null) // edit modu handler'ları güncel seçimi görsün
-  // Çoklu seçim (Ctrl+tık): EK seçilen çizim id'leri. `selected` BİRİNCİL kalır — panel onun
-  // kontrollerini gösterir, düzenlemeler seçilinin tamamına uygulanır. Ctrl bilinçli tercih
-  // (Shift+tekerlek zaten boyut ayarında). Sıra: birincil her zaman başta.
+  const selectedRef = useRef<Feature | null>(null) // so edit-mode handlers see the current selection
+  // Multi-select (Ctrl+click): the EXTRA selected feature ids. `selected` stays PRIMARY — the
+  // panel shows its controls, edits apply to the whole selection. Ctrl is deliberate
+  // (Shift+wheel already adjusts size). Order: the primary always comes first.
   const [extraSel, setExtraSel] = useState<number[]>([])
   const selIds = selected ? [selected.id, ...extraSel.filter((x) => x !== selected.id)] : []
   const selIdsRef = useRef<number[]>([])
-  const markedSel = useRef<number[]>([]) // en son vurgulananlar (fark uygulansın, tüm katman taranmasın)
+  const markedSel = useRef<number[]>([]) // last highlighted set (apply the diff, don't scan all layers)
   const lastMouse = useRef<L.LatLng | null>(null) // Ctrl+V hedefi (imlecin son harita konumu)
   const clearSel = (): void => {
     setSelected(null)
     setExtraSel([])
   }
   const [allEntities, setAllEntities] = useState<EntityRow[]>([])
-  // Kişi maddeleri haritaya bağlanamaz (bkz. EntityPage — aile/hanedan alanları içindir)
+  // Person entities cannot be bound to the map (see EntityPage — they exist for family/dynasty fields)
   const personTypeNames = types.filter((ty) => ty.isPerson).map((ty) => ty.name)
   const [linkName, setLinkName] = useState('')
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [hudZoom, setHudZoom] = useState<number | null>(null)
   const hudTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  // Harita modu (CK3 gibi): kademe → taban poligonlar o kademedeki ataya göre; boya → boyuta göre
+  // Map mode (CK3-like): rank → base polygons by their ancestor at that rank; paint → by dimension
   const [activeMode, setActiveMode] = useState<ActiveMode>(null)
   const activeModeRef = useRef<ActiveMode>(null)
   const [layersOpen, setLayersOpen] = useState(false)
-  // Haritalar açılır menüsü (harita geçişi — kenar çubuğu listesinin yerini aldı)
+  // Maps dropdown (map switching — replaced the sidebar list)
   const [mapsOpen, setMapsOpen] = useState(false)
   const [newMapName, setNewMapName] = useState<string | null>(null)
-  const [editMapId, setEditMapId] = useState<number | null>(null) // satır içi ad düzenleme
-  // Zeminler (aynı harita üstünde çizim katmanları): liste + aktif; çizimler style.board ile bağlı
+  const [editMapId, setEditMapId] = useState<number | null>(null) // inline rename
+  // Boards (drawing layers on the same map): list + active; features bound via style.board
   const [boards, setBoards] = useState<MapBoards>({ list: [], active: '' })
   const boardsRef = useRef<MapBoards>(boards)
   const [boardsOpen, setBoardsOpen] = useState(false)
   const [newBoardName, setNewBoardName] = useState<string | null>(null)
   const [editBoardId, setEditBoardId] = useState<string | null>(null)
-  const featBoard = useRef(new Map<number, string>()) // fid → çizimin zemin id'si (style.board)
-  // Zoom'a göre görünürlük: fid → {min,max}; baseVisible = zoom DIŞI görünürlük (applyYear yazar,
-  // refreshZoomVis zoom'da yalnız sınırlı çizimleri açıp kapatmak için okur)
+  const featBoard = useRef(new Map<number, string>()) // fid → the feature's board id (style.board)
+  // Zoom visibility: fid → {min,max}; baseVisible = visibility APART from zoom (applyYear
+  // writes it, refreshZoomVis reads it to toggle only the zoom-limited features)
   const zoomLimits = useRef(new Map<number, { min?: number; max?: number }>())
   const baseVisible = useRef(new Map<number, boolean>())
-  // Zaman çizgisi: slider tikinde DB'siz aç/kapa için katman kayıt defteri
+  // Timeline: layer registry for DB-free toggling on slider ticks
   const yearRef = useRef(0)
-  // Haritada bir şeyin değiştiği yıllar (çizim başlar/biter/el değiştirir) — ray tikleri
+  // Years something changes on the map (a feature starts/ends/changes hands) — rail ticks
   const [changeYears, setChangeYears] = useState<number[]>([])
-  // Haritadan olay eklenince artar → Timeline config'ini yeniden yükler
+  // Bumped when an event is added from the map → reloads the Timeline config
   const [eventsToken, setEventsToken] = useState(0)
   const layerYears = useRef(new Map<number, { from?: number; to?: number }>())
   const allLayers = useRef(new Map<number, L.Layer[]>())
-  // Katman paneli: poligon/yol/pin/etiket aç-kapa (settings'te kalıcı, applyYear DB'siz uygular)
+  // Layers panel: polygon/path/pin/label toggles (persisted in settings, applied DB-free in applyYear)
   const [layersOn, setLayersOn] = useState({ polygon: true, line: true, pin: true, label: true })
   const layersRef = useRef(layersOn)
   const featKind = useRef(new Map<number, 'polygon' | 'line' | 'pin' | 'label'>())
-  // Haritada arama: sorgu boş değilken eşleşen çizimler açılır listede (focusFeature ile uçulur)
+  // Map search: with a non-empty query, matches show in a dropdown (flown to via focusFeature)
   const [searchQ, setSearchQ] = useState('')
-  // Pin filtresi: gizlenen madde tipleri ('' = maddesiz pin). Oturumluk — tipler değişken,
-  // kalıcılaştırmak yeniden adlandırmada bayat kayıt bırakırdı.
+  // Pin filter: hidden entity types ('' = entity-less pin). Session-only — types are mutable,
+  // persisting this would leave stale records after a rename.
   const [pinHidden, setPinHidden] = useState<Set<string>>(new Set())
   const pinHiddenRef = useRef(pinHidden)
-  const pinType = useRef(new Map<number, string>()) // fid → bağlı maddenin tipi
-  // Yol yön oku: fid → 'end'|'flow' (SVG marker-mid/end ile, applyYear'da elemana uygulanır)
+  const pinType = useRef(new Map<number, string>()) // fid → the bound entity's type
+  // Path direction arrow: fid → 'end'|'flow' (via SVG marker-mid/end, applied to the element in applyYear)
   const featArrow = useRef(new Map<number, LineArrow>())
-  // Her çizimin tekil render stili — applyYear bunlarla DB'siz yeniden boyar.
-  // fillColor ayrı: dolgu görseli olan poligonda 'url(#fillpat-…)' taşır (renkten farklı).
+  // Each feature's canonical render style — applyYear repaints from these, DB-free.
+  // fillColor is separate: on an image-filled polygon it carries 'url(#fillpat-…)' (not a color).
   const renderStyle = useRef(
     new Map<
       number,
@@ -568,19 +571,19 @@ export default function MapView({
       }
     >()
   )
-  // De-jure üst zinciri (kademe görünümü + fetih): madde → üst geçmişi, kademe hedefleri, çizim → madde
+  // De-jure parent chain (rank view + conquest): entity → parent history, rank targets, feature → entity
   const parentHist = useRef(new Map<number, ParentRec[]>())
   const rungTargets = useRef(new Map<number, string>()) // kademedeki maddeler → renk
   const featEnt = useRef(new Map<number, number>())
-  // Varsayılan (kök) görünümü için: taban maddeler, tüm maddelerin renk/adları, çizim alanları
+  // For the default (root) view: base entities, every entity's color/name, feature areas
   const baseSet = useRef(new Set<number>())
   const entColors = useRef(new Map<number, string>())
   const entNames = useRef(new Map<number, string>())
   const featArea = useRef(new Map<number, number>())
-  // Türetilmiş mod etiketleri (kademe/boya, CK3 tarzı): DB feature değil, applyYear'da kurulan
-  // geçici marker'lar. labelGeo: taban poligon geometri özeti (reload neslinde sabit; keys =
-  // köşelerin EPS-grid hücre anahtarları — ortak köşe paylaşan poligonlar bitişik sayılır,
-  // geoman snapping komşu koordinatları birebir eşitler). dimValue: boya değer metni.
+  // Derived-mode labels (rank/paint, CK3-style): not DB features but transient markers built
+  // in applyYear. labelGeo: base polygon geometry summary (fixed per reload generation; keys =
+  // EPS-grid cell keys of the vertices — polygons sharing a vertex count as adjacent, geoman
+  // snapping makes neighbouring coordinates exactly equal). dimValue: the paint value text.
   const labelGeo = useRef(
     new Map<
       number,
@@ -589,24 +592,25 @@ export default function MapView({
   )
   const dimValue = useRef(new Map<number, string>())
   const derivedLabels = useRef<{ m: L.Marker; base: number }[]>([])
-  const derivedSig = useRef('') // fid:grup imzası — sahiplik değişmeyen yıl tiklerinde iş yok
-  // Mozaikle yönetilen maddeler (yıldan bağımsız): haritadaki taban poligonların üst geçmişinde
-  // HERHANGİ bir yıl geçenler. Kendi çizimleri varsayılan görünümde asla gösterilmez — tam
-  // ilhakta (mozaiği o yıl boşalınca) eski elle çizilmiş poligon geri belirmesin.
+  const derivedSig = useRef('') // fid:group signature — no work on year ticks where ownership is unchanged
+  // Mosaic-governed entities (year-independent): those appearing in ANY year of the base
+  // polygons' parent histories. Their own drawings never show in the default view — on full
+  // annexation (their mosaic emptying that year) the old hand-drawn polygon must not resurface.
   const mosaicManaged = useRef(new Set<number>())
-  // Topolojik kaynak Ctrl ile açılır: Ctrl basılıyken köşe sürüklenirse, aynı noktayı paylaşan
-  // komşu poligon köşeleri sürükleme SIRASINDA canlı olarak birlikte taşınır (Ctrl'süz tek taraflı)
+  // Topological weld opens with Ctrl: dragging a vertex with Ctrl held moves the neighbouring
+  // polygons' co-located vertices live DURING the drag (one-sided without Ctrl)
   const ctrlRef = useRef(false)
-  // aktif sürüklemenin partner köşeleri (dragstart'ta bulunur, drag'de taşınır).
-  // oldGeom: partnerin sürükleme ÖNCESİ geometrisi — undo'nun doğru noktaya dönmesi için
-  // bayat wm.features yerine burada, canlı katmandan yakalanır.
+  // partner vertices of the active drag (found on dragstart, moved during drag).
+  // oldGeom: the partner's geometry BEFORE the drag — captured here from the live layer
+  // instead of stale wm.features, so undo returns to the right spot.
   const dragPartners = useRef<
     { layer: L.Polygon; fid: number; ring: number; idx: number; oldGeom: string }[]
   >([])
-  // bu düzenleme oturumunda kaynakla taşınan komşu katmanlar — pm:update'te DB'ye yazılır
+  // neighbour layers moved by the weld in this edit session — written to the DB on pm:update
   const weldTouched = useRef(new Map<number, { layer: L.Polygon; oldGeom: string }>())
-  // Geometri yazımları seri: her weld kaydı reloadFeatures'ıyla birlikte tam bitmeden sonraki
-  // başlamaz — art arda iki komşu düzenlenince reload'lar birbirini ezmezdi (bilinen kaynak hatası).
+  // Geometry writes are serial: no commit starts before the previous one, reload included,
+  // fully finishes — editing two neighbouring borders back-to-back used to have the reloads
+  // clobber each other (the known weld bug).
   const geomSaveChain = useRef<Promise<void>>(Promise.resolve())
   useEffect(() => {
     const down = (e: KeyboardEvent): void => {
@@ -628,9 +632,10 @@ export default function MapView({
     }
   }, [])
 
-  // ⚔ Fetih akışı: adım 1 alıcının komşu poligonuna tıkla (alıcı = onun o yılki doğrudan üstü),
-  // adım 2 fethedilen taban poligonları seç, Tamam → seçilenler slider yılından itibaren alıcıya katılır.
-  // Katman click handler'ları reload olmadan da güncel durumu görsün diye state + ref birlikte tutulur.
+  // ⚔ Conquest flow: step 1 click the conqueror's border polygon (receiver = its direct
+  // parent that year), step 2 pick the conquered base polygons, OK → the picks join the
+  // receiver from the slider year on. State + ref are kept together so layer click handlers
+  // see the current state without a reload.
   type Conquest =
     | null
     | { step: 'receiver' }
@@ -642,12 +647,12 @@ export default function MapView({
     setConquestState(c)
   }
 
-  // 📏 Ölçek aracı (sağ paneldeki 'scale' aracının durumu): kayıtlı ölçek + aktif ölçüm oturumu.
-  // Oturum türleri: calib (2 nokta → mesafe formu), dist (kümülatif cetvel), area (geçici poligon).
-  // dist/area kalıcı çizim OLUŞTURMAZ — Wonderdraft measure tool karşılığı.
+  // 📏 Scale tool (state of the right panel's 'scale' tool): saved scale + active measure
+  // session. Session kinds: calib (2 points → distance form), dist (cumulative ruler), area
+  // (transient polygon). dist/area create NO persistent features — Wonderdraft's measure tool.
   const [mapScale, setMapScale] = useState<MapScale | null>(null)
   const scaleRef = useRef<MapScale | null>(null)
-  const [barZoom, setBarZoom] = useState(0) // ölçek çubuğu için (render'da ref okunmaz)
+  const [barZoom, setBarZoom] = useState(0) // for the scale bar (no ref reads during render)
   type Measure =
     | null
     | { kind: 'calib'; pts: L.LatLng[] }
@@ -660,15 +665,15 @@ export default function MapView({
     measureRef.current = m
     setMeasureState(m)
   }
-  const measureTemp = useRef<L.LayerGroup | null>(null) // geçici nokta/çizgi vurguları
-  const measurePoly = useRef<L.Polygon | null>(null) // area oturumunun canlı poligonu
+  const measureTemp = useRef<L.LayerGroup | null>(null) // transient point/line highlights
+  const measurePoly = useRef<L.Polygon | null>(null) // the area session's live polygon
   const endMeasure = (): void => {
     measureTemp.current?.remove()
     measureTemp.current = null
     measurePoly.current = null
     setMeasure(null)
   }
-  // Tek yazıcı: ölçeği kaydet/sil (settings 'mapScales' harita başına)
+  // Single writer: save/delete the scale (settings 'mapScales', per map)
   const persistScale = async (sc: MapScale | null): Promise<void> => {
     const all = JSON.parse((await api.getSetting('mapScales')) || '{}')
     if (sc) all[id] = sc
@@ -689,12 +694,12 @@ export default function MapView({
     endMeasure()
     if (!same) setMeasure({ kind, pts: [] })
   }
-  // Canlı ölçüm metni için: latlng listesi → birimli uzunluk/alan (ölçek yoksa px)
+  // For the live measure text: latlng list → length/area with units (px without a scale)
   const measureUnit = mapScale?.unit ?? 'px'
   const measureK = mapScale?.perUnit ?? 1
   const ptsXY = (pts: L.LatLng[]): number[][] => pts.map((p) => [p.lng, p.lat])
 
-  // 🧭 Navigasyon oturumu (Measure deseninin kopyası): iki pin seç → yol ağı üzerinden rota.
+  // 🧭 Navigation session (a copy of the Measure pattern): pick two pins → route over the road network.
   type Nav =
     | null
     | { step: 'a' }
@@ -706,7 +711,7 @@ export default function MapView({
     navRef.current = n
     setNavState(n)
   }
-  const navTemp = useRef<L.LayerGroup | null>(null) // rota vurgusu (kalıcı çizim değil)
+  const navTemp = useRef<L.LayerGroup | null>(null) // route highlight (not a persistent feature)
   const endNav = (): void => {
     navTemp.current?.remove()
     navTemp.current = null
@@ -714,19 +719,19 @@ export default function MapView({
   }
   const startNav = (): void => {
     endMeasure()
-    setConquest(null) // çakışan oturum kalmasın
+    setConquest(null) // no overlapping session may remain
     endNav()
     clearSel()
     setNav({ step: 'a' })
   }
-  // Özel pin görselleri kütüphanesi (settings 'pinImages', global — travelModes deseni)
+  // Custom pin image library (settings 'pinImages', global — the travelModes pattern)
   const [pinImages, setPinImages] = useState<PinImage[]>([])
   const savePinLib = async (list: PinImage[]): Promise<void> => {
     setPinImages(list)
     await savePinImages(list)
   }
-  // Görsel yükle: pickImage zaten assets/'e kopyalar + uzantı doğrular ve göreli yol döner.
-  // Sonra zemin görselindeki load-probe deseni: oranı öğren + dosyanın çözülebildiğini doğrula.
+  // Upload: pickImage already copies into assets/, validates the extension and returns a
+  // relative path. Then the base image's load-probe pattern: learn the ratio + verify decodability.
   const uploadPinImage = async (onPicked: (path: string, ar: number) => void): Promise<void> => {
     const path = await api.pickImage()
     if (!path) return
@@ -741,7 +746,7 @@ export default function MapView({
     im.src = assetUrl(path)
   }
 
-  // Seyahat modları (settings 'travelModes', global — mapScales deseni). Hız = birim/gün.
+  // Travel modes (settings 'travelModes', global — the mapScales pattern). Speed = units/day.
   const [travelModes, setTravelModesState] = useState<TravelMode[]>([])
   const [travelModeIdx, setTravelModeIdx] = useState(0)
   const saveTravelModes = async (list: TravelMode[]): Promise<void> => {
@@ -750,8 +755,9 @@ export default function MapView({
     await api.setSetting('travelModes', JSON.stringify(list))
   }
 
-  // Rota hesabı: o yılki görünür pin ve yollardan graf kur → Dijkstra → haritada vurgula.
-  // wm.features'tan okunur (refler'den DEĞİL — türetilmiş modlarda pin/yol refleri boş kalır).
+  // Route computation: build a graph from that year's visible pins and paths → Dijkstra →
+  // highlight on the map. Reads wm.features (NOT the refs — pin/path refs stay empty in
+  // derived modes).
   const computeRoute = (aFid: number, aName: string, bFid: number, bName: string): void => {
     const wm = worldMapRef.current
     const map = mapRef.current
@@ -759,7 +765,7 @@ export default function MapView({
     const year = yearRef.current
     const inYear = (s: FeatureStyle): boolean =>
       (s.from ?? -Infinity) <= year && year <= (s.to ?? Infinity)
-    // Katman paneli bilinçli olarak dikkate alınmaz: yolu gizlemek bir görüntü tercihi, ağ yine orada
+    // The layers panel is deliberately ignored: hiding a path is a display choice, the network remains
     const lines: NavLine[] = []
     const pins: NavPin[] = []
     const nameByFid = new Map<number, string | null>()
@@ -774,9 +780,9 @@ export default function MapView({
     navTemp.current?.remove()
     navTemp.current = null
     if (!lines.length) return setNav({ step: 'result', aName, bName, route: null })
-    // ponytail: kavşak payı = haritanın uzun kenarının 1/500'ü (3000px haritada ~6px). Geoman
-    // snapping (varsayılan açık) zaten aynı koordinatı paylaştırır; bu pay float yuvarlamalarını
-    // ve ufak ıskaları toparlar. Tek sayı ayarı.
+    // ponytail: junction tolerance = 1/500 of the map's long edge (~6px on a 3000px map).
+    // Geoman snapping (on by default) already makes coordinates shared; this tolerance mops up
+    // float rounding and small misses. A single tunable number.
     const span = Math.max(wm.width ?? 0, wm.height ?? 0) || 1000
     const g = buildNavGraph(lines, pins, span / 500)
     const from = g.pinNode.get(aFid)
@@ -797,15 +803,15 @@ export default function MapView({
     setNav({ step: 'result', aName, bName, route })
   }
 
-  // Araç ve çizim ayarları — event handler'lar ref üzerinden okur (stale closure yok)
+  // Tool and draw settings — event handlers read via refs (no stale closures)
   const [tool, setToolState] = useState<Tool | null>(null)
   const toolRef = useRef<Tool | null>(null)
   const [drawSettings, setDrawSettingsState] = useState<DrawSettings>(DEFAULT_DRAW)
   const drawRef = useRef<DrawSettings>(DEFAULT_DRAW)
   const [panelW, setPanelW] = useState(240)
-  // Dışa aktarım: yakalama anında haritanın üzerini kaplayan UI (Zaman şeridi, HUD, Hiyerarşi
-  // paneli, fetih/olay ipuçları) geçici olarak render'dan çıkar — Wonderdraft'ın "Export" işlevi
-  // gibi tek yönlü, düzenlenemeyen bir PNG çıktısıdır (Save = zaten her düzenlemede otomatik).
+  // Export: at capture time the UI covering the map (Time strip, HUD, Hierarchy panel,
+  // conquest/event hints) temporarily leaves the render — a one-way, non-editable PNG like
+  // Wonderdraft's "Export" (Save already happens automatically on every edit).
   const [exporting, setExporting] = useState(false)
   const exportMap = async (): Promise<void> => {
     const host = divRef.current
@@ -826,8 +832,8 @@ export default function MapView({
     if (path) alertDialog(t('Exported to {path}', { path }))
   }
 
-  // Zoom HUD'ını göster ve 3 sn etkileşimsizlik sonrası gizle.
-  // Kaydırıcı aralığı haritanın o anki min/max zoom'u (görselli haritada minZoom dinamik)
+  // Show the zoom HUD and hide it after 3s of inactivity.
+  // The slider range is the map's current min/max zoom (minZoom is dynamic with a base image)
   const [hudRange, setHudRange] = useState<[number, number]>([-4, 4])
   const showHud = (zoom: number): void => {
     const map = mapRef.current
@@ -837,7 +843,7 @@ export default function MapView({
     hudTimer.current = setTimeout(() => setHudZoom(null), 3000)
   }
 
-  // Breadcrumb: parent zincirini yürü
+  // Breadcrumb: walk the parent chain
   const crumbs: MapRow[] = []
   let cur = maps.find((m) => m.id === id)
   while (cur) {
@@ -845,10 +851,10 @@ export default function MapView({
     cur = maps.find((m) => m.id === cur!.parent_map_id)
   }
 
-  // Edit modu YALNIZ seçili çizime uygulanır: geoman köşe marker'ları tüm poligon/yollarda
-  // açılınca (enableGlobalEditMode) yüzlerce nokta doğuyor ve harita kasıyordu. Onun yerine yalnız
-  // seçili çizimin katmanlarında pm.enable(); diğerlerinde pm.disable(). Sadece durum değişince
-  // enable/disable çağrılır (aksi no-op), ağır marker üretimi tek çizim için.
+  // Edit mode applies ONLY to the selected feature: with vertex markers on every polygon/path
+  // (enableGlobalEditMode) hundreds of points spawned and the map stuttered. Instead,
+  // pm.enable() only on the selected feature's layers and pm.disable() on the rest. Called
+  // only on a state change (no-op otherwise); heavy marker creation happens for one feature.
   const syncEditMode = (): void => {
     const editing = toolRef.current === 'edit'
     const selFid = selectedRef.current?.id ?? null
@@ -868,22 +874,22 @@ export default function MapView({
     }
   }
 
-  // Seçim ya da araç değişince edit köşe marker'larını seçili çizime taşı (edit modu seçime bağlı)
+  // Move the edit vertex markers to the selected feature when selection or tool changes
   useEffect(() => {
     selectedRef.current = selected
     syncEditMode()
   }, [selected, tool])
 
-  // geoman'ın çizim örneğine tek erişim noktası (tiplenmemiş iç alanlar için, bkz. DrawInstance)
+  // The single access point to geoman's draw instance (for the untyped internals, see DrawInstance)
   const drawInst = (shape: string): DrawInstance | undefined =>
     (mapRef.current?.pm.Draw as unknown as Record<string, DrawInstance | undefined> | undefined)?.[
       shape
     ]
 
-  // Etiket ÖNİZLEMESİ (geoman'ın ipucu marker'ı): labelDivIcon boyutu html'e gömmez — fontSize
-  // dışarıdan yazılır (updateOverlaySizes deseni, tasarım uzayı font-size=100). İpucu marker'ı
-  // featureGroup'ta olmadığı için o yazımı kimse yapmıyordu: boyut/font değişimi yerleştirene
-  // kadar önizlemede görünmüyordu. Aynı formül, tek style yazımı (DOM ölçümü yok).
+  // Label PREVIEW (geoman's hint marker): labelDivIcon does not bake size into the html — the
+  // fontSize is written from outside (the updateOverlaySizes pattern, design space
+  // font-size=100). The hint marker is not in the featureGroup, so nobody wrote it: size/font
+  // changes were invisible until placement. Same formula, one style write (no DOM measuring).
   const styleHintLabel = (scale: number): void => {
     const el = (drawInst('Marker')?._hintMarker as unknown as { _icon?: HTMLElement } | undefined)
       ?._icon
@@ -893,10 +899,10 @@ export default function MapView({
     el.style.fontFamily = `'${l.font}', serif`
   }
 
-  // Aktif çizim aracına drawRef.current'i uygula (araç açılışı + ayar değişimi ortak yolu).
-  // Çizim ZATEN açıksa enableDraw'u YENİDEN çağırma: geoman enable() ipucu marker'ını
-  // `L.marker(map.getCenter())` ile sıfırdan doğuruyor — boyut ayarında önizleme harita ortasına
-  // sıçrıyordu (poligon/yolda da başlanmış köşeleri siler). Açıksa stil yerinde yazılır.
+  // Apply drawRef.current to the active draw tool (the shared path of tool start + setting
+  // change). With drawing ALREADY open, never call enableDraw again: geoman's enable() spawns
+  // the hint marker from scratch at `L.marker(map.getCenter())` — size tweaks made the preview
+  // leap to the map centre (and wiped begun vertices on polygon/path). When open, restyle in place.
   const applyDrawStyle = (): void => {
     const map = mapRef.current
     const tl = toolRef.current
@@ -938,11 +944,11 @@ export default function MapView({
     } else map.pm.enableDraw(shape, { pathOptions })
   }
 
-  // Tüm geoman modlarını kapatıp istenen aracı aç; aynı araca ikinci basış kapatır
+  // Close every geoman mode and open the requested tool; a second press on the same tool closes it
   const activateTool = (t: Tool): void => {
     const map = mapRef.current
     if (!map) return
-    endMeasure() // araç değişimi aktif ölçüm/navigasyon oturumunu bitirir
+    endMeasure() // a tool switch ends any active measure/navigation session
     endNav()
     map.pm.disableDraw()
     if (map.pm.globalDragModeEnabled()) map.pm.disableGlobalDragMode()
@@ -950,21 +956,21 @@ export default function MapView({
     if (toolRef.current === t) {
       toolRef.current = null
       setToolState(null)
-      syncEditMode() // edit'ten çıkılıyorsa seçili çizimin köşe marker'larını kapat
+      syncEditMode() // when leaving edit, close the selected feature's vertex markers
       return
     }
     toolRef.current = t
     setToolState(t)
-    syncEditMode() // edit'e girildiyse seçiliyi aç, başka araca geçildiyse eski edit'i kapat
-    // önizleme gerçek ayarları gösterir (metin/renk/boyut/açı) — ayar değişimiyle ortak yol
+    syncEditMode() // entering edit opens the selection; switching tools closes the old edit
+    // the preview shows the real settings (text/color/size/angle) — shared with setting changes
     if (t === 'polygon' || t === 'line' || t === 'marker' || t === 'label') applyDrawStyle()
-    // 'scale' / 'nav': geoman modu yok — ayar dalı panelde açılır, oturumlar oradan başlatılır
-    // 'edit': global mod yok — syncEditMode yalnız seçili çizimi düzenlenebilir yaptı (yukarıda)
+    // 'scale' / 'nav': no geoman mode — the settings branch opens in the panel, sessions start there
+    // 'edit': no global mode — syncEditMode made only the selection editable (above)
     else if (t === 'drag') map.pm.enableGlobalDragMode()
     else if (t === 'remove') map.pm.enableGlobalRemovalMode()
   }
 
-  // Ayar değişikliği: kaydet + aktif çizim aracına anında uygula
+  // Setting change: save + apply to the active draw tool immediately
   const updateDrawSettings = (s: DrawSettings): void => {
     drawRef.current = s
     setDrawSettingsState(s)
@@ -972,12 +978,12 @@ export default function MapView({
     applyDrawStyle()
   }
 
-  // Etiket ve pin'leri haritaya "yapıştır": ekran boyutu = taban (harita birimi) × zoom ölçeği.
-  // reposition=true yalnız ayar/içerik değişiminde (harita hareketi olmadan) verilir; zoom hot
-  // path'inde FALSE — çünkü Leaflet her tooltip'i 'zoom' olayında zaten yeniden konumlandırıyor
-  // (DivOverlay.getEvents → _updatePosition) ve bizim map handler'ımız onlardan önce çalıştığı için
-  // font yazımı Leaflet offsetWidth'i okumadan önce uygulanır. tooltip.update()'i her tikte her
-  // etiket için çağırmak yüzlerce senkron reflow = ciddi lag demekti.
+  // "Glue" labels and pins to the map: screen size = base (map units) × zoom scale.
+  // reposition=true only on setting/content changes (with no map movement); FALSE on the zoom
+  // hot path — Leaflet already repositions every tooltip on 'zoom' (DivOverlay.getEvents →
+  // _updatePosition), and our map handler runs before those, so the font write lands before
+  // Leaflet reads offsetWidth. Calling tooltip.update() per label per tick meant hundreds of
+  // synchronous reflows = serious lag.
   const updateOverlaySizes = (reposition = false): void => {
     const map = mapRef.current
     if (!map || !featureGroupRef.current) return
@@ -994,13 +1000,13 @@ export default function MapView({
         el.style.fontFamily = `'${meta.font}', serif`
         if (reposition) tooltip!.update()
       }
-      // konum pini: rozet divIcon'unu zoom'a göre ölçekle (merkez çapa; DOM'u yeniden yaratmadan)
+      // location pin: scale the badge divIcon by zoom (centre anchor; without recreating the DOM)
       const ms = markerSize.current.get(fl.featureId)
       const pinEl = (l as unknown as { _icon?: HTMLElement })._icon
       if (ms !== undefined && pinEl) {
         const w = PIN_BASE * ms.size * scale
         if (ms.ar) {
-          // serbest özel görsel: kutu 0×0, img kendi boyutunu taşır (ortalama CSS transform'la)
+          // free custom image: the box is 0×0, the img carries its own size (centred via CSS transform)
           const img = pinEl.firstElementChild as HTMLElement | null
           if (img) {
             img.style.width = `${w}px`
@@ -1013,32 +1019,32 @@ export default function MapView({
           pinEl.style.marginTop = `${-w / 2}px`
         }
       }
-      // serbest metin etiketi: pin gibi ama boyut değil FONT ölçeklenir (içteki div miras alır).
-      // tooltip.update() yok → hot path'te tek style yazımı, reflow riski yok.
+      // free text label: like a pin but the FONT scales, not the size (the inner div inherits).
+      // No tooltip.update() → one style write on the hot path, no reflow risk.
       const lt = labelText.current.get(fl.featureId)
       if (lt && pinEl) {
         pinEl.style.fontSize = `${lt.base * scale}px`
         pinEl.style.fontFamily = `'${lt.font}', serif`
       }
     })
-    // Türetilmiş mod etiketleri (haritada, featureGroup dışında): serbest etiketle aynı desen —
-    // tek fontSize yazımı, DOM ölçümü yok (SVG em boyutlaması metni + yayı birlikte ölçekler)
+    // Derived-mode labels (on the map, outside the featureGroup): same pattern as free labels
+    // — one fontSize write, no DOM measuring (SVG em sizing scales text + arc together)
     for (const d of derivedLabels.current) {
       const el = (d.m as unknown as { _icon?: HTMLElement })._icon
       if (el) el.style.fontSize = `${d.base * scale}px`
     }
-    // açık etiket önizlemesi (ipucu marker'ı da featureGroup dışında) — zoom'da onunla ölçeklensin
+    // the open label preview (the hint marker is outside the featureGroup too) — scale it on zoom
     if (toolRef.current === 'label') styleHintLabel(scale)
   }
 
-  // Sil + geri alma kaydı; geoman silme modu, sağ tık menüsü ve Del tuşu kullanır.
-  // Birden çok id verilirse TEK undo kaydı (çoklu seçimde silme tek adımda geri alınır).
+  // Delete + undo record; used by geoman's removal mode, the context menu and the Del key.
+  // With several ids, ONE undo record (a multi-select delete reverts in one step).
   const removeFeature = async (...fids: number[]): Promise<void> => {
     const all = (await api.getMap(id))?.features ?? []
     const rows = fids.map((fid) => all.find((f) => f.id === fid)).filter((r) => r !== undefined)
     for (const fid of fids) await api.deleteFeature(fid)
     if (rows.length) {
-      // Silinip yeniden oluşturulan kayıt YENİ id alır → kimlik mutable ref'te tutulur (undo deseni)
+      // A deleted-then-recreated row gets a NEW id → identity lives in a mutable ref (the undo pattern)
       const refs = rows.map((r) => ({ id: r.id, row: r }))
       const recreate = async (): Promise<void> => {
         for (const r of refs)
@@ -1062,9 +1068,9 @@ export default function MapView({
     await reloadFeatures()
   }
 
-  // --- Kopyala / yapıştır / çoğalt (Ctrl+C / Ctrl+V / Ctrl+D) ---
-  // Pano MODÜL düzeyinde: MapView harita geçişinde remount oluyor (key={m-id}), ref olsaydı
-  // kopyalanan çizim harita değişince kaybolurdu — haritalar arası yapıştırma bu sayede çalışır.
+  // --- Copy / paste / duplicate (Ctrl+C / Ctrl+V / Ctrl+D) ---
+  // The clipboard is MODULE level: MapView remounts on map switch (key={m-id}); as a ref the
+  // copied features would vanish on switch — this is what makes cross-map pasting work.
   const copySelection = (): void => {
     const feats = worldMapRef.current?.features ?? []
     setClipboard(
@@ -1074,7 +1080,7 @@ export default function MapView({
         .map((f) => ({ geometry: f.geometry, style: f.style, entity_id: f.entity_id }))
     )
   }
-  // GeoJSON koordinatlarını kaydır (Point/LineString/Polygon — iç içe dizi derinliği fark etmez)
+  // Shift GeoJSON coordinates (Point/LineString/Polygon — nesting depth is irrelevant)
   const shiftCoords = (c: unknown, dx: number, dy: number): unknown =>
     typeof (c as number[])[0] === 'number'
       ? [(c as number[])[0] + dx, (c as number[])[1] + dy]
@@ -1083,8 +1089,9 @@ export default function MapView({
     if (typeof (c as number[])[0] === 'number') fn(c as number[])
     else (c as unknown[]).forEach((k) => eachPoint(k, fn))
   }
-  // Panodakileri bu haritaya yapıştır: grubun ortası imlecin altına gelir (imleç yoksa +8 birim
-  // kaydırma — Ctrl+D çoğaltmanın da yolu bu). Yeni çizimler AKTİF zemine etiketlenir.
+  // Paste the clipboard into this map: the group's centre lands under the cursor (without a
+  // cursor, a +8-unit offset — Ctrl+D duplication uses this path too). New features are
+  // tagged to the ACTIVE board.
   const pasteClipboard = async (atCursor: boolean): Promise<void> => {
     const items = getClipboard()
     if (!items.length) return
@@ -1136,12 +1143,12 @@ export default function MapView({
   const duplicateSelection = async (): Promise<void> => {
     const keep = getClipboard()
     copySelection()
-    await pasteClipboard(false) // çoğaltma imleçten bağımsız: sabit kaydırma
-    setClipboard(keep) // Ctrl+D panoyu bozmasın
+    await pasteClipboard(false) // duplication ignores the cursor: fixed offset
+    setClipboard(keep) // Ctrl+D must not clobber the clipboard
   }
 
-  // Sınır evrimi: çizimi slider'ın yılından başlayan bir kopyaya çatalla, eskisini yıl-1'de kapat.
-  // Kullanıcı sonra yalnız değişen köşeleri düzenleme aracıyla oynatır — sıfırdan çizim yok.
+  // Border evolution: fork the feature into a copy starting at the slider year and close the
+  // old one at year-1. The user then nudges only the changed vertices — no redrawing from scratch.
   const forkFeature = async (f: Feature): Promise<void> => {
     const year = yearRef.current
     const oldStyle = JSON.parse(f.style || '{}') as FeatureStyle
@@ -1177,8 +1184,9 @@ export default function MapView({
     setSelected((await api.getMap(id))?.features.find((x) => x.id === ref.id) ?? null)
   }
 
-  // Olayı çizime bağlı olarak ekle (yıl = menünün açıldığı andaki slider yılı) — StoryMap deseni.
-  // Electron window.prompt desteklemediği için ad, üstte açılan küçük formdan alınır.
+  // Add an event bound to a feature (year = the slider year when the menu opened) — the
+  // StoryMap pattern. Electron does not support window.prompt, so the name comes from a small
+  // form that opens at the top.
   const [eventDraft, setEventDraft] = useState<{ f: Feature; year: number } | null>(null)
   const saveEventDraft = async (name: string): Promise<void> => {
     const d = eventDraft
@@ -1192,8 +1200,8 @@ export default function MapView({
     setEventsToken((x) => x + 1)
   }
 
-  // Olaya tıklanınca: çizime uç ve iki kez yanıp söndür (applyYear kanonik stile geri döndürür).
-  // Çizim başka haritadaysa önce o haritaya geçilir (tekrar tıklayınca odaklanır).
+  // Clicking an event: fly to the feature and flash it twice (applyYear restores the canonical
+  // style). On another map, switch there first (clicking again focuses).
   const focusFeature = (fid: number, mid?: number): void => {
     if (mid !== undefined && mid !== id) {
       onNavigate(mid)
@@ -1217,20 +1225,20 @@ export default function MapView({
     flash()
   }
 
-  // Reload nesli: kaydırıcı sürüklemek gibi hızlı ardışık düzenlemeler üst üste reload başlatır;
-  // yalnız EN SONUNCUSU haritaya dokunmalı. Eskiden temizlik ilk await'ten ÖNCE yapılıyordu —
-  // her çağrı tüm haritayı silip veriyi beklerken bir sonraki çağrı araya giriyor, bitişler
-  // sırasız gelince harita "ileri-geri zıplıyor"du (tüm çizimlerde birden, çünkü silinen şey
-  // bütün katman grubu). Şimdi: await'lerden sonra bayat nesil erken döner; temizle+kur tek
-  // senkron blok — harita hiç boş kare göstermez.
+  // Reload generation: rapid successive edits (dragging a slider) start overlapping reloads;
+  // only the LATEST may touch the map. Clearing used to happen BEFORE the first await — each
+  // call wiped the whole map, then while awaiting data the next call cut in, and with
+  // finishes arriving out of order the map "bounced back and forth" (all features at once,
+  // because what was wiped was the entire layer group). Now: stale generations return early
+  // after the awaits; clear+build is one synchronous block — the map never shows a blank frame.
   const reloadGen = useRef(0)
   const reloadFeatures = async (): Promise<void> => {
     const gen = ++reloadGen.current
     const wm = await api.getMap(id)
-    // Üst geçmişleri, taban küme ve renk/ad kayıtları HER modda dolar: fetih yıl tikleri,
-    // kademe çözümlemesi ve varsayılan (kök) görünümü buradan beslenir
+    // Parent histories, the base set and color/name records fill in EVERY mode: conquest year
+    // ticks, rank resolution and the default (root) view all feed from here
     const [h, cfgRaw, modes] = await Promise.all([api.hierarchy(), getHierConfig(), getMapModes()])
-    if (gen !== reloadGen.current) return // daha yeni bir reload başladı — bu bayat
+    if (gen !== reloadGen.current) return // a newer reload started — this one is stale
     setWorldMap(wm)
     worldMapRef.current = wm
     if (!wm || !featureGroupRef.current) return
@@ -1260,7 +1268,7 @@ export default function MapView({
     featArea.current.clear()
     labelGeo.current.clear()
     dimValue.current.clear()
-    // Türetilmiş etiketler haritada yaşar, featureGroup'ta değil — fg.clearLayers() sökmez
+    // Derived labels live on the map, not in the featureGroup — fg.clearLayers() won't remove them
     for (const d of derivedLabels.current) d.m.remove()
     derivedLabels.current = []
     derivedSig.current = ''
@@ -1273,11 +1281,11 @@ export default function MapView({
         (JSON.parse(e.fields || '{}') as Record<string, string>)['color'] ?? autoColor(e.name)
       )
     }
-    // En alt kademe gov-bazlıdır: her merdivenin SON etiketi o yönetim biçiminin taban
+    // The lowest rank is per-government: each ladder's LAST tag is that government's base
     // kademesidir (Atlas ile ortak lowestRungSet — tek kaynak).
     for (const eid of lowestRungSet(cfg, h.entities)) baseSet.current.add(eid)
-    // Mozaikle yönetilenler: bu haritada çizimi olan taban maddelerden başlayıp üst geçmişlerinin
-    // kapanışını al (zincir: baronluk geçmişi kontlukları, kontluk geçmişi krallıkları verir)
+    // Mosaic-governed: start from the base entities drawn on this map and take the closure of
+    // their parent histories (chain: barony histories yield counties, county histories kingdoms)
     mosaicManaged.current.clear()
     {
       const queue = wm.features
@@ -1295,8 +1303,8 @@ export default function MapView({
         }
       }
     }
-    // Kademe modu: taban poligonlar o kademedeki atalarına göre boyanır (renk applyYear'da çözülür).
-    // Boya modu: taban poligonlar fields[dim] değerine göre renklenir, değeri boş olan gri.
+    // Rank mode: base polygons painted by their ancestor at that rank (color resolved in
+    // applyYear). Paint mode: base polygons colored by fields[dim]; empty values grey.
     let paint: { base: Set<number>; color: Map<number, string> } | null = null
     let kademe: { base: Set<number> } | null = null
     const mode = activeModeRef.current
@@ -1306,33 +1314,33 @@ export default function MapView({
         if (!baseSet.current.has(e.id)) continue
         const value = (JSON.parse(e.fields || '{}') as Record<string, string>)[mode.key]
         color.set(e.id, value ? (modes.colors[mode.key]?.[value] ?? autoColor(value)) : '#666666')
-        if (value) dimValue.current.set(e.id, value) // etiket metni; değersiz (gri) bölge etiketsiz
+        if (value) dimValue.current.set(e.id, value) // label text; a valueless (grey) region gets none
       }
       paint = { base: baseSet.current, color }
     } else if (mode?.kind === 'kademe') {
       kademe = { base: baseSet.current }
-      // Kademe hedefleri: görüntülenen etiketi taşıyan maddeler
+      // Rank targets: entities carrying the displayed tag
       for (const e of h.entities)
         if (e.tags.includes(mode.key)) rungTargets.current.set(e.id, entColors.current.get(e.id)!)
     }
     const chYears = new Set<number>()
-    const derived = paint ?? kademe // türetilmiş boyama modları: yalnız taban poligonlar, etiket yok
+    const derived = paint ?? kademe // derived paint modes: base polygons only, no labels
     for (const f of wm.features) {
       const isPolygon = f.geometry.includes('"Polygon"')
       const isLine = f.geometry.includes('"LineString"')
       if (derived && (f.entity_id === null || !derived.base.has(f.entity_id) || !isPolygon))
         continue
       const style = JSON.parse(f.style || '{}') as FeatureStyle
-      // Etiket de pin gibi Point geometry'li — ayırt edici, style'da metin alanının varlığı
+      // A label has Point geometry like a pin — the discriminator is the text field in style
       const isLabel = !isPolygon && !isLine && style.text !== undefined
       const color = paint
         ? paint.color.get(f.entity_id!)!
         : kademe
-          ? '#666666' // kademe rengi applyYear'da üst zincirinden çözülür
+          ? '#666666' // the rank color is resolved from the parent chain in applyYear
           : (style.color ?? typeColor(types, f.entity_type))
       const lineOpacity = isLine ? (style.opacity ?? 0.9) : 1
       const dashArray = isLine ? lineDashArray(style.dash, style.weight ?? 3) : ''
-      // Dolgu görseli yalnız kendi görünümündeki poligonlarda (türetilmiş modlar veriye göre boyar)
+      // Fill images only on polygons in their own view (derived modes paint by data)
       const fillColor =
         !derived && isPolygon && style.fillImg ? `url(#${fillPatternId(style.fillImg)})` : color
       const gj = L.geoJSON(JSON.parse(f.geometry), {
@@ -1345,10 +1353,10 @@ export default function MapView({
           opacity: lineOpacity,
           dashArray,
           lineCap: 'round',
-          // Dolgu görselli poligonda Leaflet'in görünür-alan kırpması KAPALI: kırpılınca path'in
-          // bbox'ı küçülür, objectBoundingBox deseni kırpık parçaya gerilir → zoom/pan'de görsel
-          // kayar. noClip ile path hep tam poligon, bbox sabit, görsel yapışık. (Kişisel ölçekte
-          // kırpmasız render maliyeti önemsiz.)
+          // On an image-filled polygon Leaflet's viewport clipping is OFF: clipping shrinks
+          // the path's bbox, the objectBoundingBox pattern stretches over the clipped piece →
+          // the image slides on zoom/pan. With noClip the path is always the full polygon,
+          // the bbox fixed, the image glued. (Unclipped render cost is negligible at personal scale.)
           noClip: fillColor !== color
         } as L.PolylineOptions,
         pointToLayer: (_gf, latlng) =>
@@ -1362,18 +1370,18 @@ export default function MapView({
       if (style.board !== undefined) featBoard.current.set(f.id, style.board)
       if (style.minZoom !== undefined || style.maxZoom !== undefined)
         zoomLimits.current.set(f.id, { min: style.minZoom, max: style.maxZoom })
-      // Yön oku (sonda): gerçek çizginin path'ine marker-end (applyYear'da uygulanır)
+      // Direction arrow (at the end): marker-end on the real line's path (applied in applyYear)
       if (isLine && style.arrow === 'end') featArrow.current.set(f.id, 'end')
       if (style.from !== undefined || style.to !== undefined)
         layerYears.current.set(f.id, { from: style.from, to: style.to })
       if (f.entity_id !== null) {
         featEnt.current.set(f.id, f.entity_id)
-        // fetih yılları rayda tik olsun
+        // conquest years become rail ticks
         for (const r of parentHist.current.get(f.entity_id) ?? [])
           if (r.from !== null) chYears.add(r.from)
       }
       if (style.from !== undefined) chYears.add(style.from)
-      if (style.to !== undefined) chYears.add(style.to + 1) // değişim, bitişin ertesi yılında görünür
+      if (style.to !== undefined) chYears.add(style.to + 1) // the change shows the year after the end
       renderStyle.current.set(f.id, {
         color,
         fillColor,
@@ -1386,8 +1394,8 @@ export default function MapView({
         const fl = layer as FeatureLayer
         fl.featureId = f.id
         allLayers.current.set(f.id, [...(allLayers.current.get(f.id) ?? []), layer])
-        // Eğrilik: gerçek çizgi (köşe düzenleme için) neredeyse görünmez kalır, üstüne aynı
-        // stilde etkileşimsiz bir eğri overlay'i biner (applyYear'da isCurveControl ile eşleşir)
+        // Curvature: the real line (for vertex editing) stays near-invisible, with a
+        // non-interactive curve overlay in the same style on top (matched via isCurveControl in applyYear)
         if (isLine && style.curviness) {
           fl.isCurveControl = true
           const geoCoords = (JSON.parse(f.geometry) as { coordinates: number[][] }).coordinates
@@ -1407,10 +1415,10 @@ export default function MapView({
           const b = (layer as L.Polygon).getBounds()
           featArea.current.set(f.id, (b.getEast() - b.getWest()) * (b.getNorth() - b.getSouth()))
           if (derived) {
-            // Türetilmiş etiketler için geometri özeti. Grid yuvarlama (EPS=0.01) weld'in
-            // Chebyshev kıyasıyla aynı pay; snapping koordinatları birebir eşitlediği için
-            // hücreler tutar. ponytail: EPS-içi ama hücre sınırını aşan köşe çifti teorik
-            // olarak bileşeni bölebilir — görülürse 4 komşu hücreye de yazılır.
+            // Geometry summary for derived labels. Grid rounding (EPS=0.01) is the same
+            // tolerance as the weld's Chebyshev compare; snapping makes coordinates exactly
+            // equal, so cells hold. ponytail: a vertex pair within EPS but across a cell
+            // boundary could in theory split a component — write the 4 neighbour cells too if seen.
             const geom = JSON.parse(f.geometry) as { type: string; coordinates: number[][][] }
             if (geom.type === 'Polygon') {
               const ring = geom.coordinates[0]

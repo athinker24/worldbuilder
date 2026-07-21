@@ -29,23 +29,24 @@ import { pushUndo } from './undo'
 interface Props {
   id: number
   types: TypeDef[]
-  compact?: boolean // harita yan panelinde dar görünüm
+  compact?: boolean // narrow view inside the map side panel
   onOpen: (id: number) => void
   onChanged: () => void
   onDeleted: () => void
-  onLocateFeature?: (mapId: number, featureId: number) => void // harita geçmişinden çizime git
+  onLocateFeature?: (mapId: number, featureId: number) => void // jump to a feature from map history
 }
 
-// Bağlantı adreslerinde izin verilen şemalar. marked, `[tıkla](javascript:…)` yazımını olduğu
-// gibi <a href> içine koyar; tıklanınca kod renderer bağlamında çalışırdı (window.api → tüm
-// veritabanı). Paylaşılan bir .dunya bunu taşıyabileceği için beyaz liste zorunlu.
-// '#' wiki linklerinin kendi adresi; 'world:' nota gömülü yerel görsel (![x](world://data/…)).
+// URL schemes allowed in links. marked copies `[click](javascript:…)` into <a href> verbatim;
+// clicking it would run code in the renderer context (window.api → the whole database). A
+// shared .dunya can carry that, so an allow-list is mandatory.
+// '#' is the wiki links' own href; 'world:' is a local image embedded in a note (![x](world://data/…)).
 const SAFE_URL = /^(https?:|world:|mailto:|#)/i
 const safeHref = (href: string): string => (SAFE_URL.test(href.trim()) ? href : '#')
-// Temizlik PARSER DÜZEYİNDE: adres, HTML'e yazılmadan ÖNCE token üzerinde denetlenir. (Önceki
-// sürüm üretilen HTML'de href="…" regex'i arıyordu; bugün doğru çalışıyordu ama marked bir gün
-// tek tırnak/farklı sıra kullansa sessizce delinirdi — filtre yerine kaynakta kesmek gerekiyordu.)
-// escapeAttr: adres tırnak içine yazılıyor, marked'ın kendi kaçırmasına güvenmiyoruz.
+// Sanitising at PARSER LEVEL: the URL is checked on the token BEFORE any HTML exists. (The
+// previous version regexed href="…" in the generated HTML; correct today, but a marked release
+// emitting single quotes or another order would have silently defeated it — cut at the source,
+// not filter the output.) escapeAttr: the URL lands inside quotes, and we do not trust
+// marked's own escaping.
 const escapeAttr = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 const safeMarked = new Marked({
   renderer: {
@@ -60,9 +61,9 @@ const safeMarked = new Marked({
     }
   }
 })
-// [[Madde Adı]] → tıklanabilir wiki linki (markdown'dan önce dönüştürülür)
-// '<' önce kaçırılır: nota yazılan ham HTML (<img onerror=...> gibi) script olarak
-// çalışamaz — paylaşılan bir world.db'den gelen içerik de güvenli kalır.
+// [[Entity Name]] → clickable wiki link (converted before markdown)
+// '<' is escaped first: raw HTML typed into a note (<img onerror=...> and such) can never
+// run as script — content arriving in a shared world.db stays safe too.
 function renderMarkdown(content: string): string {
   const withWiki = content
     .replace(/</g, '&lt;')
@@ -73,12 +74,12 @@ function renderMarkdown(content: string): string {
   return safeMarked.parse(withWiki, { async: false })
 }
 
-// Sekmeli not bölgesi: fields['notes'] JSON'unda durur (şema değişikliği yok, fields['parent'] deseni)
+// Tabbed notes region: lives in the fields['notes'] JSON (no schema change; the fields['parent'] pattern)
 interface NoteTab {
   title: string
   content: string
   collapsed: boolean
-  height?: number // metin kutusunun elle ayarlanmış yüksekliği (px) — CSS resize: vertical'ın hatırlanması
+  height?: number // the textarea's hand-set height (px) — remembering CSS resize: vertical
 }
 
 function getNoteTabs(fieldsJson: string): NoteTab[] {
@@ -104,7 +105,7 @@ export default function EntityPage({
   const [entity, setEntity] = useState<Entity | null>(null)
   const [editing, setEditing] = useState(false)
   const [allEntities, setAllEntities] = useState<EntityRow[]>([])
-  // eş türetmek için tüm bağlar (ortak çocuğu olanlar birbirinin eşi sayılır)
+  // all links, to derive spouses (co-parents of a shared child count as spouses)
   const [allLinks, setAllLinks] = useState<{ from_id: number; to_id: number; relation: string }[]>(
     []
   )
@@ -115,53 +116,53 @@ export default function EntityPage({
   const [tagInput, setTagInput] = useState('')
   const [dims, setDims] = useState<string[]>([])
   const [dimValues, setDimValues] = useState<Record<string, string[]>>({})
-  // "Yönettiği" türetmek için tüm maddeler fields'lı (bu kişiyi yönetici yazan devlet/bölgeler)
+  // all entities with fields, to derive "Rules" (states/regions naming this person as ruler)
   const [hierEntities, setHierEntities] = useState<Hierarchy['entities']>([])
   const [parentName, setParentName] = useState('')
   const [parentYear, setParentYear] = useState('')
-  // Yönetici geçmişi (hanedan sistemi): yıl bazlı, kişi maddesine bağlı
+  // Ruler history (dynasty system): year-based, bound to a person entity
   const [rulerName, setRulerName] = useState('')
   const [rulerYear, setRulerYear] = useState('')
-  // Yöneten hane geçmişi (yıl bazlı, üst/yönetici ile aynı desen)
+  // Ruling-house history (year-based, same pattern as parent/ruler)
   const [houseName, setHouseName] = useState('')
   const [houseYear, setHouseYear] = useState('')
   const [treeOpen, setTreeOpen] = useState(false)
-  // Alt bölüm sekmesi: sayfa kalabalığını önlemek için aynı anda tek bölüm görünür
+  // Bottom section tab: one section visible at a time to keep the page uncluttered
   const [section, setSection] = useState<'hier' | 'dynasty' | 'links'>('hier')
-  // Not bölgesi: sağ tık menüsü + düzenleme modundaki sekmelerin indeksleri (yerel, kalıcı değil)
+  // Notes region: context menu + indices of tabs in edit mode (local, not persisted)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [noteEdit, setNoteEdit] = useState<Set<number>>(new Set())
-  // Not metin kutusu resize (CSS resize: vertical) öncesi yüksekliği — yalnız gerçek sürüklemede
-  // (mousedown≠mouseup) kaydetmek için; tek başına 'height değişti mi' kıyası ilk tıklamada da
-  // (n.height henüz yoksa) yanlışlıkla tetiklenirdi.
+  // The note textarea's height before a resize (CSS resize: vertical) — so saving happens only
+  // on a real drag (mousedown≠mouseup); a bare 'did height change' check also fired on the
+  // first click (when n.height did not exist yet).
   const noteResizeStart = useRef<number | null>(null)
-  // Harita geçmişi (OHM chronology deseni): maddenin çizimleri yıl aralıklarıyla
+  // Map history (the OHM chronology pattern): the entity's features with their year ranges
   const [feats, setFeats] = useState<
     { id: number; map_id: number; style: string; map_name: string }[]
   >([])
 
-  // [[ tamamlama önerisi (aşağıdaki onNoteInput/applyWiki kullanır)
-  // Metin kutusu STATE'te DEĞİL ref'te: state'te tutulsa `el.value = …` yazımı "render sonrası
-  // state mutasyonu" sayılıyor (react-hooks/immutability). State yalnız konum + sorgu taşır.
+  // [[ completion suggestion (used by onNoteInput/applyWiki below)
+  // The textarea sits in a REF, not state: held in state, the `el.value = …` write counts as
+  // "state mutation after render" (react-hooks/immutability). State carries only position + query.
   const sugEl = useRef<HTMLTextAreaElement | null>(null)
   const [wikiSug, setWikiSug] = useState<{ start: number; q: string; x: number; y: number } | null>(
     null
   )
   const [sugIdx, setSugIdx] = useState(0)
 
-  // Madde şablonları (settings 'templates') — uygula + bu sayfayı şablon olarak kaydet
+  // Entity templates (settings 'templates') — apply + save this page as a template
   const [tpls, setTpls] = useState<EntityTemplate[]>([])
-  const [tplDraft, setTplDraft] = useState<string | null>(null) // "şablon olarak kaydet" adı formu
+  const [tplDraft, setTplDraft] = useState<string | null>(null) // the "save as template" name form
 
   const reload = useCallback(async () => {
     setEntity(await api.getEntity(id))
   }, [id])
 
-  // Etiket/yönetim/boyut datalist'lerini tazele (ilk açılışta ve her fields kaydında)
+  // Refresh the tag/government/dimension datalists (on first load and every fields save)
   const refreshHier = useCallback(async () => {
     const [h, modes, cfg] = await Promise.all([api.hierarchy(), getMapModes(), getHierConfig()])
     setAllTags(h.tags)
-    // Ayarlar'dan eklenmiş ama henüz hiçbir maddede kullanılmamış biçimler de önerilsin
+    // Forms added in Settings but not yet used on any entity should be suggested too
     setAllGovs([...new Set([...h.govs, ...cfg.govs.map((g) => g.name)])])
     setHierEntities(h.entities)
     setDims(modes.dims)
@@ -200,10 +201,11 @@ export default function EntityPage({
   const saveFields = (f: Record<string, string>): Promise<void> =>
     save({ fields: JSON.stringify(f) })
 
-  // 📋 Şablon uygula: eksik alanları EKLER, mevcut değerlerin üstüne YAZMAZ (dayatma değil,
-  // başlangıç noktası). Tip yalnız madde tipsizken atanır. saveFields yolundan geçer → undo bedava.
-  // '_tpl' = uygulanan şablonun adı (salt bilgi — seçili göstermek için, kendisi de silinebilir/
-  // değiştirilebilir); RESERVED_FIELDS'te olduğu için serbest alan listesinde görünmez.
+  // 📋 Apply template: ADDS missing fields, never OVERWRITES existing values (a starting
+  // point, not a constraint). The type is assigned only when the entity has none. Goes through
+  // saveFields → undo for free. '_tpl' = the applied template's name (informational — to show
+  // the select as chosen; itself deletable/editable); being in RESERVED_FIELDS it never shows
+  // in the free-field list.
   const applyTemplate = (tpl: EntityTemplate): void => {
     const f = { ...fields }
     for (const [k, v] of Object.entries(tpl.fields)) if (!(k in f)) f[k] = v
@@ -213,20 +215,20 @@ export default function EntityPage({
     save(patch)
   }
 
-  // 📋 Şablon olarak kaydet: bu maddenin SERBEST alanlarını (kendi bölümü olanlar hariç —
-  // sancak/üst/notlar/yönetici/hane/renk/kişi alanları + harita modu boyutları) ve tipini alır.
+  // 📋 Save as template: takes this entity's FREE fields (excluding ones with their own
+  // sections — banner/parent/notes/ruler/house/color/person fields + map-mode dimensions) and its type.
   const saveAsTemplate = async (name: string): Promise<void> => {
     const f: Record<string, string> = {}
     for (const [k, v] of Object.entries(fields))
       if (!RESERVED_FIELDS.includes(k) && !dims.includes(k)) f[k] = v
-    const next = tpls.filter((x) => x.name !== name) // aynı adlı şablonu güncelle
+    const next = tpls.filter((x) => x.name !== name) // update a template of the same name
     const list = [...next, { name, type: entity.type || undefined, fields: f }]
     setTpls(list)
     await saveTemplates(list)
     setTplDraft(null)
   }
 
-  // De-jure üst geçmişi: fields'daki "parent" anahtarında JSON olarak durur
+  // De-jure parent history: stored as JSON under the "parent" key in fields
   const parents = getParents(entity.fields)
   const saveParents = (next: ParentRec[]): Promise<void> => {
     const f = { ...fields }
@@ -235,7 +237,7 @@ export default function EntityPage({
     return saveFields(f)
   }
 
-  // Not sekmeleri: saveFields yolundan geçtiği için undo bedavaya gelir
+  // Note tabs: they go through saveFields, so undo comes for free
   const notes = getNoteTabs(entity.fields)
   const saveNoteTabs = (next: NoteTab[]): Promise<void> => {
     const f = { ...fields }
@@ -252,13 +254,13 @@ export default function EntityPage({
       return next
     })
 
-  // Sancak: fields['banner'] = assets/ göreli yolu; eski dosya assets'te kalır (zemin görseliyle aynı)
+  // Banner: fields['banner'] = assets/-relative path; the old file stays in assets (like the base image)
   const pickBanner = async (): Promise<void> => {
     const path = await api.pickImage()
     if (path) await saveFields({ ...fields, banner: path })
   }
 
-  // Yönetici geçmişi: fields['ruler'] = [{from, id}] (üst zinciriyle aynı desen)
+  // Ruler history: fields['ruler'] = [{from, id}] (same pattern as the parent chain)
   const rulers = getYearRecs(entity.fields, 'ruler')
   const saveRulers = (next: ParentRec[]): Promise<void> => {
     const f = { ...fields }
@@ -267,7 +269,7 @@ export default function EntityPage({
     return saveFields(f)
   }
 
-  // Yöneten hane geçmişi: fields['house'] = [{from, id}] — hane ayrı bir madde (kişi değil)
+  // Ruling-house history: fields['house'] = [{from, id}] — the house is its own entity (not a person)
   const houses = getYearRecs(entity.fields, 'house')
   const saveHouses = (next: ParentRec[]): Promise<void> => {
     const f = { ...fields }
@@ -276,7 +278,7 @@ export default function EntityPage({
     return saveFields(f)
   }
 
-  // Hane girişi: ada göre herhangi bir maddeyi bul; yoksa (tipsiz) oluştur — kişi değil
+  // House input: find any entity by name; create (untyped) when missing — not a person
   const findOrCreatePlain = async (name: string): Promise<number | null> => {
     const n = name.trim()
     if (!n) return null
@@ -290,14 +292,14 @@ export default function EntityPage({
     return newId
   }
 
-  // Kişi tipleri: Ayarlar'da "Kişi" işaretlenmiş tipler — aile/hanedan alanları yer/devlet gibi
-  // maddelerle karışmasın diye ismi eşleşse bile başka tipteki bir maddeye bağlanmaz.
+  // Person types: types marked "Person" in Settings — so family/dynasty fields never bind to
+  // a place/state entity even on a name match.
   const personTypeNames = types.filter((ty) => ty.isPerson).map((ty) => ty.name)
   const personEntities = allEntities.filter((en) => personTypeNames.includes(en.type))
   const isPerson = personTypeNames.includes(entity.type)
 
-  // Kişide "Yönettiği": Ruler alanının tersi — bu kişiyi yönetici (fields.yönetici) olarak
-  // yazan devlet/bölge maddeleri, türetilir (ayrı veri yok). Ruler yer/devlette girilir.
+  // "Rules" on a person: the inverse of the Ruler field — state/region entities naming this
+  // person as ruler (fields.ruler), derived (no separate data). Ruler is entered on the place.
   const rules = isPerson
     ? hierEntities.flatMap((e) =>
         getYearRecs(e.fields, 'ruler')
@@ -306,9 +308,9 @@ export default function EntityPage({
       )
     : []
 
-  // Ada göre kişi maddesi bul; yoksa oluştur (yönetici/aile girişleri kişi maddesi olarak yaşar).
-  // Hiçbir tip "Kişi" işaretli değilse ilk kullanımda kendiliğinden bir kişi tipi kurulur —
-  // hanedan bölümüne yazılan her isim elle ayar gerekmeden kişi maddesi olur.
+  // Find a person entity by name; create when missing (ruler/family inputs live as person
+  // entities). When no type is marked "Person", one is set up automatically on first use —
+  // every name typed into the dynasty section becomes a person entity with no manual setup.
   const findOrCreate = async (name: string): Promise<number | null> => {
     const n = name.trim()
     if (!n) return null
@@ -334,22 +336,23 @@ export default function EntityPage({
     (l) => l.relation === 'mother' || l.relation === 'father'
   )
 
-  // Aile bağı düzenlemesinden sonra global grafiği de tazele (cinsiyet çıkarımı canlı güncellensin)
+  // Refresh the global graph after editing a family link (gender inference updates live)
   const reloadFamily = async (): Promise<void> => {
     await reload()
     setAllLinks(await api.listLinks())
     await refreshHier()
   }
 
-  // Kişinin çıkarılan cinsiyeti: açık fields.cinsiyet > anne/baba rolü > eşin tersi (inferGenders).
-  // Cinsiyet kutusu açık değer yoksa bunu gösterir ("otomatik"); çocuk-ekleme ilişkisi de bunu kullanır.
+  // The person's inferred gender: explicit fields.gender > mother/father role > spouse's
+  // opposite (inferGenders). The gender box shows it when no explicit value exists
+  // ("automatic"); the add-child relation uses it too.
   const inferredGender = inferGenders(hierEntities, allLinks).get(id)
   const genderValue =
     fields['gender'] ?? (inferredGender === 'M' ? 'male' : inferredGender === 'F' ? 'female' : '')
   const genderIsAuto = !fields['gender'] && !!inferredGender
 
-  // Ortak çocuğu olanlar birbirinin eşi sayılır (çocuk tek yandan yapıştırılsa bile
-  // iki ebeveyn de eş olarak türetilir) — türetilmiş chip, silinmez (linkId yok)
+  // Co-parents of a shared child count as spouses (both parents derived even when the child
+  // was attached from one side) — a derived chip, not deletable (no linkId)
   const coParents = (): { other: number; name: string }[] => {
     const myChildIds = new Set(childLinks.map((l) => l.from_id))
     const others = new Set<number>()
@@ -363,13 +366,13 @@ export default function EntityPage({
     }))
   }
 
-  // Aile bağları: 'mother'/'father'/'spouse' ilişki adlarıyla links tablosunda durur; ağaç bunlardan türetilir
+  // Family ties live in the links table as 'mother'/'father'/'spouse'; the tree is derived from them
   const familyLinks = (rel: string): { linkId?: number; other: number; name: string }[] => {
     const explicit = [
       ...entity.outLinks
         .filter((l) => l.relation === rel)
         .map((l) => ({ linkId: l.id, other: l.to_id, name: l.to_name })),
-      // eş bağı simetrik: karşı taraftan kurulmuşsa da göster
+      // the spouse link is symmetric: show it even when created from the other side
       ...(rel === 'spouse'
         ? entity.inLinks
             .filter((l) => l.relation === rel)
@@ -377,12 +380,12 @@ export default function EntityPage({
         : [])
     ]
     if (rel !== 'spouse') return explicit
-    // ortak-çocuk eşlerini ekle (zaten açık bağı olanları tekrarlama)
+    // add co-parent spouses (skip those who already have an explicit link)
     const have = new Set(explicit.map((e) => e.other))
     return [...explicit, ...coParents().filter((c) => !have.has(c.other))]
   }
 
-  // Tek aile satırı: mevcut bağlar chip olarak + (tekil dolu değilse) ekleme formu
+  // One family row: existing ties as chips + an add form (unless a singular slot is filled)
   const famRow = (label: string, rel: string, single: boolean): React.JSX.Element => {
     const cur = familyLinks(rel)
     return (
@@ -439,7 +442,7 @@ export default function EntityPage({
     )
   }
 
-  // Hiyerarşi etiketleri: fields'daki "hierarchy" anahtarında "#etiket, #etiket" olarak durur
+  // Hierarchy tags: stored in fields under "hierarchy" as "#tag, #tag"
   const tags = (fields['hierarchy'] ?? '')
     .split(',')
     .map((t) => t.trim())
@@ -460,15 +463,15 @@ export default function EntityPage({
     if (!tags.includes(t)) saveTags([...tags, t])
   }
 
-  // --- [[ ile madde adı tamamlama (Obsidian deseni) ---
-  // Textarea'lar bilinçli olarak UNCONTROLLED (defaultValue + onBlur kaydı; kontrollü yapmak
-  // tüm not düzenleme yolunu ve yükseklik kaydını değiştirirdi) → ekleme doğrudan DOM'a yazılır.
-  // Öneri kutusu textarea'nın ALTINA çapalanır: imleç konumunu piksele çevirmek için ayna div
-  // gerekirdi, kutunun altı bu iş için yeterince iyi.
+  // --- [[ entity-name completion (the Obsidian pattern) ---
+  // The textareas are deliberately UNCONTROLLED (defaultValue + save on blur; making them
+  // controlled would rewrite the whole note-editing path and height saving) → the insertion is
+  // written straight into the DOM. The suggestion box anchors BELOW the textarea: converting
+  // the caret to pixels would need a mirror div, and below-the-box is good enough.
   const sugList = wikiSug
     ? allEntities.filter((e) => e.name.toLowerCase().includes(wikiSug.q.toLowerCase())).slice(0, 8)
     : []
-  // İmleçten geriye en yakın "[[" — arada "]]" varsa bağlantı zaten kapanmış, öneri yok
+  // Nearest "[[" behind the caret — with a "]]" in between the link is already closed, no suggestion
   const onNoteInput = (e: React.FormEvent<HTMLTextAreaElement>): void => {
     const el = e.currentTarget
     const before = el.value.slice(0, el.selectionStart)
@@ -603,7 +606,7 @@ export default function EntityPage({
 
       <div className="fields">
         {Object.entries(fields)
-          .filter(([k]) => !RESERVED_FIELDS.includes(k) && !dims.includes(k)) // kendi bölümlerinde gösterilir
+          .filter(([k]) => !RESERVED_FIELDS.includes(k) && !dims.includes(k)) // shown in their own sections
           .map(([k, v]) => (
             <div className="field-row" key={k}>
               <span className="field-key">{k}</span>
@@ -643,8 +646,8 @@ export default function EntityPage({
             +
           </button>
         </form>
-        {/* Şablon: eksik alanları ekler (mevcutların üstüne yazmaz), Ctrl+Z ile geri alınır.
-            Uygulanan şablonun adı fields['_tpl']'de — select seçili göstersin diye (salt bilgi). */}
+        {/* Template: adds missing fields (never overwrites), undone with Ctrl+Z. The applied
+            template's name sits in fields['_tpl'] — so the select shows it as chosen (informational). */}
         <div className="tpl-row">
           {tpls.length > 0 && (
             <select
@@ -706,7 +709,7 @@ export default function EntityPage({
           defaultValue={entity.content}
           key={`content-${entity.id}`}
           onBlur={(e) => {
-            setWikiSug(null) // odak gidince öneri kutusu açık kalmasın
+            setWikiSug(null) // the suggestion box must not stay open after focus leaves
             if (e.target.value !== entity.content) save({ content: e.target.value })
           }}
           onInput={onNoteInput}
@@ -721,7 +724,7 @@ export default function EntityPage({
         />
       )}
 
-      {/* Not bölgesi: sağ tık → yeni sekme; her sekme aç/kapa + dikey yeniden boyutlanabilir */}
+      {/* Notes region: right-click → new tab; each tab collapses + resizes vertically */}
       <div
         className="notes-region"
         onContextMenu={(e) => {
@@ -734,7 +737,7 @@ export default function EntityPage({
               {
                 label: t('🗒 New tab'),
                 onClick: () => {
-                  setNoteEdit((prev) => new Set(prev).add(notes.length)) // yeni sekme düzenlemede açılır
+                  setNoteEdit((prev) => new Set(prev).add(notes.length)) // a new tab opens in edit mode
                   saveNoteTabs([...notes, { title: t('New note'), content: '', collapsed: false }])
                 }
               }
@@ -791,7 +794,7 @@ export default function EntityPage({
                   key={`nb-${i}-${entity.updated_at}`}
                   style={n.height ? { height: n.height } : undefined}
                   onBlur={(e) => {
-                    setWikiSug(null) // odak gidince öneri kutusu açık kalmasın
+                    setWikiSug(null) // the suggestion box must not stay open after focus leaves
                     if (e.target.value !== n.content)
                       saveNoteTabs(
                         notes.map((x, j) => (j === i ? { ...x, content: e.target.value } : x))
@@ -801,12 +804,12 @@ export default function EntityPage({
                     noteResizeStart.current = e.currentTarget.offsetHeight
                   }}
                   onMouseUp={(e) => {
-                    // Native resize sürüklemesi mousedown→mouseup arası yükseklik değiştirir;
-                    // düz tıklama (imleç konumlandırma) hiç değiştirmez, o yüzden kaydetmez.
+                    // A native resize drag changes the height between mousedown and mouseup;
+                    // a plain click (caret placement) never does, so it never saves.
                     const h = e.currentTarget.offsetHeight
                     if (h !== noteResizeStart.current)
-                      // Yüksekliği kaydetmek save→reload→remount tetikler; textarea uncontrolled
-                      // olduğu için o anki metni de al, yoksa henüz blur olmamış yazı kaybolurdu.
+                      // Saving the height triggers save→reload→remount; the textarea being
+                      // uncontrolled, grab the current text too or unblurred typing would be lost.
                       saveNoteTabs(
                         notes.map((x, j) =>
                           j === i ? { ...x, height: h, content: e.currentTarget.value } : x
@@ -1015,7 +1018,7 @@ export default function EntityPage({
               </div>
             )}
             {isPerson ? (
-              // Kişide Ruler girilmez; yönettiği devlet/bölgeler türetilerek listelenir
+              // Ruler is not entered on a person; the states/regions they rule are derived and listed
               rules.length > 0 && (
                 <div className="tag-row">
                   <span className="field-key">{t('Rules')}</span>
@@ -1092,7 +1095,7 @@ export default function EntityPage({
               </div>
             )}
             {!isPerson && (
-              // Yöneten hane: kişi olmayan maddede yönetici yanında; hane ayrı bir madde
+              // Ruling house: next to ruler on non-person entities; the house is its own entity
               <div className="tag-row">
                 <span className="field-key">{t('Ruling house')}</span>
                 <span className="chrono-list">
@@ -1191,8 +1194,9 @@ export default function EntityPage({
                 {famRow(t('Mother'), 'mother', true)}
                 {famRow(t('Father'), 'father', true)}
                 {famRow(t('Spouse'), 'spouse', false)}
-                {/* Çocuk = ters yönlü bağ (çocuk → bu kişi). İlişki bu kişinin cinsiyetine göre
-                    anne/baba olur (belirsizse baba varsayılır, cinsiyet atanınca sonrakiler düzelir). */}
+                {/* A child = a reversed link (child → this person). The relation becomes
+                    mother/father by this person's gender (father assumed when unknown; later
+                    ones correct themselves once a gender is set). */}
                 <div className="tag-row">
                   <span className="field-key">{t('Children')}</span>
                   <span className="chrono-list">
@@ -1228,7 +1232,7 @@ export default function EntityPage({
                         form.reset()
                         const child = await findOrCreate(nm)
                         if (child === null || child === id) return
-                        // İlişki bu kişinin (çıkarılan) cinsiyetine göre: kadın→anne, değilse baba
+                        // Relation by this person's (inferred) gender: female→mother, else father
                         const rel = inferredGender === 'F' ? 'mother' : 'father'
                         await api.addLink(child, id, rel)
                         reloadFamily()
@@ -1311,8 +1315,8 @@ export default function EntityPage({
           </>
         )}
 
-        {/* [[ tamamlama önerileri. onMouseDown preventDefault ŞART: tıklama textarea'yı blur
-            ederse onBlur eski metni kaydeder, remount olur ve eklemeyi geri alırdı. */}
+        {/* [[ completion suggestions. onMouseDown preventDefault is REQUIRED: if the click
+            blurred the textarea, onBlur would save the old text, remount, and undo the insert. */}
         {wikiSug && sugList.length > 0 && (
           <div className="wiki-sug" style={{ left: wikiSug.x, top: wikiSug.y }}>
             {sugList.map((en, i) => (
@@ -1330,7 +1334,7 @@ export default function EntityPage({
           </div>
         )}
 
-        {/* Üst/Yönetici/Aile/İlişkiler formları hangi sekme açık olursa olsun bu listeyi kullanır */}
+        {/* The Parent/Ruler/Family/Links forms use this list whichever tab is open */}
         <datalist id="entity-list">
           {allEntities
             .filter((en) => en.id !== id)
