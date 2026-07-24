@@ -2,28 +2,28 @@
   box-sizing: border-box;
 }
 
-/* Tema token katmanı: :root = koyu (teal, varsayılan), [data-theme='light'] = açık (turkuaz).
-   App.tsx document.documentElement.dataset.theme yazar (settings.theme). Harita İÇERİĞİ
-   (çizim renkleri, autoColor, renk seçici spektrumu, poly-label beyazı) temadan muaf. */
+/* Theme token layer: :root = dark (teal, default), [data-theme='light'] = light (turquoise).
+   App.tsx writes document.documentElement.dataset.theme (settings.theme). MAP CONTENT
+   (drawing colors, autoColor, color-picker spectrum, polygon-label white) is theme-independent. */
 :root {
-  --bg0: #0f1416; /* en derin: harita void'i, ağaç paneli */
+  --bg0: #0f1416; /* deepest: map void, tree panel */
   --bg: #151a1c;
   --bg2: #1b2225;
   --bg3: #242d30;
   --text: #d5dcdc;
   --muted: #84928f;
   --accent: #3ec4ad;
-  --accent-soft: rgba(62, 196, 173, 0.14); /* seçili zemin + focus halkası */
+  --accent-soft: rgba(62, 196, 173, 0.14); /* selected background + focus ring */
   --border: #323d40;
   --danger: #e06c75;
-  --gold: #d9a441; /* yönetici / ölçüm-aktif vurgusu */
+  --gold: #d9a441; /* ruler / active-measurement highlight */
   --male: #5b8fd6;
   --female: #d67ba8;
-  --overlay: rgba(0, 0, 0, 0.55); /* modal arkası karartma */
-  --tint-1: rgba(255, 255, 255, 0.03); /* hafif yüzey tonu */
+  --overlay: rgba(0, 0, 0, 0.55); /* modal backdrop */
+  --tint-1: rgba(255, 255, 255, 0.03); /* subtle surface tint */
   --tint-2: rgba(255, 255, 255, 0.07);
-  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4); /* küçük öğe */
-  --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.4); /* yüzen panel */
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4); /* small element */
+  --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.4); /* floating panel */
   --shadow-3: 0 12px 40px rgba(0, 0, 0, 0.55); /* diyalog / palet */
   --r-s: 5px;
   --r-m: 8px;
@@ -64,7 +64,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-size: 14px;
-  /* masaüstü uygulaması hissi: web sayfası gibi serbest metin seçimi/sürüklemesi yok */
+  /* Desktop-app feel: no free text selection/dragging like a web page. */
   user-select: none;
   -webkit-user-drag: none;
 }
@@ -76,7 +76,7 @@ textarea,
   user-select: text;
 }
 
-/* --- tipografi hiyerarşisi (tek ölçek; yerel kurallar özgüllükle ezer) --- */
+/* --- typography hierarchy (one scale; local rules override through specificity) --- */
 h2 {
   font-size: 20px;
   font-weight: 650;
@@ -96,7 +96,7 @@ h4 {
   letter-spacing: 0.5px;
 }
 
-/* --- scrollbar (masaüstü hissi) --- */
+/* --- scrollbar (desktop feel) --- */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -124,7 +124,7 @@ h4 {
   height: 100%;
 }
 
-/* --- kenar çubuğu --- */
+/* --- sidebar --- */
 .sidebar {
   width: 260px;
   min-width: 260px;
@@ -143,6 +143,67 @@ h4 {
 
 .side-section.grow {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* let the tree scroll instead of the whole sidebar */
+}
+
+/* file tree: scrolls between the header and the bottom create/sort bar */
+.side-tree {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 40px;
+}
+.side-folder {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: var(--r-s);
+  cursor: pointer;
+  white-space: nowrap;
+  font-weight: 600;
+  user-select: none;
+}
+.side-folder:hover {
+  background: var(--bg3);
+}
+.tree-caret {
+  width: 12px;
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+/* the folder's color swatch (replaces the old entity-type color) */
+.folder-color {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}
+.folder-rename {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+}
+.side-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 2px 2px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+.side-foot-spacer {
+  flex: 1;
+}
+.side-sort {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .side-head {
@@ -214,7 +275,7 @@ h4 {
   display: inline-block;
 }
 
-/* Çoklu seçim kutucuğu: en solda, satıra/başlığa mouse yaklaşınca veya seçiliyken görünür */
+/* Multi-select checkbox: leftmost, visible on row/title hover or when selected. */
 .sel-box {
   visibility: hidden;
   flex: 0 0 auto;
@@ -365,7 +426,7 @@ h4 {
   white-space: nowrap;
 }
 
-/* --- Diplomasi ağı --- */
+/* --- diplomacy web --- */
 .diplo-legend {
   display: flex;
   flex-wrap: wrap;
@@ -420,7 +481,7 @@ h4 {
   fill: var(--accent);
 }
 
-/* --- ana alan --- */
+/* --- main area --- */
 .main {
   flex: 1;
   overflow: hidden;
@@ -434,7 +495,7 @@ h4 {
   color: var(--muted);
 }
 
-/* Hata sınırı ayrıntısı — uzun yığın izi sayfayı taşırmasın */
+/* Error-boundary detail — do not let a long stack trace overflow the page. */
 .error-detail {
   max-height: 220px;
   overflow: auto;
@@ -446,7 +507,7 @@ h4 {
   padding: 8px;
 }
 
-/* Kısa bildirim (kaydetme onayı) — sağ altta, tıklanamaz */
+/* Brief notification (save confirmation) — bottom-right, non-interactive. */
 .toast {
   position: fixed;
   right: 16px;
@@ -462,7 +523,7 @@ h4 {
   font-size: 13px;
 }
 
-/* [[ madde adı tamamlama önerileri (EntityPage not/içerik metin kutuları) */
+/* [[ entity-name completion suggestions (EntityPage note/content text areas) */
 .wiki-sug {
   position: fixed;
   z-index: 1000;
@@ -497,7 +558,7 @@ h4 {
   font-size: 11px;
 }
 
-/* Kısayol yardımı (F1 / kenar çubuğu) */
+/* Shortcut help (F1 / sidebar) */
 .shortcut-table {
   border-collapse: collapse;
   margin-bottom: 8px;
@@ -519,7 +580,7 @@ kbd {
   color: var(--text);
 }
 
-/* Başlangıç ekranı (Photoshop/Krita "home"): son kullanılan .dunya dosyaları */
+/* Start screen (Photoshop/Krita "home"): recently used .dunya files. */
 .start-screen {
   width: 100%;
   max-width: 520px;
@@ -555,7 +616,7 @@ kbd {
 }
 .recent-open {
   flex: 1;
-  min-width: 0; /* uzun yol satırının ellipsis'i için (flex çocuğu varsayılan auto) */
+  min-width: 0; /* allows ellipsis for a long path (flex child defaults to auto) */
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -586,7 +647,7 @@ kbd {
 .page {
   padding: 16px 24px;
   overflow-y: auto;
-  overflow-x: hidden; /* yatay taşma scrollbar değil kırpma olsun (panel içi gömülü sayfa dahil) */
+  overflow-x: hidden; /* clip horizontal overflow rather than showing a scrollbar, including embedded pages */
   flex: 1;
   max-width: 900px;
 }
@@ -618,17 +679,12 @@ kbd {
   border-color: var(--border);
 }
 
-.type-input {
-  width: 120px;
-  border-left: 3px solid var(--border);
-}
-
 .hint {
   color: var(--muted);
   font-size: 13px;
 }
 
-/* --- alanlar (fields) ve satırlar --- */
+/* --- fields and rows --- */
 .fields {
   margin-bottom: 12px;
 }
@@ -653,7 +709,7 @@ kbd {
   opacity: 0.8;
 }
 
-/* --- içerik --- */
+/* --- content --- */
 .content-edit {
   width: 100%;
   min-height: 260px;
@@ -684,7 +740,7 @@ kbd {
   display: block;
   width: 100%;
   height: 200px;
-  object-fit: cover; /* her boyutta görsel kabul, taşan kırpılır */
+  object-fit: cover; /* accepts every image size; overflow is cropped */
   border-radius: 8px;
 }
 
@@ -692,7 +748,7 @@ kbd {
   height: 100px;
 }
 
-/* Sancak yokken görünür, tıklanabilir yer tutucu — keşfedilebilirlik */
+/* Visible, clickable placeholder when no banner exists — discoverability. */
 .banner-placeholder {
   display: block;
   width: 100%;
@@ -726,10 +782,10 @@ kbd {
   opacity: 1;
 }
 
-/* --- not sekmeleri --- */
+/* --- note tabs --- */
 .notes-region {
   margin-top: 12px;
-  min-height: 28px; /* not yokken de sağ tıklanabilir bir alan kalsın */
+  min-height: 28px; /* keep an area that can be right-clicked when there are no notes */
 }
 
 .note-tab {
@@ -755,7 +811,7 @@ kbd {
 
 .note-body {
   padding: 8px 10px;
-  resize: vertical; /* native dikey boyutlandırma — JS yok */
+  resize: vertical; /* native vertical resizing — no JS */
   overflow: auto;
   min-height: 40px;
 }
@@ -772,7 +828,58 @@ kbd {
   line-height: 1.5;
 }
 
-/* --- hanedan ağacı --- */
+/* reading mode: one note centered + enlarged over the page */
+.note-focus-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+.note-focus {
+  background: var(--bg1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-l);
+  box-shadow: var(--shadow-3);
+  width: min(900px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.note-focus-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.note-focus-title {
+  flex: 1;
+  font-weight: 600;
+  font-size: 18px;
+}
+.note-focus-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 24px;
+  font-size: 16px; /* bigger than the inline column — the point of reading mode */
+  line-height: 1.75;
+}
+.note-focus-body-edit {
+  flex: 1;
+  min-height: 50vh;
+  border: none;
+  resize: none;
+  padding: 18px 24px;
+  font-family: Consolas, monospace;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+/* --- dynasty tree --- */
 .tree-overlay {
   position: fixed;
   inset: 0;
@@ -807,7 +914,7 @@ kbd {
   padding: 24px;
 }
 
-/* Klasik CSS soyağacı bağlantı çizgileri (iç içe ul/li) */
+/* Classic CSS family-tree connector lines (nested ul/li). */
 .tree,
 .tree ul {
   display: flex;
@@ -910,7 +1017,7 @@ kbd {
   font-size: 14px;
 }
 
-/* Harita pini: renkli yuvarlak rozet + içinde beyaz kartografik ikon (divIcon) */
+/* Map pin: colored circular badge with a white cartographic icon (divIcon). */
 .pin-marker {
   background: transparent;
   border: none;
@@ -928,7 +1035,7 @@ kbd {
   box-sizing: border-box;
 }
 
-/* Rozet içinde özel görsel: daireye kırpılır (her en-boy oranı kabul) */
+/* Custom image inside a badge: clipped to a circle (any aspect ratio accepted). */
 .pin-badge-img {
   width: 100%;
   height: 100%;
@@ -936,14 +1043,14 @@ kbd {
   border-radius: 50%;
 }
 
-/* Serbest özel görsel: çerçevesiz, en-boy korunur; boyutu updateOverlaySizes yazar */
+/* Free custom image: frameless with preserved aspect ratio; updateOverlaySizes sets its size. */
 .pin-img-free {
   position: absolute;
   transform: translate(-50%, -50%);
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
 }
 
-/* Seçicideki kütüphane: görsel önizleme + üstünde kaldırma × */
+/* Picker library: image preview with a remove × overlay. */
 .pin-img-opt {
   position: relative;
 }
@@ -980,18 +1087,15 @@ kbd {
   color: var(--muted);
 }
 
-/* Serbest metin etiketi: renk + döndürme inline gelir (feature başına), font zoom'la ölçeklenir */
+/* Free-text label: color and rotation are inline per feature; font scales with zoom. */
 .map-label {
   background: transparent;
   border: none;
 }
 
-/* Etiket = SVG textPath (düz metin dahil; bkz. labelDivIcon). overflow:visible — genişlik
-   tahmini şaşarsa metin kırpılmasın. drop-shadow okunurluk için (metnin text-shadow karşılığı).
-   TIKLAMA: SVG kök kutusu metinden çok büyük (yanlarda 1em pay + en az 3em yükseklik; ölçüldü:
-   566×314 kutu vs 314×93 metin) ve boyutla büyür → kök geçirgen olmalı. Metinde visiblePainted:
-   YALNIZ harflerin üstü tıklanır. Ölçüldü: metin hattı boyunca isabet %98-100, en uzun ardışık
-   ıska 0-1px (harf aralarına basmak da çalışır), kutunun boş kalan yerleri artık haritaya geçer. */
+/* Labels use SVG textPath, including straight text (see labelDivIcon). overflow: visible avoids
+   clipping when width estimates differ. The SVG root is much larger than the text, so it must
+   be transparent to pointer events; visiblePainted keeps only the letters clickable. */
 .map-label-svg {
   position: absolute;
   overflow: visible;
@@ -1004,7 +1108,7 @@ kbd {
   cursor: pointer;
 }
 
-/* Görsel kütüphanesi ızgarası (ImageStrip — pin + poligon dolgusu) */
+/* Image-library grid (ImageStrip — pin and polygon fill). */
 .pin-picker-grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
@@ -1038,7 +1142,7 @@ kbd {
   fill: var(--text);
 }
 
-/* Zengin kart: portre (sancak) + ad + alt satır (doğum–ölüm · unvan) */
+/* Rich card: portrait (banner), name, and subline (birth–death · title). */
 .tree-portrait {
   width: 44px;
   height: 44px;
@@ -1047,7 +1151,7 @@ kbd {
   flex: none;
 }
 
-/* Portre yoksa siluet yer tutucu (kart hep portre yeri gösterir, CK3 deseni) */
+/* Silhouette placeholder without a portrait (the card always reserves portrait space, CK3 pattern). */
 .tree-portrait.placeholder {
   display: inline-flex;
   align-items: center;
@@ -1101,14 +1205,14 @@ kbd {
   color: var(--accent);
 }
 
-/* Dışarıdan evlenen eş: soluk + kesikli kenar (hane üyesi değil) */
+/* Spouse who married in: subdued with a dashed border (not a house member). */
 .tree-chip.spouse {
   border-style: dashed;
   opacity: 0.75;
   background: var(--tint-1);
 }
 
-/* Yönetici (herhangi bir maddede yönetici olmuş kişi): altın aksan + 👑 rozet */
+/* Ruler (a person who has ruled any entity): gold accent + 👑 badge. */
 .tree-chip.ruler {
   border-color: var(--gold);
 }
@@ -1118,7 +1222,7 @@ kbd {
   line-height: 1;
 }
 
-/* Cinsiyet: sol kenar rengi + ♂/♀ rozeti (ruler altın kenarını ezmesin diye sol kenar) */
+/* Gender: left-border color + ♂/♀ badge, preserving the ruler's gold border. */
 .tree-chip.male {
   border-left: 3px solid var(--male);
 }
@@ -1141,7 +1245,7 @@ kbd {
   color: var(--female);
 }
 
-/* --- ilişkiler --- */
+/* --- relations --- */
 .links-section .hier-tabs {
   margin-bottom: 10px;
 }
@@ -1172,7 +1276,7 @@ kbd {
   font-size: 13px;
 }
 
-/* --- harita --- */
+/* --- map --- */
 .map-wrap {
   display: flex;
   flex-direction: column;
@@ -1192,13 +1296,13 @@ kbd {
   flex: 1;
   display: flex;
   overflow: hidden;
-  position: relative; /* zoom HUD bunun içine konumlanır */
+  position: relative; /* zoom HUD is positioned inside this */
 }
 
 .map-host-wrap {
   flex: 1;
   display: flex;
-  position: relative; /* zoom HUD ve hiyerarşi paneli haritanın kendi alanına konumlanır */
+  position: relative; /* zoom HUD and hierarchy panel are positioned in the map's own area */
   min-width: 0;
 }
 
@@ -1207,9 +1311,8 @@ kbd {
   background: var(--bg0);
 }
 
-/* Seçim vurgusu (tek ya da Ctrl+tık ile çoklu). setStyle DEĞİL filtre: çizimin kendi rengi
-   bozulmaz (panelden renk değiştirirken sonuç görünür kalmalı). Hem SVG path'e hem divIcon'a
-   uygulanır. Harita içeriği temadan muaf — iki temada da aynı beyaz+siyah hale. */
+/* Selection highlight (single or Ctrl+click multi-select). A filter, not setStyle, preserves a
+   drawing's own color while editing. Applied to SVG paths and divIcons; map content is theme-independent. */
 .sel-feature {
   filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 5px #000);
 }
@@ -1246,7 +1349,7 @@ kbd {
   font-size: 12px;
 }
 
-/* --- form elemanları --- */
+/* --- form elements --- */
 input,
 textarea,
 select,
@@ -1284,7 +1387,7 @@ button {
 
 button:hover {
   border-color: var(--accent);
-  /* koyuda hafif aydınlanır, açıkta hafif koyulaşır — tek kural iki tema */
+  /* Slightly lighter in dark mode and darker in light mode — one rule for both themes. */
   background: color-mix(in srgb, var(--bg3), var(--text) 6%);
 }
 
@@ -1308,7 +1411,7 @@ a {
   color: var(--accent);
 }
 
-/* --- hızlı geçiş paleti (Ctrl+K) --- */
+/* --- quick-switch palette (Ctrl+K) --- */
 .palette-overlay {
   position: fixed;
   inset: 0;
@@ -1369,7 +1472,7 @@ a {
   font-size: 12px;
 }
 
-/* Tam metin eşleşmesinin bağlam parçası (madde adının altında) */
+/* Context excerpt for a full-text match (below the entity name). */
 .palette-sub {
   display: block;
   font-size: 11px;
@@ -1378,7 +1481,7 @@ a {
   text-overflow: ellipsis;
 }
 
-/* --- sağ araç paneli --- */
+/* --- right tool panel --- */
 .tool-panel {
   background: var(--bg2);
   border-left: 1px solid var(--border);
@@ -1443,7 +1546,7 @@ a {
   font-size: 12px;
 }
 
-/* --- renk seçici --- */
+/* --- color picker --- */
 .cp-trigger {
   width: 26px;
   height: 26px;
@@ -1477,7 +1580,7 @@ a {
   gap: 8px;
 }
 
-/* doygunluk/parlaklık karesi: taban rengi inline gelir, üstüne beyaz→şeffaf ve şeffaf→siyah biner */
+/* Saturation/value square: base hue is inline, overlaid with white→transparent and transparent→black. */
 .cp-sv {
   position: relative;
   flex: 1;
@@ -1547,7 +1650,7 @@ a {
   gap: 8px;
 }
 
-/* Hazır + son kullanılan renk şeritleri — swatch'lar mutlak renk (cp-sv/cp-hue gibi temadan muaf) */
+/* Preset and recently used color strips — swatches use absolute colors, independent of theme. */
 .cp-recent {
   display: flex;
   flex-wrap: wrap;
@@ -1561,12 +1664,12 @@ a {
   border-radius: var(--r-s);
   cursor: pointer;
 }
-/* Seçili hazır renk: swatch'ın kendi rengini kapatmayan dış halka */
+/* Selected preset color: outer ring that does not cover the swatch color. */
 .cp-recent-sw.active {
   border-color: var(--text);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
-/* Son kullanılanlar DAİRE — hazır renklerin karelerinden bakışta ayrılsın */
+/* Recent colors are CIRCLES, visually distinct from square preset colors. */
 .cp-recent-sw.round {
   border-radius: 50%;
 }
@@ -1591,7 +1694,7 @@ a {
 }
 
 /* --- poligon etiketi ---
-   leaflet.css main.css'ten sonra yüklendiği için çift sınıfla özgüllüğü yükseltiyoruz */
+   loaded after main.css, so use a double class to raise specificity. */
 .leaflet-tooltip.poly-label {
   background: transparent;
   border: none;
@@ -1605,7 +1708,7 @@ a {
 }
 
 .leaflet-tooltip.poly-label::before {
-  display: none; /* tooltip oku gizle */
+  display: none; /* hide tooltip arrow */
 }
 
 /* --- zoom HUD --- */
@@ -1640,7 +1743,7 @@ a {
   color: var(--text);
 }
 
-/* --- hiyerarşi (CK3 tarzı sağ alt panel) --- */
+/* --- hierarchy (CK3-style bottom-right panel) --- */
 .hier-toggle {
   position: absolute;
   right: 12px;
@@ -1660,8 +1763,8 @@ a {
   box-shadow: var(--shadow-2);
 }
 
-/* width (max-width değil): genişlik içerikten gelseydi şerit butonlara göre daralır, ray
-   kendine yer bulamazdı — kontroller ~400px yiyor. Gerçek genişlik → ray tam satırı alır. */
+/* width, not max-width: content width would shrink to the buttons and leave no room for the rail.
+   Controls consume ~400px; a real width lets the rail take the full row. */
 .timeline-strip {
   position: absolute;
   left: 50%;
@@ -1688,7 +1791,7 @@ a {
   gap: 6px;
 }
 
-/* Kontrol kümeleri: oynatma solda, adım+yıl ortada (margin auto), ayarlar sağda */
+/* Control groups: playback left, step+year centered (margin auto), settings right. */
 .tl-group {
   display: flex;
   align-items: center;
@@ -1777,7 +1880,7 @@ a {
   margin-left: -4px;
   border-radius: 50%;
   background: var(--accent);
-  border: 1px solid var(--bg); /* rayla kontrast halkası — iki temada da çalışır */
+  border: 1px solid var(--bg); /* contrast ring against the rail — works in both themes */
   cursor: pointer;
 }
 
@@ -1812,7 +1915,7 @@ a {
   padding: 6px 12px;
 }
 
-/* Ölçek çubuğu (sol alt): klasik harita cetveli — alt + yan kenarlıklı, üstünde mesafe yazısı */
+/* Scale bar (bottom-left): classic map ruler with bottom/side borders and distance text above. */
 .scale-bar {
   position: absolute;
   left: 12px;
@@ -1839,7 +1942,7 @@ a {
   color: var(--muted);
 }
 
-/* Madde şablonu satırı (alan ekleme formunun altında) */
+/* Entity-template row (below the add-field form). */
 .tpl-row {
   display: flex;
   gap: 6px;
@@ -1867,7 +1970,7 @@ a {
   color: var(--gold);
 }
 
-/* 🧭 Navigasyon paneli: seyahat modları + rota dökümü */
+/* 🧭 Navigation panel: travel modes and route breakdown. */
 .nav-mode-row {
   display: flex;
   align-items: center;
@@ -1983,7 +2086,7 @@ a {
   padding-top: 6px;
 }
 
-/* --- hiyerarşi etiket chip'leri (madde sayfası + panel) --- */
+/* --- hierarchy tag chips (entity page + panel) --- */
 .tag-row {
   display: flex;
   flex-wrap: wrap;
@@ -2033,19 +2136,19 @@ a {
   color: var(--danger);
 }
 
-/* Zaman şeridi ±10/±100 atlama butonları: dar, küçük yazı */
+/* Timeline ±10/±100 jump buttons: narrow with small text. */
 .step-jump {
   font-size: 10px;
   padding: 2px 4px;
   letter-spacing: -0.03em;
 }
 
-/* Katman menüsü: araç çubuğunda etiketli buton → açılır panel (LinearHistory deseni) */
+/* Layer menu: labeled toolbar button → popover panel (LinearHistory pattern). */
 .layers-menu {
   position: relative;
 }
 
-/* Haritada arama: sağ kümeyi (arama + dışa aktar + katmanlar) sağa iten öğe artık bu */
+/* Map search now pushes the right group (search + export + layers) rightward. */
 .map-search {
   position: relative;
   margin-left: auto;
@@ -2067,7 +2170,7 @@ a {
   margin-bottom: 0;
 }
 
-/* Haritalar açılır menüsü: satır içi ad düzenleme + yeni harita formu */
+/* Maps popover: inline name editing and new-map form. */
 .base-row {
   display: flex;
   align-items: center;
@@ -2086,7 +2189,7 @@ a {
   margin: 6px 8px 2px;
 }
 
-/* Harita satırı: ad esner, ✎/× butonları yalnız hover'da (temiz liste) */
+/* Map row: name expands; ✎/× buttons appear only on hover (clean list). */
 .layers-row > .layers-name {
   flex: 1;
   min-width: 0;
@@ -2101,7 +2204,7 @@ a {
   padding: 2px 6px;
 }
 
-/* Zoom görünürlük kaydırıcısı (seçili pin/etiket paneli) */
+/* Zoom-visibility slider (selected pin/label panel). */
 .zoom-vis-head {
   display: flex;
   align-items: center;
@@ -2236,7 +2339,7 @@ a {
   font-size: 12px;
 }
 
-/* --- sağ tık menüsü --- */
+/* --- context menu --- */
 .ctx-overlay {
   position: fixed;
   inset: 0;
@@ -2253,7 +2356,7 @@ a {
   box-shadow: var(--shadow-2);
 }
 
-/* Uygulama-içi confirm/alert (yerli window.confirm yerine — odak kaybı olmaz) */
+/* In-app confirm/alert instead of native window.confirm — avoids focus loss. */
 .dialog-overlay {
   position: fixed;
   inset: 0;

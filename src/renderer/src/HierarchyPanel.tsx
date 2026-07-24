@@ -15,7 +15,7 @@ import { useT } from './i18n'
 
 // The map's active mode: rank (paint base polygons by their ancestor at that rank — the CK3
 // realm view) or paint (color by a dimension like religion/language)
-export type ActiveMode = { kind: 'kademe' | 'boya'; key: string } | null
+export type ActiveMode = { kind: 'rank' | 'paint'; key: string } | null
 
 interface Props {
   active: ActiveMode
@@ -63,8 +63,8 @@ export default function HierarchyPanel({
     )
 
   const gov = cfg.govs.find((g) => g.name === activeGov)
-  const rungTag = active?.kind === 'kademe' ? active.key : null
-  const paintDim = active?.kind === 'boya' ? active.key : null
+  const rungTag = active?.kind === 'rank' ? active.key : null
+  const paintDim = active?.kind === 'paint' ? active.key : null
   const list = rungTag ? hier.entities.filter((e) => e.tags.includes(rungTag)) : []
 
   // Paint legend: unique values present in the active dimension
@@ -136,7 +136,7 @@ export default function HierarchyPanel({
           <button
             key={tag}
             className={`tag-chip clickable ${rungTag === tag ? 'active' : ''}`}
-            onClick={() => onMode(tag === rungTag ? null : { kind: 'kademe', key: tag })}
+            onClick={() => onMode(tag === rungTag ? null : { kind: 'rank', key: tag })}
           >
             {tag}
           </button>
@@ -155,7 +155,7 @@ export default function HierarchyPanel({
             <button
               key={d}
               className={`tag-chip clickable ${paintDim === d ? 'active' : ''}`}
-              onClick={() => onMode(d === paintDim ? null : { kind: 'boya', key: d })}
+              onClick={() => onMode(d === paintDim ? null : { kind: 'paint', key: d })}
             >
               🎨 {d}
             </button>

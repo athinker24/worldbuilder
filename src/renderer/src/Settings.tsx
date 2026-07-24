@@ -3,6 +3,7 @@ import {
   api,
   EntityTemplate,
   getHierConfig,
+  HIER_PRESETS,
   getMapModes,
   getTemplates,
   HierConfig,
@@ -14,16 +15,12 @@ import {
   saveMapModes,
   saveTemplates,
   saveTheme,
-  saveTypes,
-  Theme,
-  TypeDef
+  Theme
 } from './api'
 import { confirmDialog } from './dialog'
 import { useT } from './i18n'
 
 interface Props {
-  types: TypeDef[]
-  onChanged: () => void // the type list changed → make App reload
   lang: Lang
   onLangChange: (l: Lang) => void
   theme: Theme
@@ -31,15 +28,12 @@ interface Props {
 }
 
 export default function Settings({
-  types,
-  onChanged,
   lang,
   onLangChange,
   theme,
   onThemeChange
 }: Props): React.JSX.Element {
   const t = useT()
-  const [newName, setNewName] = useState('')
   const [hierCfg, setHierCfg] = useState<HierConfig>({ govs: [] })
   const [allTags, setAllTags] = useState<string[]>([])
   const [activeGov, setActiveGov] = useState<string | null>(null)
@@ -80,11 +74,6 @@ export default function Settings({
   // Edit the selected template's fields (the whole list is rewritten — the updateModes pattern)
   const patchTpl = (patch: Partial<EntityTemplate>): void =>
     updateTpls(tpls.map((x) => (x.name === activeTpl ? { ...x, ...patch } : x)))
-
-  const update = async (next: TypeDef[]): Promise<void> => {
-    await saveTypes(next)
-    onChanged()
-  }
 
   const updateHier = (next: HierConfig): void => {
     setHierCfg(next)
@@ -131,7 +120,7 @@ export default function Settings({
           }}
         >
           <option value="en">English</option>
-          <option value="tr">Türkçe</option>
+          <option value="tr">Turkish</option>
         </select>
       </div>
       <div className="field-row">
@@ -171,7 +160,7 @@ export default function Settings({
       <h2>{t('Export notes')}</h2>
       <p className="hint">
         {t(
-          'Write every entity’s notes to a readable .txt tree: notes/<map>/<type>/<entity>/<note>.txt. Entities appear under each map they’re drawn on; ones on no map go under “(no map)”. One-way export; the tree is rebuilt each time.'
+          'Write every entity’s notes to a readable .txt tree: notes/<map>/<folder…>/<entity>/<note>.txt, mirroring the sidebar folders. Entities appear under each map they’re drawn on; ones on no map go under “(no map)”, ones in no folder under “(no folder)”. One-way export; the tree is rebuilt each time.'
         )}
       </p>
       <div className="field-row">
@@ -187,91 +176,36 @@ export default function Settings({
         {notesMsg && <span className="hint">{notesMsg}</span>}
       </div>
 
-      <h2>{t('Entity Types')}</h2>
-      <p className="hint">
-        {t(
-          'Types are completely free: add, rename, delete. Renaming a type updates all entities of that type.'
-        )}
-      </p>
-      {types.map((ty, i) => (
-        <div className="field-row" key={i}>
-          <input
-            type="color"
-            value={ty.color}
-            onChange={(e) =>
-              update(types.map((x, j) => (j === i ? { ...x, color: e.target.value } : x)))
-            }
-          />
-          <input
-            defaultValue={ty.name}
-            key={ty.name}
-            onBlur={async (e) => {
-              const name = e.target.value.trim()
-              if (!name || name === ty.name) return
-              await api.retypeEntities(ty.name, name)
-              update(types.map((x, j) => (j === i ? { ...x, name } : x)))
-            }}
-          />
-          <label
-            className="hint"
-            title={t(
-              'Person entities: family/dynasty pickers only suggest these; they cannot be linked to map polygons.'
-            )}
-          >
-            <input
-              type="checkbox"
-              checked={!!ty.isPerson}
-              onChange={(e) =>
-                update(types.map((x, j) => (j === i ? { ...x, isPerson: e.target.checked } : x)))
-              }
-            />{' '}
-            {t('Person')}
-          </label>
-          <button
-            className="mini danger"
-            onClick={async () => {
-              if (
-                await confirmDialog(
-                  t(
-                    'Delete type "{name}" from the list? (Entities are not deleted, they keep their type)',
-                    { name: ty.name }
-                  )
-                )
-              )
-                update(types.filter((_, j) => j !== i))
-            }}
-          >
-            ×
-          </button>
-        </div>
-      ))}
-      <form
-        className="field-row add"
-        onSubmit={(e) => {
-          e.preventDefault()
-          const name = newName.trim()
-          if (name && !types.some((ty) => ty.name === name)) {
-            update([...types, { name, color: '#7bb3ff' }])
-            setNewName('')
-          }
-        }}
-      >
-        <input
-          placeholder={t('new type (state, dynasty, religion…)')}
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-        />
-        <button className="mini" type="submit">
-          +
-        </button>
-      </form>
-
       <h2>{t('Hierarchy Ranks')}</h2>
       <p className="hint">
         {t(
           'Each government form has its own rank ladder (top to bottom: empire → county, for example). Government forms appear here as tabs as they are written into the "Government form" field on entity pages.'
         )}
       </p>
+      <div className="field-row" style={{ marginBottom: 8 }}>
+        <span className="field-key">{t('Load preset')}</span>
+        <select
+          value=""
+          title={t('Adds example government forms and ladders (existing ones are kept)')}
+          onChange={(e) => {
+            const p = HIER_PRESETS.find((x) => x.name === e.target.value)
+            e.currentTarget.value = ''
+            if (!p) return
+            const existing = new Set(hierCfg.govs.map((g) => g.name))
+            const additions = p.govs.filter((g) => !existing.has(g.name))
+            if (!additions.length) return
+            updateHier({ ...hierCfg, govs: [...hierCfg.govs, ...additions] })
+            setActiveGov(additions[0].name)
+          }}
+        >
+          <option value="">{t('Add starter ladders…')}</option>
+          {HIER_PRESETS.map((p) => (
+            <option key={p.name} value={p.name}>
+              {t(p.name)}
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="hier-tags" style={{ marginBottom: 8 }}>
         {hierCfg.govs.map((g) => (
           <span
@@ -465,21 +399,6 @@ export default function Settings({
       </div>
       {tpl && (
         <>
-          <div className="field-row">
-            <span className="field-key">{t('type')}</span>
-            <input
-              list="tpl-types"
-              key={`tt-${tpl.name}`}
-              defaultValue={tpl.type ?? ''}
-              placeholder={t('(none)')}
-              onBlur={(e) => patchTpl({ type: e.target.value.trim() || undefined })}
-            />
-          </div>
-          <datalist id="tpl-types">
-            {types.map((ty) => (
-              <option key={ty.name} value={ty.name} />
-            ))}
-          </datalist>
           {Object.entries(tpl.fields).map(([k, v]) => (
             <div className="field-row" key={k}>
               <span className="field-key">{k}</span>

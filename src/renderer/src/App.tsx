@@ -2,14 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api,
   EntityRow,
+  FolderDef,
+  folderColor,
+  getEntityFolders,
   getLanguage,
   getTheme,
-  getTypes,
   Lang,
   MapRow,
-  Theme,
-  TypeDef,
-  typeColor
+  saveEntityFolders,
+  Theme
 } from './api'
 import Atlas from './Atlas'
 import ContextMenu, { MenuState } from './ContextMenu'
@@ -23,7 +24,7 @@ import MapView from './MapView'
 import Palette from './Palette'
 import Settings from './Settings'
 import Shortcuts from './Shortcuts'
-import { redo, undo } from './undo'
+import { pushUndo, redo, undo } from './undo'
 
 type View =
   | { kind: 'empty' }
@@ -38,7 +39,6 @@ type View =
 export default function App(): React.JSX.Element {
   const [entities, setEntities] = useState<EntityRow[]>([])
   const [maps, setMaps] = useState<MapRow[]>([])
-  const [types, setTypes] = useState<TypeDef[]>([])
   const [search, setSearch] = useState('')
   const [view, setView] = useState<View>({ kind: 'empty' })
   const [palette, setPalette] = useState(false)
@@ -48,6 +48,13 @@ export default function App(): React.JSX.Element {
   const [lang, setLang] = useState<Lang>('en')
   const [theme, setTheme] = useState<Theme>('dark')
   const [selected, setSelected] = useState<Set<number>>(new Set()) // multi-delete selection
+  // Sidebar file tree (Obsidian model): folders group articles; membership = each article's
+  // fields['folder']. Collapse + rename + drag are view/session state (browsing never dirties).
+  const [folders, setFolders] = useState<FolderDef[]>([])
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [renamingFolder, setRenamingFolder] = useState<string | null>(null)
+  const [sortKey, setSortKey] = useState<'az' | 'za' | 'created' | 'modified'>('az')
+  const dragItem = useRef<{ kind: 'entity' | 'folder'; id: number | string } | null>(null)
   const histRef = useRef<{ stack: View[]; idx: number }>({ stack: [], idx: -1 })
   // Read the current selection/view for the Del shortcut without a stale closure
   const selectedRef = useRef(selected)
@@ -70,10 +77,14 @@ export default function App(): React.JSX.Element {
   }, [theme])
 
   const refresh = useCallback(async () => {
-    const [e, m, t] = await Promise.all([api.listEntities(search), api.listMaps(), getTypes()])
+    const [e, m, f] = await Promise.all([
+      api.listEntities(search),
+      api.listMaps(),
+      getEntityFolders()
+    ])
     setEntities(e)
     setMaps(m)
-    setTypes(t)
+    setFolders(f)
   }, [search])
 
   useEffect(() => {
@@ -279,15 +290,43 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [refresh, deleteSelected, saveWorld, openWorld])
 
-  // Group by type (untyped under "—")
-  const groups = new Map<string, EntityRow[]>()
-  for (const e of entities) {
-    const key = e.type || '—'
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key)!.push(e)
+  // Sidebar file tree: articles are grouped under user-made folders (fields['folder']); a folder
+  // id that no longer exists resolves to root (like map boards' resolveBoard).
+  const folderIds = new Set(folders.map((f) => f.id))
+  const entSort = (a: EntityRow, b: EntityRow): number => {
+    if (sortKey === 'az') return a.name.localeCompare(b.name, 'tr')
+    if (sortKey === 'za') return b.name.localeCompare(a.name, 'tr')
+    if (sortKey === 'created') return (a.created_at ?? '').localeCompare(b.created_at ?? '')
+    return (b.updated_at ?? '').localeCompare(a.updated_at ?? '') // modified: newest first
+  }
+  const foldersOf = (parent: string | null): FolderDef[] =>
+    folders
+      .filter((f) => (f.parent ?? null) === parent)
+      .sort((a, b) =>
+        sortKey === 'za' ? b.name.localeCompare(a.name, 'tr') : a.name.localeCompare(b.name, 'tr')
+      )
+  const entitiesOf = (folderId: string | null): EntityRow[] =>
+    entities
+      .filter((e) => {
+        const f = e.folder && folderIds.has(e.folder) ? e.folder : null // orphan → root
+        return f === folderId
+      })
+      .sort(entSort)
+  // Every descendant folder id (cycle-guard for moves + promote-children on delete)
+  const descendantFolders = (id: string): Set<string> => {
+    const out = new Set<string>()
+    const walk = (p: string): void => {
+      for (const f of folders)
+        if (f.parent === p && !out.has(f.id)) {
+          out.add(f.id)
+          walk(f.id)
+        }
+    }
+    walk(id)
+    return out
   }
 
-  // Multi-select: a single entity toggles, a group header selects/clears all its entities
+  // Multi-select: the per-article checkbox toggles one; the bulk bar clears/deletes
   const toggleOne = (eid: number): void =>
     setSelected((prev) => {
       const next = new Set(prev)
@@ -295,14 +334,239 @@ export default function App(): React.JSX.Element {
       else next.add(eid)
       return next
     })
-  const toggleGroup = (ids: number[], check: boolean): void =>
-    setSelected((prev) => {
+
+  // --- Sidebar folder tree actions ---
+  const toggleCollapse = (id: string): void =>
+    setCollapsed((prev) => {
       const next = new Set(prev)
-      for (const eid of ids)
-        if (check) next.add(eid)
-        else next.delete(eid)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
+  // Folders live in settings (like map boards) — write optimistically, no undo (organisation only)
+  const writeFolders = (next: FolderDef[]): void => {
+    setFolders(next)
+    saveEntityFolders(next)
+  }
+  const addFolder = (parent: string | null = null): void => {
+    const id = crypto.randomUUID()
+    const order =
+      Math.max(0, ...folders.filter((f) => (f.parent ?? null) === parent).map((f) => f.order)) + 1
+    writeFolders([...folders, { id, name: t('New folder'), parent, order }])
+    if (parent) setCollapsed((prev) => new Set([...prev].filter((x) => x !== parent)))
+    setRenamingFolder(id)
+  }
+  const moveFolder = (id: string, parent: string | null): void => {
+    if (id === parent || (parent && descendantFolders(id).has(parent))) return // no cycle
+    writeFolders(folders.map((f) => (f.id === id ? { ...f, parent } : f)))
+  }
+  // Set an article's folder without clobbering its other fields (read-modify-write)
+  const setEntityFolder = async (eid: number, folder: string | null): Promise<void> => {
+    const ent = await api.getEntity(eid)
+    if (!ent) return
+    const f = JSON.parse(ent.fields || '{}') as Record<string, string>
+    if (folder) f.folder = folder
+    else delete f.folder
+    await api.updateEntity(eid, { fields: JSON.stringify(f) })
+  }
+  const moveEntity = async (eid: number, folder: string | null): Promise<void> => {
+    const old = entities.find((e) => e.id === eid)?.folder ?? null
+    if ((old ?? null) === folder) return
+    await setEntityFolder(eid, folder)
+    pushUndo({
+      undo: async () => {
+        await setEntityFolder(eid, old)
+        refresh()
+      },
+      redo: async () => {
+        await setEntityFolder(eid, folder)
+        refresh()
+      }
+    })
+    refresh()
+  }
+  // Delete a folder: its direct child folders + articles are promoted to the folder's parent
+  const deleteFolder = async (folder: FolderDef): Promise<void> => {
+    if (
+      !(await confirmDialog(
+        t('Delete folder "{name}"? (articles are kept)', { name: folder.name })
+      ))
+    )
+      return
+    const parent = folder.parent
+    writeFolders(
+      folders
+        .filter((f) => f.id !== folder.id)
+        .map((f) => (f.parent === folder.id ? { ...f, parent } : f))
+    )
+    for (const e of entities.filter((e) => e.folder === folder.id))
+      await setEntityFolder(e.id, parent)
+    refresh()
+  }
+  const createNote = async (folderId: string | null = null): Promise<void> => {
+    const { id } = await api.createEntity({ name: t('New Entity') })
+    if (folderId) await setEntityFolder(id, folderId)
+    await refresh()
+    openEntity(id)
+  }
+  const dropOn = (target: string | null): void => {
+    const d = dragItem.current
+    dragItem.current = null
+    if (!d) return
+    if (d.kind === 'entity') moveEntity(d.id as number, target)
+    else moveFolder(d.id as string, target)
+  }
+  const folderMenu = (ev: React.MouseEvent, folder: FolderDef): void => {
+    ev.preventDefault()
+    ev.stopPropagation()
+    setMenu({
+      x: ev.clientX,
+      y: ev.clientY,
+      items: [
+        { label: t('🗒 New note'), onClick: () => createNote(folder.id) },
+        { label: t('📁 New folder'), onClick: () => addFolder(folder.id) },
+        { label: t('✎ Rename'), onClick: () => setRenamingFolder(folder.id) },
+        {
+          // People live in folders now (the old "Person" entity type): family/dynasty pickers
+          // only suggest articles from these, and they cannot be bound to the map.
+          label: folder.isPerson ? t('👤 Person folder ✓') : t('👤 Person folder'),
+          onClick: () =>
+            writeFolders(
+              folders.map((f) => (f.id === folder.id ? { ...f, isPerson: !f.isPerson } : f))
+            )
+        },
+        { label: t('🗑 Delete'), danger: true, onClick: () => deleteFolder(folder) }
+      ]
+    })
+  }
+
+  // --- Sidebar tree render (folders recurse; articles are leaves) ---
+  const renderEntityRow = (e: EntityRow, depth: number): React.JSX.Element => (
+    <div
+      key={e.id}
+      className={`side-item ${selected.has(e.id) ? 'selected' : ''} ${view.kind === 'entity' && view.id === e.id ? 'active' : ''}`}
+      style={{ paddingLeft: 8 + depth * 12 }}
+      draggable
+      onDragStart={(ev) => {
+        dragItem.current = { kind: 'entity', id: e.id }
+        ev.dataTransfer.effectAllowed = 'move'
+      }}
+      onClick={() => openEntity(e.id)}
+      onContextMenu={(ev) => {
+        ev.preventDefault()
+        setMenu({
+          x: ev.clientX,
+          y: ev.clientY,
+          items: [
+            { label: t('📖 Open'), onClick: () => openEntity(e.id) },
+            { label: t('📍 Show on map'), onClick: () => locateEntity(e.id) },
+            {
+              label: t('🗑 Delete'),
+              danger: true,
+              onClick: async () => {
+                if (await deleteEntityWithUndo(e.id)) {
+                  if (view.kind === 'entity' && view.id === e.id) setView({ kind: 'empty' })
+                  refresh()
+                }
+              }
+            }
+          ]
+        })
+      }}
+    >
+      <input
+        type="checkbox"
+        className="sel-box"
+        checked={selected.has(e.id)}
+        onClick={(ev) => ev.stopPropagation()}
+        onChange={() => toggleOne(e.id)}
+      />
+      <span
+        className="dot"
+        style={{ background: folderColor(folders, e.folder ?? null) }}
+        title={folders.find((f) => f.id === e.folder)?.name ?? ''}
+      />
+      <span className="side-label">{e.name}</span>
+      <button
+        className="mini locate"
+        title={t('Show on map')}
+        onClick={(ev) => {
+          ev.stopPropagation()
+          locateEntity(e.id)
+        }}
+      >
+        📍
+      </button>
+    </div>
+  )
+  const renderFolderRow = (folder: FolderDef, depth: number): React.JSX.Element => {
+    const open = !collapsed.has(folder.id)
+    return (
+      <div key={`f-${folder.id}`}>
+        <div
+          className="side-folder"
+          style={{ paddingLeft: 6 + depth * 12 }}
+          draggable={renamingFolder !== folder.id}
+          onDragStart={(ev) => {
+            dragItem.current = { kind: 'folder', id: folder.id }
+            ev.dataTransfer.effectAllowed = 'move'
+          }}
+          onDragOver={(ev) => ev.preventDefault()}
+          onDrop={(ev) => {
+            ev.preventDefault()
+            ev.stopPropagation()
+            dropOn(folder.id)
+          }}
+          onClick={() => toggleCollapse(folder.id)}
+          onContextMenu={(ev) => folderMenu(ev, folder)}
+        >
+          <span className="tree-caret">{open ? '▾' : '▸'}</span>
+          {/* The folder's color (the old entity-type color, re-homed): also the default color of
+              map drawings whose article lives in this folder. */}
+          <input
+            type="color"
+            className="folder-color"
+            title={t('Folder color')}
+            value={folder.color ?? '#7bb3ff'}
+            onClick={(ev) => ev.stopPropagation()}
+            onChange={(ev) =>
+              writeFolders(
+                folders.map((f) => (f.id === folder.id ? { ...f, color: ev.target.value } : f))
+              )
+            }
+          />
+          {renamingFolder === folder.id ? (
+            <input
+              className="folder-rename"
+              autoFocus
+              defaultValue={folder.name}
+              onClick={(ev) => ev.stopPropagation()}
+              onFocus={(ev) => ev.currentTarget.select()}
+              onKeyDown={(ev) => {
+                if (ev.key === 'Enter') (ev.target as HTMLInputElement).blur()
+                else if (ev.key === 'Escape') setRenamingFolder(null)
+              }}
+              onBlur={(ev) => {
+                const v = ev.target.value.trim()
+                if (v && v !== folder.name)
+                  writeFolders(folders.map((f) => (f.id === folder.id ? { ...f, name: v } : f)))
+                setRenamingFolder(null)
+              }}
+            />
+          ) : (
+            <span className="side-label" onDoubleClick={() => setRenamingFolder(folder.id)}>
+              {folder.name}
+            </span>
+          )}
+        </div>
+        {open && renderChildren(folder.id, depth + 1)}
+      </div>
+    )
+  }
+  const renderChildren = (parent: string | null, depth: number): React.JSX.Element[] => [
+    ...foldersOf(parent).map((f) => renderFolderRow(f, depth)),
+    ...entitiesOf(parent).map((e) => renderEntityRow(e, depth))
+  ]
 
   return (
     <LangContext.Provider value={lang}>
@@ -318,16 +582,6 @@ export default function App(): React.JSX.Element {
           <div className="side-section grow">
             <div className="side-head">
               <span>{t('Entities')}</span>
-              <button
-                className="mini"
-                onClick={async () => {
-                  const { id } = await api.createEntity({ name: t('New Entity') })
-                  await refresh()
-                  openEntity(id)
-                }}
-              >
-                +
-              </button>
             </div>
             {selected.size > 0 && (
               <div className="bulk-bar">
@@ -339,75 +593,43 @@ export default function App(): React.JSX.Element {
                 </button>
               </div>
             )}
-            {[...groups.entries()].map(([type, list]) => {
-              const ids = list.map((e) => e.id)
-              const selCount = ids.filter((eid) => selected.has(eid)).length
-              return (
-                <div key={type}>
-                  <div className="group-head">
-                    <input
-                      type="checkbox"
-                      className="sel-box"
-                      checked={selCount === ids.length && ids.length > 0}
-                      ref={(el) => {
-                        if (el) el.indeterminate = selCount > 0 && selCount < ids.length
-                      }}
-                      onChange={(ev) => toggleGroup(ids, ev.target.checked)}
-                    />
-                    <span className="dot" style={{ background: typeColor(types, type) }} />
-                    {type}
-                  </div>
-                  {list.map((e) => (
-                    <div
-                      key={e.id}
-                      className={`side-item ${selected.has(e.id) ? 'selected' : ''} ${view.kind === 'entity' && view.id === e.id ? 'active' : ''}`}
-                      onClick={() => openEntity(e.id)}
-                      onContextMenu={(ev) => {
-                        ev.preventDefault()
-                        setMenu({
-                          x: ev.clientX,
-                          y: ev.clientY,
-                          items: [
-                            { label: t('📖 Open'), onClick: () => openEntity(e.id) },
-                            { label: t('📍 Show on map'), onClick: () => locateEntity(e.id) },
-                            {
-                              label: t('🗑 Delete'),
-                              danger: true,
-                              onClick: async () => {
-                                if (await deleteEntityWithUndo(e.id)) {
-                                  if (view.kind === 'entity' && view.id === e.id)
-                                    setView({ kind: 'empty' })
-                                  refresh()
-                                }
-                              }
-                            }
-                          ]
-                        })
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        className="sel-box"
-                        checked={selected.has(e.id)}
-                        onClick={(ev) => ev.stopPropagation()}
-                        onChange={() => toggleOne(e.id)}
-                      />
-                      <span className="side-label">{e.name}</span>
-                      <button
-                        className="mini locate"
-                        title={t('Show on map')}
-                        onClick={(ev) => {
-                          ev.stopPropagation()
-                          locateEntity(e.id)
-                        }}
-                      >
-                        📍
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )
-            })}
+            {/* The file tree. Dropping on empty space moves the dragged item to the root. */}
+            <div
+              className="side-tree"
+              onDragOver={(ev) => ev.preventDefault()}
+              onDrop={(ev) => {
+                ev.preventDefault()
+                dropOn(null)
+              }}
+            >
+              {search.trim()
+                ? entities
+                    .slice()
+                    .sort(entSort)
+                    .map((e) => renderEntityRow(e, 0)) // search = flat
+                : renderChildren(null, 0)}
+            </div>
+            {/* Create + sort at the bottom of the column (Obsidian) */}
+            <div className="side-foot">
+              <button className="mini" title={t('New note')} onClick={() => createNote()}>
+                {t('＋ Note')}
+              </button>
+              <button className="mini" title={t('New folder')} onClick={() => addFolder()}>
+                {t('＋ Folder')}
+              </button>
+              <span className="side-foot-spacer" />
+              <select
+                className="side-sort"
+                title={t('Sort')}
+                value={sortKey}
+                onChange={(ev) => setSortKey(ev.target.value as typeof sortKey)}
+              >
+                <option value="az">A–Z</option>
+                <option value="za">Z–A</option>
+                <option value="created">{t('Created')}</option>
+                <option value="modified">{t('Modified')}</option>
+              </select>
+            </div>
           </div>
 
           <div
@@ -498,7 +720,7 @@ export default function App(): React.JSX.Element {
             <EntityPage
               key={`e-${view.id}-${bump}`}
               id={view.id}
-              types={types}
+              folders={folders}
               onOpen={openEntity}
               onChanged={refresh}
               onDeleted={() => setView({ kind: 'empty' })}
@@ -515,21 +737,14 @@ export default function App(): React.JSX.Element {
               reloadToken={bump}
               id={view.id}
               maps={maps}
-              types={types}
+              folders={folders}
               onNavigate={openMap}
               onOpenEntity={openEntity}
               onChanged={refresh}
             />
           )}
           {view.kind === 'settings' && (
-            <Settings
-              types={types}
-              onChanged={refresh}
-              lang={lang}
-              onLangChange={setLang}
-              theme={theme}
-              onThemeChange={setTheme}
-            />
+            <Settings lang={lang} onLangChange={setLang} theme={theme} onThemeChange={setTheme} />
           )}
           {view.kind === 'chronology' && (
             <Chronology
@@ -540,7 +755,7 @@ export default function App(): React.JSX.Element {
               }}
             />
           )}
-          {view.kind === 'diplomacy' && <Diplomacy types={types} onOpenEntity={openEntity} />}
+          {view.kind === 'diplomacy' && <Diplomacy folders={folders} onOpenEntity={openEntity} />}
           {view.kind === 'atlas' && <Atlas onOpenEntity={openEntity} />}
           {view.kind === 'shortcuts' && <Shortcuts />}
         </div>
@@ -551,7 +766,7 @@ export default function App(): React.JSX.Element {
           <Palette
             entities={entities}
             maps={maps}
-            types={types}
+            folders={folders}
             onOpenEntity={openEntity}
             onOpenMap={openMap}
             onClose={() => setPalette(false)}

@@ -1,7 +1,7 @@
 {
   "name": "worldbuilding",
   "version": "1.0.0",
-  "description": "Worldbuilding masaüstü uygulaması: iç içe interaktif haritalar, ansiklopedi maddeleri, hanedanlar, diller ve zaman çizgisi — hepsi birbirine bağlı.",
+  "description": "Worldbuilding desktop app: nested interactive maps, encyclopedia articles, dynasties, languages and a timeline — all linked together.",
   "main": "./out/main/index.js",
   "author": "henryoferzincan",
   "scripts": {

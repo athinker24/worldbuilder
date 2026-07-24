@@ -16,8 +16,9 @@ import {
   ParentRec,
   RESERVED_FIELDS,
   saveTemplates,
-  saveTypes,
-  TypeDef
+  FolderDef,
+  personFolderIds,
+  saveEntityFolders
 } from './api'
 import ContextMenu, { MenuState } from './ContextMenu'
 import { confirmDialog } from './dialog'
@@ -28,7 +29,7 @@ import { pushUndo } from './undo'
 
 interface Props {
   id: number
-  types: TypeDef[]
+  folders: FolderDef[]
   compact?: boolean // narrow view inside the map side panel
   onOpen: (id: number) => void
   onChanged: () => void
@@ -94,7 +95,7 @@ function getNoteTabs(fieldsJson: string): NoteTab[] {
 
 export default function EntityPage({
   id,
-  types,
+  folders,
   compact,
   onOpen,
   onChanged,
@@ -127,6 +128,9 @@ export default function EntityPage({
   const [houseName, setHouseName] = useState('')
   const [houseYear, setHouseYear] = useState('')
   const [treeOpen, setTreeOpen] = useState(false)
+  // Reading mode: one note centered + enlarged over the page (long notes are hard to read in
+  // the narrow column). Index of the note, or null.
+  const [focusNote, setFocusNote] = useState<number | null>(null)
   // Bottom section tab: one section visible at a time to keep the page uncluttered
   const [section, setSection] = useState<'hier' | 'dynasty' | 'links'>('hier')
   // Notes region: context menu + indices of tabs in edit mode (local, not persisted)
@@ -157,6 +161,16 @@ export default function EntityPage({
   const reload = useCallback(async () => {
     setEntity(await api.getEntity(id))
   }, [id])
+
+  // Esc closes the enlarged note
+  useEffect(() => {
+    if (focusNote === null) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setFocusNote(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [focusNote])
 
   // Refresh the tag/government/dimension datalists (on first load and every fields save)
   const refreshHier = useCallback(async () => {
@@ -210,19 +224,17 @@ export default function EntityPage({
     const f = { ...fields }
     for (const [k, v] of Object.entries(tpl.fields)) if (!(k in f)) f[k] = v
     f['_tpl'] = tpl.name
-    const patch: Parameters<typeof api.updateEntity>[1] = { fields: JSON.stringify(f) }
-    if (tpl.type && !entity.type) patch.type = tpl.type
-    save(patch)
+    save({ fields: JSON.stringify(f) })
   }
 
   // 📋 Save as template: takes this entity's FREE fields (excluding ones with their own
-  // sections — banner/parent/notes/ruler/house/color/person fields + map-mode dimensions) and its type.
+  // sections — banner/parent/notes/ruler/house/color/person fields + map-mode dimensions).
   const saveAsTemplate = async (name: string): Promise<void> => {
     const f: Record<string, string> = {}
     for (const [k, v] of Object.entries(fields))
       if (!RESERVED_FIELDS.includes(k) && !dims.includes(k)) f[k] = v
     const next = tpls.filter((x) => x.name !== name) // update a template of the same name
-    const list = [...next, { name, type: entity.type || undefined, fields: f }]
+    const list = [...next, { name, fields: f }]
     setTpls(list)
     await saveTemplates(list)
     setTplDraft(null)
@@ -292,11 +304,12 @@ export default function EntityPage({
     return newId
   }
 
-  // Person types: types marked "Person" in Settings — so family/dynasty fields never bind to
-  // a place/state entity even on a name match.
-  const personTypeNames = types.filter((ty) => ty.isPerson).map((ty) => ty.name)
-  const personEntities = allEntities.filter((en) => personTypeNames.includes(en.type))
-  const isPerson = personTypeNames.includes(entity.type)
+  // People live in sidebar folders flagged "Person" — so family/dynasty fields never bind to
+  // a place/state article even on a name match.
+  const personFolders = personFolderIds(folders)
+  const personEntities = allEntities.filter((en) => !!en.folder && personFolders.has(en.folder))
+  const myFolder = (JSON.parse(entity.fields || '{}') as Record<string, string>)['folder']
+  const isPerson = !!myFolder && personFolders.has(myFolder)
 
   // "Rules" on a person: the inverse of the Ruler field — state/region entities naming this
   // person as ruler (fields.ruler), derived (no separate data). Ruler is entered on the place.
@@ -316,17 +329,25 @@ export default function EntityPage({
     if (!n) return null
     const found = personEntities.find((en) => en.name.toLowerCase() === n.toLowerCase())
     if (found) return found.id
-    let ptype = personTypeNames[0]
-    if (!ptype) {
-      ptype = t('Person')
-      const existing = types.find((ty) => ty.name === ptype)
-      await saveTypes(
-        existing
-          ? types.map((ty) => (ty.name === ptype ? { ...ty, isPerson: true } : ty))
-          : [...types, { name: ptype, color: '#c58af9', isPerson: true }]
-      )
+    // No Person folder yet? Create one on first use — typing a name into the dynasty section
+    // is all the setup there is (the old auto-created "Person" type, re-homed onto folders).
+    let pf = [...personFolders][0]
+    if (!pf) {
+      pf = crypto.randomUUID()
+      await saveEntityFolders([
+        ...folders,
+        {
+          id: pf,
+          name: t('Person'),
+          parent: null,
+          order: folders.length + 1,
+          color: '#c58af9',
+          isPerson: true
+        }
+      ])
     }
-    const { id: newId } = await api.createEntity({ name: n, type: ptype })
+    const { id: newId } = await api.createEntity({ name: n })
+    await api.updateEntity(newId, { fields: JSON.stringify({ folder: pf }) })
     setAllEntities(await api.listEntities())
     onChanged()
     return newId
@@ -574,22 +595,6 @@ export default function EntityPage({
             save({ name: e.target.value.trim() })
           }
         />
-        <input
-          className="type-input"
-          list="type-list"
-          placeholder={t('type')}
-          defaultValue={entity.type}
-          key={`type-${entity.id}-${entity.updated_at}`}
-          onBlur={(e) => e.target.value !== entity.type && save({ type: e.target.value })}
-          style={{
-            borderLeftColor: types.find((ty) => ty.name === entity.type)?.color ?? 'var(--border)'
-          }}
-        />
-        <datalist id="type-list">
-          {types.map((ty) => (
-            <option key={ty.name} value={ty.name} />
-          ))}
-        </datalist>
         <button onClick={() => setEditing(!editing)}>{editing ? t('View') : t('Edit')}</button>
         <button
           className="danger"
@@ -672,7 +677,7 @@ export default function EntityPage({
             <button
               className="mini"
               title={t('Save this page’s fields as a reusable template')}
-              onClick={() => setTplDraft(entity.type || entity.name)}
+              onClick={() => setTplDraft(entity.name)}
             >
               {t('Save as template')}
             </button>
@@ -769,6 +774,13 @@ export default function EntityPage({
                     saveNoteTabs(notes.map((x, j) => (j === i ? { ...x, title: v } : x)))
                 }}
               />
+              <button
+                className="mini"
+                title={t('Enlarge — center it on screen for reading')}
+                onClick={() => setFocusNote(i)}
+              >
+                ⛶
+              </button>
               <button
                 className="mini"
                 title={noteEdit.has(i) ? t('View') : t('Edit')}
@@ -1328,7 +1340,11 @@ export default function EntityPage({
                 onClick={() => applyWiki(en.name)}
               >
                 {en.name}
-                {en.type && <span className="wiki-sug-type">{en.type}</span>}
+                {en.folder && (
+                  <span className="wiki-sug-type">
+                    {folders.find((f) => f.id === en.folder)?.name ?? ''}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -1351,6 +1367,58 @@ export default function EntityPage({
         </datalist>
       </div>
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+      {/* Enlarged note: centered over the page for comfortable reading of long notes.
+          Click the backdrop or press Esc to close; editing works the same as inline. */}
+      {focusNote !== null &&
+        notes[focusNote] &&
+        (() => {
+          const fi = focusNote
+          const n = notes[fi]
+          return (
+            <div className="note-focus-overlay" onClick={() => setFocusNote(null)}>
+              <div className="note-focus" onClick={(e) => e.stopPropagation()}>
+                <div className="note-focus-head">
+                  <span className="note-focus-title">{n.title}</span>
+                  <button
+                    className="mini"
+                    title={noteEdit.has(fi) ? t('View') : t('Edit')}
+                    onClick={() => toggleNoteEdit(fi)}
+                  >
+                    {noteEdit.has(fi) ? '📖' : '✏️'}
+                  </button>
+                  <button className="mini" onClick={() => setFocusNote(null)}>
+                    ×
+                  </button>
+                </div>
+                {noteEdit.has(fi) ? (
+                  <textarea
+                    className="note-focus-body-edit"
+                    defaultValue={n.content}
+                    key={`nf-${fi}-${entity.updated_at}`}
+                    onBlur={(e) => {
+                      setWikiSug(null)
+                      if (e.target.value !== n.content)
+                        saveNoteTabs(
+                          notes.map((x, j) => (j === fi ? { ...x, content: e.target.value } : x))
+                        )
+                    }}
+                    onInput={onNoteInput}
+                    onKeyDown={onNoteKeyDown}
+                    placeholder={t(
+                      'Markdown content… link to other entities with [[Entity Name]].'
+                    )}
+                  />
+                ) : (
+                  <div
+                    className="note-focus-body content-view"
+                    onClick={handleWikiClick}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(n.content) }}
+                  />
+                )}
+              </div>
+            </div>
+          )
+        })()}
       {treeOpen && (
         <FamilyTree rootId={id} onOpenEntity={onOpen} onClose={() => setTreeOpen(false)} />
       )}

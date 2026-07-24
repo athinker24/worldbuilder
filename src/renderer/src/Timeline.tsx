@@ -100,6 +100,17 @@ export default function Timeline({
   }
   useEffect(() => stopPlay, []) // stop the loop on unmount
 
+  // Persist the slider position on unmount (map switch, navigation, reload) so a remount restores
+  // the user's year instead of snapping back to the last debounced save — or the default 0, which
+  // made BC-year drawings appear to vanish.
+  useEffect(
+    () => () => {
+      clearTimeout(saveTimer.current)
+      if (cfgRef.current) saveTimeline(cfgRef.current)
+    },
+    []
+  )
+
   // With the strip open, ←/→ steps years (not while typing in an input)
   useEffect(() => {
     if (!open) return

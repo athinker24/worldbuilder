@@ -41,7 +41,7 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
     getTimeline().then(setTl)
   }, [])
 
-  // Esc ile kapat
+  // Close with Esc
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose()

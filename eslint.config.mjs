@@ -26,9 +26,9 @@ export default defineConfig(
     rules: {
       ...eslintPluginReactHooks.configs.recommended.rules,
       ...eslintPluginReactRefresh.configs.vite.rules,
-      // Bileşen dosyalarından tip/sabit export ediyoruz; sadece HMR inceliğini etkiler
+      // Component files export types/constants; this affects only HMR behavior.
       'react-refresh/only-export-components': 'off',
-      // Effect'lerdeki async veri yüklemeleri (await sonrası setState) için gürültülü
+      // Noisy for async data loading in effects (setState after await).
       'react-hooks/set-state-in-effect': 'off'
     }
   },

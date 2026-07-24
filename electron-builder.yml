@@ -16,7 +16,7 @@ asarUnpack:
   - resources/**
 win:
   executableName: Worldbuilder
-  # Artifact names stay ASCII: 'ü' turns into percent-encoding in GitHub download links.
+  # Artifact names stay ASCII: non-ASCII characters turn into percent-encoding in GitHub download links.
   # This name applies to the ZIP; NSIS overrides its own below.
   artifactName: Worldbuilder-${version}-portable.${ext}
   target:

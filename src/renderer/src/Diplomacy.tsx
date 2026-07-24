@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, autoColor, TypeDef } from './api'
+import { api, autoColor, FolderDef, personFolderIds } from './api'
 import { useT } from './i18n'
 
 interface Props {
-  types: TypeDef[]
+  folders: FolderDef[]
   onOpenEntity: (id: number) => void
 }
 
@@ -13,9 +13,9 @@ const FAMILY = new Set(['mother', 'father', 'spouse'])
 // Diplomacy web (World Anvil's "diplomacy web" pattern): non-person entities on a circle,
 // their links drawn as curved lines colored by relation type. No new data — a visual view
 // over the existing links table. Layout is deterministic circular (no physics).
-export default function Diplomasi({ types, onOpenEntity }: Props): React.JSX.Element {
+export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.Element {
   const t = useT()
-  const [ents, setEnts] = useState<{ id: number; type: string; name: string }[]>([])
+  const [ents, setEnts] = useState<{ id: number; name: string; fields: string }[]>([])
   const [links, setLinks] = useState<
     { id: number; from_id: number; to_id: number; relation: string }[]
   >([])
@@ -29,11 +29,21 @@ export default function Diplomasi({ types, onOpenEntity }: Props): React.JSX.Ele
   }, [])
 
   const web = useMemo(() => {
-    const personTypes = new Set(types.filter((td) => td.isPerson).map((td) => td.name))
+    // People live in folders flagged isPerson — the diplomacy web shows only non-people
+    const personIds = personFolderIds(folders)
+    const folderOf = (fieldsJson: string): string | null => {
+      try {
+        return (JSON.parse(fieldsJson || '{}') as Record<string, string>)['folder'] ?? null
+      } catch {
+        return null
+      }
+    }
     const byId = new Map(ents.map((e) => [e.id, e]))
     const isState = (id: number): boolean => {
       const e = byId.get(id)
-      return !!e && !personTypes.has(e.type)
+      if (!e) return false
+      const f = folderOf(e.fields)
+      return !f || !personIds.has(f)
     }
     const edges = links.filter(
       (l) =>
@@ -47,7 +57,7 @@ export default function Diplomasi({ types, onOpenEntity }: Props): React.JSX.Ele
       a.localeCompare(b, 'tr')
     )
     return { nodes, edges, relations }
-  }, [ents, links, types])
+  }, [ents, links, folders])
 
   const S = 720 // SVG design space (viewBox — scales responsively)
   const R = S / 2 - 90 // circle radius (margin outside for name labels)

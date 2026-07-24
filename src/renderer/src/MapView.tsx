@@ -31,8 +31,9 @@ import {
   saveMapBoards,
   savePinImages,
   saveTimeline,
-  TypeDef,
-  typeColor,
+  FolderDef,
+  folderColor,
+  personFolderIds,
   WorldMap
 } from './api'
 import ColorPicker from './ColorPicker'
@@ -95,7 +96,7 @@ interface Props {
   focus?: { featureId: number; token: number } | null // "show on map" from the sidebar — fly to the feature
   reloadToken: number // refresh features in place after undo/redo (no map remount, zoom kept)
   maps: MapRow[]
-  types: TypeDef[]
+  folders: FolderDef[]
   onNavigate: (mapId: number) => void
   onOpenEntity: (id: number) => void
   onChanged: () => void
@@ -122,6 +123,11 @@ interface DrawInstance {
 // Pin = colored round badge with a white cartographic icon inside (divIcon). Center anchor:
 // the badge sits centered on the point. Base diameter PIN_BASE; zoom scaling in updateOverlaySizes.
 const PIN_BASE = 28
+// LOD for polygon/line borders: Leaflet's built-in per-zoom simplification (smoothFactor,
+// pixel-space Douglas–Peucker) drops vertices when zoomed out and restores full detail when zoomed
+// in — cutting the SVG path-string rebuilt every wheel-zoom frame. Display-only: geoman editing and
+// the weld read the real latlngs, not this render simplification. Raise to trade fidelity for speed.
+const BORDER_SMOOTH = 2.5
 const PIN_DEFAULT_COLOR = '#c0603a'
 // Three looks: (1) free custom image — no badge, aspect kept (transparent PNG symbols);
 // (2) custom image inside the badge — clipped to a circle (crest/portrait); (3) plain badge.
@@ -476,7 +482,7 @@ export default function MapView({
   focus,
   reloadToken,
   maps,
-  types,
+  folders,
   onNavigate,
   onOpenEntity,
   onChanged
@@ -504,14 +510,14 @@ export default function MapView({
   const selIds = selected ? [selected.id, ...extraSel.filter((x) => x !== selected.id)] : []
   const selIdsRef = useRef<number[]>([])
   const markedSel = useRef<number[]>([]) // last highlighted set (apply the diff, don't scan all layers)
-  const lastMouse = useRef<L.LatLng | null>(null) // Ctrl+V hedefi (imlecin son harita konumu)
+  const lastMouse = useRef<L.LatLng | null>(null) // Ctrl+V target (last map cursor position)
   const clearSel = (): void => {
     setSelected(null)
     setExtraSel([])
   }
   const [allEntities, setAllEntities] = useState<EntityRow[]>([])
   // Person entities cannot be bound to the map (see EntityPage — they exist for family/dynasty fields)
-  const personTypeNames = types.filter((ty) => ty.isPerson).map((ty) => ty.name)
+  const personFolders = personFolderIds(folders) // people cannot be bound to the map
   const [linkName, setLinkName] = useState('')
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [hudZoom, setHudZoom] = useState<number | null>(null)
@@ -549,11 +555,11 @@ export default function MapView({
   const featKind = useRef(new Map<number, 'polygon' | 'line' | 'pin' | 'label'>())
   // Map search: with a non-empty query, matches show in a dropdown (flown to via focusFeature)
   const [searchQ, setSearchQ] = useState('')
-  // Pin filter: hidden entity types ('' = entity-less pin). Session-only — types are mutable,
+  // Pin filter: hidden folders ('' = pin whose article is in no folder). Session-only —
   // persisting this would leave stale records after a rename.
   const [pinHidden, setPinHidden] = useState<Set<string>>(new Set())
   const pinHiddenRef = useRef(pinHidden)
-  const pinType = useRef(new Map<number, string>()) // fid → the bound entity's type
+  const pinType = useRef(new Map<number, string>()) // fid → the bound article's folder id
   // Path direction arrow: fid → 'end'|'flow' (via SVG marker-mid/end, applied to the element in applyYear)
   const featArrow = useRef(new Map<number, LineArrow>())
   // Each feature's canonical render style — applyYear repaints from these, DB-free.
@@ -573,7 +579,7 @@ export default function MapView({
   )
   // De-jure parent chain (rank view + conquest): entity → parent history, rank targets, feature → entity
   const parentHist = useRef(new Map<number, ParentRec[]>())
-  const rungTargets = useRef(new Map<number, string>()) // kademedeki maddeler → renk
+  const rungTargets = useRef(new Map<number, string>()) // entities at the rank → color
   const featEnt = useRef(new Map<number, number>())
   // For the default (root) view: base entities, every entity's color/name, feature areas
   const baseSet = useRef(new Set<number>())
@@ -826,7 +832,7 @@ export default function MapView({
         width: Math.round(rect.width),
         height: Math.round(rect.height)
       },
-      worldMap?.name ?? 'harita'
+      worldMap?.name ?? 'map'
     )
     setExporting(false)
     if (path) alertDialog(t('Exported to {path}', { path }))
@@ -1282,7 +1288,7 @@ export default function MapView({
       )
     }
     // The lowest rank is per-government: each ladder's LAST tag is that government's base
-    // kademesidir (Atlas ile ortak lowestRungSet — tek kaynak).
+    // rank (shared lowestRungSet source with Atlas).
     for (const eid of lowestRungSet(cfg, h.entities)) baseSet.current.add(eid)
     // Mosaic-governed: start from the base entities drawn on this map and take the closure of
     // their parent histories (chain: barony histories yield counties, county histories kingdoms)
@@ -1306,9 +1312,9 @@ export default function MapView({
     // Rank mode: base polygons painted by their ancestor at that rank (color resolved in
     // applyYear). Paint mode: base polygons colored by fields[dim]; empty values grey.
     let paint: { base: Set<number>; color: Map<number, string> } | null = null
-    let kademe: { base: Set<number> } | null = null
+    let rank: { base: Set<number> } | null = null
     const mode = activeModeRef.current
-    if (mode?.kind === 'boya') {
+    if (mode?.kind === 'paint') {
       const color = new Map<number, string>()
       for (const e of h.entities) {
         if (!baseSet.current.has(e.id)) continue
@@ -1317,14 +1323,14 @@ export default function MapView({
         if (value) dimValue.current.set(e.id, value) // label text; a valueless (grey) region gets none
       }
       paint = { base: baseSet.current, color }
-    } else if (mode?.kind === 'kademe') {
-      kademe = { base: baseSet.current }
+    } else if (mode?.kind === 'rank') {
+      rank = { base: baseSet.current }
       // Rank targets: entities carrying the displayed tag
       for (const e of h.entities)
         if (e.tags.includes(mode.key)) rungTargets.current.set(e.id, entColors.current.get(e.id)!)
     }
     const chYears = new Set<number>()
-    const derived = paint ?? kademe // derived paint modes: base polygons only, no labels
+    const derived = paint ?? rank // derived modes: base polygons only, no labels
     for (const f of wm.features) {
       const isPolygon = f.geometry.includes('"Polygon"')
       const isLine = f.geometry.includes('"LineString"')
@@ -1335,9 +1341,9 @@ export default function MapView({
       const isLabel = !isPolygon && !isLine && style.text !== undefined
       const color = paint
         ? paint.color.get(f.entity_id!)!
-        : kademe
+        : rank
           ? '#666666' // the rank color is resolved from the parent chain in applyYear
-          : (style.color ?? typeColor(types, f.entity_type))
+          : (style.color ?? folderColor(folders, f.entity_folder))
       const lineOpacity = isLine ? (style.opacity ?? 0.9) : 1
       const dashArray = isLine ? lineDashArray(style.dash, style.weight ?? 3) : ''
       // Fill images only on polygons in their own view (derived modes paint by data)
@@ -1353,6 +1359,9 @@ export default function MapView({
           opacity: lineOpacity,
           dashArray,
           lineCap: 'round',
+          // LOD: fewer rendered vertices when zoomed out (see BORDER_SMOOTH). Pins/labels are
+          // Point layers — smoothFactor is a no-op for them, so applying it unconditionally is fine.
+          smoothFactor: BORDER_SMOOTH,
           // On an image-filled polygon Leaflet's viewport clipping is OFF: clipping shrinks
           // the path's bbox, the objectBoundingBox pattern stretches over the clipped piece →
           // the image slides on zoom/pan. With noClip the path is always the full polygon,
@@ -1366,7 +1375,7 @@ export default function MapView({
         f.id,
         isPolygon ? 'polygon' : isLine ? 'line' : isLabel ? 'label' : 'pin'
       )
-      if (!isPolygon && !isLine && !isLabel) pinType.current.set(f.id, f.entity_type ?? '')
+      if (!isPolygon && !isLine && !isLabel) pinType.current.set(f.id, f.entity_folder ?? '')
       if (style.board !== undefined) featBoard.current.set(f.id, style.board)
       if (style.minZoom !== undefined || style.maxZoom !== undefined)
         zoomLimits.current.set(f.id, { min: style.minZoom, max: style.maxZoom })
@@ -1704,7 +1713,7 @@ export default function MapView({
       if (eid === undefined) continue
       let key: string
       let text: string
-      if (mode.kind === 'boya') {
+      if (mode.kind === 'paint') {
         const v = dimValue.current.get(eid)
         if (!v) continue
         key = 'b' + v
@@ -1812,7 +1821,7 @@ export default function MapView({
     yearRef.current = year
     const fg = featureGroupRef.current
     if (!fg) return
-    const kademeOn = activeModeRef.current?.kind === 'kademe'
+    const rankOn = activeModeRef.current?.kind === 'rank'
     // Default (root) view: base polygons painted in the color of the entity at the TOP of
     // that year's chain (no parent = top); the root's name becomes one label over its largest piece.
     const topOnly = activeModeRef.current === null
@@ -1896,7 +1905,7 @@ export default function MapView({
           }
         }
       }
-      if (kademeOn && st) {
+      if (rankOn && st) {
         const c = eid !== undefined ? rungColor(eid) : '#666666'
         st = { ...st, color: c, fillColor: c }
       }
@@ -2156,13 +2165,13 @@ export default function MapView({
       .slice(0, 12)
   }, [worldMap, searchQ])
 
-  // Entity types of this map's pins (filter chips; a filter over one type is pointless)
+  // Folders of this map's pins (filter chips; a filter over a single folder is pointless)
   const pinTypes = useMemo(
     () => [
       ...new Set(
         (worldMap?.features ?? [])
           .filter((f) => kindOf(f) === 'pin')
-          .map((f) => f.entity_type ?? '')
+          .map((f) => f.entity_folder ?? '')
       )
     ],
 
@@ -2234,7 +2243,7 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [measure !== null])
 
-  // Esc: aktif navigasyon oturumunu bitir (rota vurgusu da temizlenir)
+  // Esc ends the active navigation session and clears its route highlight.
   useEffect(() => {
     if (!nav) return
     const onKey = (e: KeyboardEvent): void => {
@@ -2485,17 +2494,48 @@ export default function MapView({
       if (boardsRef.current.list.length)
         (styleObj as Record<string, unknown>).board = boardsRef.current.active
       const style = JSON.stringify(styleObj)
-      const created = await api.createFeature({ map_id: id, geometry, style })
-      const ref = { id: created.id }
+      // A drawing IS an article: a polygon/pin/path gets its own entity at draw time, so it shows
+      // up in the sidebar tree and opens as an article (map system and article system are one).
+      // Free text labels stay pure decoration — they carry their own text and would only clutter
+      // the tree. Rename the entity from the panel or the sidebar afterwards.
+      const entName = isLabelDraw
+        ? null
+        : shape === 'Marker'
+          ? t('New pin')
+          : shape === 'Line'
+            ? t('New path')
+            : t('New region')
+      const ent = entName ? await api.createEntity({ name: entName }) : null
+      const created = await api.createFeature({
+        map_id: id,
+        geometry,
+        style,
+        ...(ent ? { entity_id: ent.id } : {})
+      })
+      const ref: { id: number; eid?: number } = { id: created.id, eid: ent?.id }
       pushUndo({
-        undo: () => api.deleteFeature(ref.id),
+        undo: async () => {
+          await api.deleteFeature(ref.id)
+          if (ref.eid !== undefined) await api.deleteEntity(ref.eid)
+          onChanged()
+        },
         redo: async () => {
-          ref.id = (await api.createFeature({ map_id: id, geometry, style })).id
+          if (entName) ref.eid = (await api.createEntity({ name: entName })).id
+          ref.id = (
+            await api.createFeature({
+              map_id: id,
+              geometry,
+              style,
+              ...(ref.eid !== undefined ? { entity_id: ref.eid } : {})
+            })
+          ).id
+          onChanged()
         }
       })
       toolRef.current = null
       setToolState(null)
       await reloadFeatures()
+      if (ent) onChanged() // the new article must appear in the sidebar tree at once
     })
     map.on('pm:remove', async (e) => {
       const fid = (e.layer as FeatureLayer).featureId
@@ -2504,6 +2544,14 @@ export default function MapView({
 
     map.setView([500, 500], 0) // default; the base image loads in its own effect
     reloadFeatures()
+    // Seed the current year from the persisted timeline BEFORE the user can draw, so a new
+    // feature's `from` is the year actually shown — not a stale 0 (yearRef starts at 0 and only
+    // syncs once Timeline's async onYear resolves). Otherwise a polygon drawn at a BC year could
+    // be saved as from:0 and vanish from that year's view.
+    getTimeline().then((tl) => {
+      yearRef.current = tl.year
+      applyYear(tl.year)
+    })
     api.listEntities().then(setAllEntities)
     api.getSetting('mapScales').then((raw) => {
       const sc = (JSON.parse(raw || '{}') as Record<number, MapScale>)[id] ?? null
@@ -2840,7 +2888,11 @@ export default function MapView({
                   </span>
                   <span className="layers-text">
                     <span className="layers-name">{name}</span>
-                    {f.entity_type && <span className="layers-desc">{f.entity_type}</span>}
+                    {f.entity_folder && (
+                      <span className="layers-desc">
+                        {folders.find((x) => x.id === f.entity_folder)?.name ?? ''}
+                      </span>
+                    )}
                   </span>
                 </div>
               ))}
@@ -3102,7 +3154,7 @@ export default function MapView({
                 ))}
                 {pinTypes.length > 1 && (
                   <>
-                    <div className="layers-panel-head">{t('Pin types')}</div>
+                    <div className="layers-panel-head">{t('Pin folders')}</div>
                     <div className="tag-row pin-type-row">
                       {pinTypes.map((ty) => (
                         <span
@@ -3110,7 +3162,7 @@ export default function MapView({
                           className={`tag-chip clickable ${pinHidden.has(ty) ? '' : 'active'}`}
                           onClick={() => togglePinType(ty)}
                         >
-                          {ty || t('(no entity)')}
+                          {folders.find((x) => x.id === ty)?.name || t('(no folder)')}
                         </span>
                       ))}
                     </div>
@@ -3381,7 +3433,7 @@ export default function MapView({
               {selIsPolygon ? (
                 <>
                   <ColorPicker
-                    value={selStyle.color ?? typeColor(types, selected.entity_type)}
+                    value={selStyle.color ?? folderColor(folders, selected.entity_folder)}
                     onChange={(color) => editSelectedStyle({ color })}
                   />
                   <label>
@@ -3684,7 +3736,7 @@ export default function MapView({
                       ...selected,
                       entity_id: null,
                       entity_name: null,
-                      entity_type: null
+                      entity_folder: null
                     })
                   )}
                 >
@@ -3692,7 +3744,7 @@ export default function MapView({
                 </button>
                 <EntityPage
                   id={selected.entity_id}
-                  types={types}
+                  folders={folders}
                   compact
                   onOpen={onOpenEntity}
                   onChanged={() => (reloadFeatures(), onChanged())}
@@ -3710,7 +3762,7 @@ export default function MapView({
                 />
                 <datalist id="entity-list-map">
                   {allEntities
-                    .filter((en) => !personTypeNames.includes(en.type))
+                    .filter((en) => !(en.folder && personFolders.has(en.folder)))
                     .map((en) => (
                       <option key={en.id} value={en.name} />
                     ))}
@@ -3720,7 +3772,7 @@ export default function MapView({
                   onClick={async () => {
                     if (!linkName.trim()) return
                     const found = allEntities.find(
-                      (en) => en.name === linkName && !personTypeNames.includes(en.type)
+                      (en) => en.name === linkName && !(en.folder && personFolders.has(en.folder))
                     )
                     if (found) return linkEntity(found.id)
                     const { id: newId } = await api.createEntity({ name: linkName.trim() })

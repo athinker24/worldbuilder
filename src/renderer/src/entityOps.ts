@@ -59,8 +59,8 @@ export async function deleteEntitiesWithUndo(ids: number[]): Promise<boolean> {
   for (const id of ids) {
     const entity = await api.getEntity(id)
     if (!entity) continue
-    const { type, name, content, fields, created_at } = entity
-    rows.push({ id, type, name, content, fields, created_at })
+    const { name, content, fields, created_at } = entity
+    rows.push({ id, name, content, fields, created_at })
     for (const l of entity.outLinks) {
       const rec = { from_id: id, to_id: l.to_id, relation: l.relation, notes: l.notes }
       linkMap.set(`${rec.from_id}|${rec.to_id}|${rec.relation}|${rec.notes}`, rec)

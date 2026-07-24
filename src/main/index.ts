@@ -20,7 +20,7 @@ import {
 // it, so renaming the app later is a one-line change here plus productName/executableName in
 // electron-builder.yml. (Worldbuilder is a placeholder until a real name is chosen.)
 const APP_NAME = 'Worldbuilder'
-const LEGACY_APP_NAME = 'Dünya' // pre-rename folder, moved on first launch (see below)
+const LEGACY_APP_NAME = 'D\u00fcnya' // pre-rename folder, moved on first launch (see below)
 const DOCS = app.getPath('documents')
 
 // All data lives under Documents\<APP_NAME> (to back up, copy that folder); the dev and packaged
@@ -81,9 +81,6 @@ async function saveWorld(as = false): Promise<string | null> {
   updateTitle()
   return target
 }
-
-// Two-language confirms for switching/closing while dirty (main has no i18n — read settings)
-const isTr = (): boolean => dbApi.getSetting('language') === 'tr'
 
 // .dunya path from argv (double-click open — the Windows file association passes it as an argument)
 const dunyaArg = (argv: string[]): string | null =>
@@ -220,15 +217,12 @@ function createWindow(): void {
   // Close guard while dirty (Photoshop pattern): Save / Don't Save / Cancel
   win.on('close', (e) => {
     if (!dirty) return
-    const tr = isTr()
     const r = dialog.showMessageBoxSync(win, {
       type: 'warning',
-      buttons: tr ? ['Kaydet', 'Kaydetme', 'İptal'] : ['Save', "Don't Save", 'Cancel'],
+      buttons: ['Save', "Don't Save", 'Cancel'],
       defaultId: 0,
       cancelId: 2,
-      message: tr
-        ? 'Kaydedilmemiş değişiklikler var. Kapatmadan önce kaydedilsin mi?'
-        : 'There are unsaved changes. Save before closing?'
+      message: 'There are unsaved changes. Save before closing?'
     })
     if (r === 2) {
       e.preventDefault()
@@ -287,15 +281,12 @@ app.on('second-instance', (_e, argv) => {
   const path = dunyaArg(argv)
   if (!path) return
   if (dirty) {
-    const tr = isTr()
     const r = dialog.showMessageBoxSync(mainWindow, {
       type: 'warning',
-      buttons: tr ? ['Aç (değişiklikleri at)', 'İptal'] : ['Open (discard changes)', 'Cancel'],
+      buttons: ['Open (discard changes)', 'Cancel'],
       defaultId: 1,
       cancelId: 1,
-      message: tr
-        ? 'Kaydedilmemiş değişiklikler var. Başka dünya açılırsa kaybolur.'
-        : 'There are unsaved changes. Opening another world will discard them.'
+      message: 'There are unsaved changes. Opening another world will discard them.'
     })
     if (r !== 0) return
   }
@@ -310,7 +301,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  adoptLegacyDataDir() // adopt the old Documents\Dünya folder (BEFORE initDb)
+  adoptLegacyDataDir() // adopt the old Documents\D\u00fcnya folder (BEFORE initDb)
   initDb(DATA_DIR)
   backupIfNeeded() // daily dated copy of world.db — restore is manual (the backups/ folder)
   const arg = dunyaArg(process.argv)

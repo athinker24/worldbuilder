@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, EntityRow, MapRow, TypeDef, typeColor } from './api'
+import { api, EntityRow, FolderDef, folderColor, MapRow } from './api'
 import { useT } from './i18n'
 
 interface Item {
@@ -14,7 +14,7 @@ interface Item {
 interface Props {
   entities: EntityRow[]
   maps: MapRow[]
-  types: TypeDef[]
+  folders: FolderDef[]
   onOpenEntity: (id: number) => void
   onOpenMap: (id: number) => void
   onClose: () => void
@@ -24,7 +24,7 @@ interface Props {
 export default function Palette({
   entities,
   maps,
-  types,
+  folders,
   onOpenEntity,
   onOpenMap,
   onClose,
@@ -36,7 +36,7 @@ export default function Palette({
 
   // Full text: content/note hits (light debounce before the IPC call)
   const [contentHits, setContentHits] = useState<
-    { id: number; type: string; name: string; snippet: string }[]
+    { id: number; folder: string | null; name: string; snippet: string }[]
   >([])
   useEffect(() => {
     const q = query.trim()
@@ -64,8 +64,8 @@ export default function Palette({
       .map((e) => ({
         key: `e${e.id}`,
         label: e.name,
-        badge: e.type || t('entity'),
-        color: typeColor(types, e.type),
+        badge: folders.find((f) => f.id === e.folder)?.name || t('entity'),
+        color: folderColor(folders, e.folder ?? null),
         open: () => onOpenEntity(e.id)
       }))
     // Content matches below name matches, with their context snippet
@@ -73,7 +73,7 @@ export default function Palette({
       key: `c${h.id}`,
       label: h.name,
       badge: t('in content'),
-      color: typeColor(types, h.type),
+      color: folderColor(folders, h.folder),
       sub: h.snippet,
       open: () => onOpenEntity(h.id)
     }))
@@ -95,7 +95,7 @@ export default function Palette({
       })
     }
     return list
-  }, [query, entities, maps, types, contentHits, onOpenEntity, onOpenMap, onChanged, t])
+  }, [query, entities, maps, folders, contentHits, onOpenEntity, onOpenMap, onChanged, t])
 
   const pick = (i: Item): void => {
     i.open()

@@ -82,27 +82,27 @@ export function initDb(dataDir: string): void {
 // idempotent: a key already migrated is simply absent, and an existing English key is never
 // overwritten by a stale Turkish one.
 const FIELD_RENAMES: Record<string, string> = {
-  sancak: 'banner',
-  üst: 'parent',
-  notlar: 'notes',
-  hiyerarşi: 'hierarchy',
-  yönetim: 'government',
-  yönetici: 'ruler',
-  hane: 'house',
-  renk: 'color',
-  cinsiyet: 'gender',
-  doğum: 'birth',
-  ölüm: 'death'
+  '\u0073\u0061\u006e\u0063\u0061\u006b': 'banner',
+  '\u00fcst': 'parent',
+  '\u006e\u006f\u0074\u006c\u0061\u0072': 'notes',
+  'hiyerar\u015fi': 'hierarchy',
+  'y\u00f6netim': 'government',
+  'y\u00f6netici': 'ruler',
+  '\u0068\u0061\u006e\u0065': 'house',
+  '\u0072\u0065\u006e\u006b': 'color',
+  '\u0063\u0069\u006e\u0073\u0069\u0079\u0065\u0074': 'gender',
+  'do\u011fum': 'birth',
+  '\u00f6l\u00fcm': 'death'
 }
 // Family links live in links.relation, so they need the same treatment
 const RELATION_RENAMES: Record<string, string> = {
-  anne: 'mother',
-  baba: 'father',
-  eş: 'spouse'
+  '\u0061\u006e\u006e\u0065': 'mother',
+  '\u0062\u0061\u0062\u0061': 'father',
+  'e\u015f': 'spouse'
 }
 
 /** Rename legacy Turkish data keys to their English equivalents; returns rows touched.
- *  Only the fixed set above is renamed — map-mode dimensions (din, dil, kültür…) are the
+ *  Only the fixed set above is renamed — map-mode dimensions are the
  *  user's own vocabulary and must be left exactly as typed. */
 export function migrateLegacyKeys(): number {
   let changed = 0
@@ -125,9 +125,9 @@ export function migrateLegacyKeys(): number {
       delete obj[from]
       touched = true
     }
-    // Gender VALUES are persisted vocabulary too ('erkek'/'kadın' → 'male'/'female')
-    if (obj['gender'] === 'erkek' || obj['gender'] === 'kadın') {
-      obj['gender'] = obj['gender'] === 'erkek' ? 'male' : 'female'
+    // Legacy gender values are persisted vocabulary too.
+    if (obj['gender'] === '\u0065\u0072\u006b\u0065\u006b' || obj['gender'] === 'kad\u0131n') {
+      obj['gender'] = obj['gender'] === '\u0065\u0072\u006b\u0065\u006b' ? 'male' : 'female'
       touched = true
     }
     if (touched) {
@@ -353,8 +353,12 @@ function patchSql(
 export const api = {
   // --- maddeler ---
   listEntities(search = ''): unknown[] {
+    // folder = the sidebar file-tree membership (fields['folder']); timestamps drive its sort menu
     return db
-      .prepare(`SELECT id, type, name FROM entities WHERE name LIKE ? ORDER BY type, name`)
+      .prepare(
+        `SELECT id, name, json_extract(fields, '$.folder') AS folder, created_at, updated_at
+         FROM entities WHERE name LIKE ? ORDER BY name`
+      )
       .all(`%${search}%`)
   },
   // Full-text search: entities whose content, note tabs or free-field values match, with a
@@ -365,15 +369,19 @@ export const api = {
   searchContent(q: string): unknown[] {
     const needle = q.trim().toLocaleLowerCase('tr')
     if (needle.length < 2) return []
-    const TECH = new Set(['banner', 'parent', 'ruler', 'house', 'notes', 'color'])
-    const rows = db.prepare(`SELECT id, type, name, content, fields FROM entities`).all() as {
+    const TECH = new Set(['banner', 'parent', 'ruler', 'house', 'notes', 'color', 'folder'])
+    const rows = db
+      .prepare(
+        `SELECT id, name, content, fields, json_extract(fields, '$.folder') AS folder FROM entities`
+      )
+      .all() as {
       id: number
-      type: string
+      folder: string | null
       name: string
       content: string
       fields: string
     }[]
-    const hits: { id: number; type: string; name: string; snippet: string }[] = []
+    const hits: { id: number; folder: string | null; name: string; snippet: string }[] = []
     for (const r of rows) {
       if (r.name.toLocaleLowerCase('tr').includes(needle)) continue // name matches are already in the list
       // Searchable text: content, note tabs (title + body), free-field values
@@ -396,7 +404,7 @@ export const api = {
           (start > 0 ? '…' : '') +
           src.slice(start, i + needle.length + 40).replace(/\s+/g, ' ') +
           (i + needle.length + 40 < src.length ? '…' : '')
-        hits.push({ id: r.id, type: r.type, name: r.name, snippet })
+        hits.push({ id: r.id, folder: r.folder, name: r.name, snippet })
         break
       }
       if (hits.length >= 15) break
@@ -424,18 +432,19 @@ export const api = {
   },
   findEntityByName(name: string): unknown {
     return (
-      db.prepare(`SELECT id, type, name FROM entities WHERE name = ? COLLATE NOCASE`).get(name) ??
-      null
+      db.prepare(`SELECT id, name FROM entities WHERE name = ? COLLATE NOCASE`).get(name) ?? null
     )
   },
-  createEntity(e: { type?: string; name: string; content?: string; fields?: string }): unknown {
+  // The legacy `type` column is kept (older .dunya files still carry it) but no longer used:
+  // articles are organised by sidebar folders now.
+  createEntity(e: { name: string; content?: string; fields?: string }): unknown {
     const r = db
-      .prepare(`INSERT INTO entities (type, name, content, fields) VALUES (?, ?, ?, ?)`)
-      .run(e.type ?? '', e.name, e.content ?? '', e.fields ?? '{}')
+      .prepare(`INSERT INTO entities (name, content, fields) VALUES (?, ?, ?)`)
+      .run(e.name, e.content ?? '', e.fields ?? '{}')
     return { id: Number(r.lastInsertRowid) }
   },
   updateEntity(id: number, patch: Record<string, unknown>): void {
-    const p = patchSql('entities', ['type', 'name', 'content', 'fields'], patch)
+    const p = patchSql('entities', ['name', 'content', 'fields'], patch)
     if (p)
       db.prepare(`${p.sql}, updated_at = datetime('now') WHERE id = ?`).run(
         ...(p.vals as never[]),
@@ -449,7 +458,6 @@ export const api = {
   restoreEntity(
     row: {
       id: number
-      type: string
       name: string
       content: string
       fields: string
@@ -459,8 +467,8 @@ export const api = {
     featureIds: number[]
   ): void {
     db.prepare(
-      `INSERT INTO entities (id, type, name, content, fields, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(row.id, row.type, row.name, row.content, row.fields, row.created_at)
+      `INSERT INTO entities (id, name, content, fields, created_at) VALUES (?, ?, ?, ?, ?)`
+    ).run(row.id, row.name, row.content, row.fields, row.created_at)
     for (const l of links)
       db.prepare(`INSERT INTO links (from_id, to_id, relation, notes) VALUES (?, ?, ?, ?)`).run(
         l.from_id,
@@ -476,7 +484,6 @@ export const api = {
   restoreEntities(
     rows: {
       id: number
-      type: string
       name: string
       content: string
       fields: string
@@ -487,8 +494,8 @@ export const api = {
   ): void {
     for (const row of rows)
       db.prepare(
-        `INSERT INTO entities (id, type, name, content, fields, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(row.id, row.type, row.name, row.content, row.fields, row.created_at)
+        `INSERT INTO entities (id, name, content, fields, created_at) VALUES (?, ?, ?, ?, ?)`
+      ).run(row.id, row.name, row.content, row.fields, row.created_at)
     for (const l of links)
       db.prepare(`INSERT INTO links (from_id, to_id, relation, notes) VALUES (?, ?, ?, ?)`).run(
         l.from_id,
@@ -510,9 +517,6 @@ export const api = {
   entityFeatureIds(entityId: number): number[] {
     return (api.featuresByEntity(entityId) as { id: number }[]).map((r) => r.id)
   },
-  retypeEntities(oldType: string, newType: string): void {
-    db.prepare(`UPDATE entities SET type = ? WHERE type = ?`).run(newType, oldType)
-  },
   // Hierarchy tags: the "hierarchy" key in the fields JSON, a comma-separated "#tag" list.
   // gov: "government" in fields (government form — parallel rank ladders).
   // fields is also returned as raw JSON: map modes (religion/language dimensions) and datalist
@@ -520,14 +524,13 @@ export const api = {
   hierarchy(): unknown {
     const rows = db
       .prepare(
-        `SELECT id, type, name, fields,
+        `SELECT id, name, fields,
            json_extract(fields, '$.hierarchy') AS h,
            json_extract(fields, '$.government') AS gov
          FROM entities`
       )
       .all() as {
       id: number
-      type: string
       name: string
       fields: string
       h: string | null
@@ -535,7 +538,6 @@ export const api = {
     }[]
     const entities = rows.map((r) => ({
       id: r.id,
-      type: r.type,
       name: r.name,
       fields: r.fields,
       gov: r.gov,
@@ -566,7 +568,7 @@ export const api = {
     return db.prepare(`SELECT id, from_id, to_id, relation FROM links`).all()
   },
 
-  // --- haritalar ---
+  // --- maps ---
   listMaps(): unknown[] {
     // Order = INSERTION order (id), not alphabetical: the user wants maps in the order they
     // built them (the toolbar menu and the "first map" pick both read this list).
@@ -577,7 +579,8 @@ export const api = {
     if (!map) return null
     const features = db
       .prepare(
-        `SELECT f.*, e.name AS entity_name, e.type AS entity_type FROM features f LEFT JOIN entities e ON e.id = f.entity_id WHERE f.map_id = ?`
+        `SELECT f.*, e.name AS entity_name, json_extract(e.fields, '$.folder') AS entity_folder
+         FROM features f LEFT JOIN entities e ON e.id = f.entity_id WHERE f.map_id = ?`
       )
       .all(id)
     return { ...map, features }
@@ -668,7 +671,7 @@ export const api = {
     db.prepare(`DELETE FROM features WHERE id = ?`).run(id)
   },
 
-  // --- ayarlar ---
+  // --- settings ---
   getSetting(key: string): string | null {
     const row = db.prepare(`SELECT value FROM settings WHERE key = ?`).get(key) as
       { value: string } | undefined
@@ -701,14 +704,14 @@ export const api = {
   },
 
   // Dump every entity's note tabs (fields['notes']) into a readable .txt tree:
-  //   notes/<map name>/<entity type>/<entity name>/<note title>.txt
-  // An entity appears under every map it is drawn on; ones on no map go under "(no map)",
-  // untyped ones under "(no type)". One-way export (app → .txt); the tree is rebuilt from
-  // scratch every time, so renames and deletions come out clean.
+  //   notes/<map name>/<sidebar folder path…>/<entity name>/<note title>.txt
+  // An entity appears under every map it is drawn on; ones on no map go under "(no map)", ones
+  // in no folder under "(no folder)". The middle level MIRRORS the sidebar folder tree (nested).
+  // One-way export (app → .txt); the tree is rebuilt from scratch every time, so renames and
+  // deletions come out clean.
   exportNotes(): { path: string; files: number } {
-    const ents = db.prepare(`SELECT id, type, name, fields FROM entities`).all() as {
+    const ents = db.prepare(`SELECT id, name, fields FROM entities`).all() as {
       id: number
-      type: string
       name: string
       fields: string
     }[]
@@ -745,6 +748,37 @@ export const api = {
       return /^(CON|PRN|AUX|NUL|COM\d|LPT\d)$/i.test(out) ? `_${out}` : out
     }
 
+    // The sidebar folder tree (settings 'entityFolders') becomes the middle directory levels.
+    let folders: { id: string; name: string; parent: string | null }[] = []
+    try {
+      const parsed = JSON.parse(api.getSetting('entityFolders') || '[]')
+      if (Array.isArray(parsed)) folders = parsed
+    } catch {
+      /* malformed setting → everything lands under (no folder) */
+    }
+    const folderById = new Map(folders.map((f) => [f.id, f]))
+    // A folder id → its nested path segments, root first. Cycle/missing-parent guarded.
+    const folderPath = (id: string | null): string[] => {
+      const out: string[] = []
+      const seen = new Set<string>()
+      let cur = id
+      while (cur && !seen.has(cur)) {
+        seen.add(cur)
+        const f = folderById.get(cur)
+        if (!f) break
+        out.unshift(safe(f.name, 'folder'))
+        cur = f.parent
+      }
+      return out.length ? out : ['(no folder)']
+    }
+    const folderOf = (fieldsJson: string): string | null => {
+      try {
+        return (JSON.parse(fieldsJson || '{}') as Record<string, string>)['folder'] ?? null
+      } catch {
+        return null
+      }
+    }
+
     rmSync(notesDir, { recursive: true, force: true }) // wipe the old tree → regenerate
     mkdirSync(notesDir, { recursive: true })
 
@@ -757,10 +791,10 @@ export const api = {
         mids && mids.size
           ? [...mids].map((mid) => safe(mapName.get(mid) ?? '', `map-${mid}`))
           : ['(no map)']
-      const typeFolder = ent.type ? safe(ent.type, '(no type)') : '(no type)'
+      const fPath = folderPath(folderOf(ent.fields))
       for (const mf of mapFolders) {
-        // On a name clash under the same name/type, disambiguate with the entity id
-        let entDir = join(notesDir, mf, typeFolder, safe(ent.name, `entity-${ent.id}`))
+        // On a name clash in the same folder, disambiguate with the entity id
+        let entDir = join(notesDir, mf, ...fPath, safe(ent.name, `entity-${ent.id}`))
         if (existsSync(entDir)) entDir += ` (#${ent.id})`
         mkdirSync(entDir, { recursive: true })
         const used = new Set<string>()
@@ -787,43 +821,40 @@ export const api = {
 if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   const dir = mkdtempSync(join(tmpdir(), 'worlddb-'))
   initDb(dir)
-  const a = api.createEntity({ name: 'Test Devleti', type: 'devlet' }) as { id: number }
+  const a = api.createEntity({ name: 'Test State' }) as { id: number }
   const b = api.createEntity({
-    name: 'Test Hanedanı',
-    type: 'hanedan',
-    content: 'Bkz [[Test Devleti]]'
+    name: 'Test Dynasty',
+    content: 'See [[Test State]]'
   }) as { id: number }
-  api.addLink(b.id, a.id, 'yönetir')
+  api.addLink(b.id, a.id, 'rules')
   const got = api.getEntity(a.id) as { name: string; inLinks: unknown[]; mentions: unknown[] }
-  assert.equal(got.name, 'Test Devleti')
+  assert.equal(got.name, 'Test State')
   assert.equal(got.inLinks.length, 1)
   assert.equal(got.mentions.length, 1)
-  api.retypeEntities('devlet', 'krallık')
-  assert.equal((api.getEntity(a.id) as { type: string }).type, 'krallık')
-  // Full-text search: content hits found (with Turkish lowercasing), name matches excluded
+  // Full-text search: content hits found; name matches excluded.
   {
-    const hits = api.searchContent('test devleti') as { id: number; snippet: string }[]
-    assert.equal(hits.length, 1) // only b (content mentions [[Test Devleti]]); a counts as a name match
+    const hits = api.searchContent('test state') as { id: number; snippet: string }[]
+    assert.equal(hits.length, 1) // only b (content mentions [[Test State]]); a counts as a name match
     assert.equal(hits[0].id, b.id)
-    assert.ok(hits[0].snippet.includes('Test Devleti'))
-    assert.equal((api.searchContent('yokböylebirşey') as unknown[]).length, 0)
+    assert.ok(hits[0].snippet.includes('Test State'))
+    assert.equal((api.searchContent('nothinglikethis') as unknown[]).length, 0)
     // Note-tab hits are found; technical fields (banner file path) are not searched
     api.updateEntity(b.id, {
       fields: JSON.stringify({
-        banner: 'assets/GIZLI-YOL-birkelime.png',
-        notes: JSON.stringify([{ title: 'Savaşlar', content: 'Kuzey seferi başladı' }])
+        banner: 'assets/HIDDEN-PATH-oneword.png',
+        notes: JSON.stringify([{ title: 'Wars', content: 'Northern campaign began' }])
       })
     })
-    const noteHits = api.searchContent('kuzey seferi') as { id: number; snippet: string }[]
+    const noteHits = api.searchContent('northern campaign') as { id: number; snippet: string }[]
     assert.equal(noteHits.length, 1)
-    assert.ok(noteHits[0].snippet.includes('Kuzey seferi'))
-    assert.equal((api.searchContent('GIZLI-YOL') as unknown[]).length, 0) // sancak yolu aranmaz
+    assert.ok(noteHits[0].snippet.includes('Northern campaign'))
+    assert.equal((api.searchContent('HIDDEN-PATH') as unknown[]).length, 0) // banner path is not searched
   }
   api.updateEntity(a.id, {
     fields: JSON.stringify({
-      hierarchy: '#krallık, #güney-dilleri',
-      government: 'feodal',
-      din: 'İslam'
+      hierarchy: '#kingdom, #southern-languages',
+      government: 'feudal',
+      religion: 'Islam'
     })
   })
   const hier = api.hierarchy() as {
@@ -831,35 +862,44 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     govs: string[]
     entities: { id: number; tags: string[]; gov: string | null; fields: string }[]
   }
-  assert.deepEqual(hier.tags, ['#güney-dilleri', '#krallık'])
-  assert.deepEqual(hier.govs, ['feodal'])
+  assert.deepEqual(hier.tags, ['#kingdom', '#southern-languages'])
+  assert.deepEqual(hier.govs, ['feudal'])
   assert.equal(hier.entities.length, 2) // no WHERE: untagged entities are returned too
   const he = hier.entities.find((e) => e.id === a.id)!
   assert.equal(he.tags.length, 2)
-  assert.equal(he.gov, 'feodal')
-  assert.equal((JSON.parse(he.fields) as { din: string }).din, 'İslam')
-  const m = api.createMap({ name: 'Dünya' }) as { id: number }
+  assert.equal(he.gov, 'feudal')
+  assert.equal((JSON.parse(he.fields) as { religion: string }).religion, 'Islam')
+  const m = api.createMap({ name: 'World' }) as { id: number }
   api.createFeature({
     map_id: m.id,
     entity_id: a.id,
     geometry: '{"type":"Point","coordinates":[1,2]}'
   })
   assert.equal((api.getMap(m.id) as { features: unknown[] }).features.length, 1)
-  // exportNotes: a (type 'krallık' — retyped above) is on the Dünya map →
-  // notes/Dünya/krallık/Test Devleti/…; b (type 'hanedan') is on no map → notes/(no map)/hanedan/…
+  // exportNotes mirrors the SIDEBAR FOLDER TREE: a sits in the nested folder Realms/States and is
+  // on the World map → notes/World/Realms/States/Test State/…; b is in no folder and on no map →
+  // notes/(no map)/(no folder)/…
+  api.setSetting(
+    'entityFolders',
+    JSON.stringify([
+      { id: 'f1', name: 'Realms', parent: null, order: 1 },
+      { id: 'f2', name: 'States', parent: 'f1', order: 1 }
+    ])
+  )
   api.updateEntity(a.id, {
     fields: JSON.stringify({
-      notes: JSON.stringify([{ title: 'Kuruluş', content: 'satır1\nsatır2' }])
+      folder: 'f2',
+      notes: JSON.stringify([{ title: 'Founding', content: 'line1\nline2' }])
     })
   })
   const exp = api.exportNotes()
   assert.equal(exp.files, 2) // a (on a map) + b (mapless)
-  const onMap = join(dir, 'notes', 'Dünya', 'krallık', 'Test Devleti', 'Kuruluş.txt')
+  const onMap = join(dir, 'notes', 'World', 'Realms', 'States', 'Test State', 'Founding.txt')
   assert.ok(existsSync(onMap), 'note of an on-map entity must be written')
-  assert.equal(readFileSync(onMap, 'utf8'), 'satır1\r\nsatır2') // \n → \r\n (Windows)
+  assert.equal(readFileSync(onMap, 'utf8'), 'line1\r\nline2') // \n → \r\n (Windows)
   assert.ok(
-    existsSync(join(dir, 'notes', '(no map)', 'hanedan', 'Test Hanedanı', 'Savaşlar.txt')),
-    'a mapless entity must land under (no map)'
+    existsSync(join(dir, 'notes', '(no map)', '(no folder)', 'Test Dynasty', 'Wars.txt')),
+    'a mapless, folderless entity must land under (no map)/(no folder)'
   )
   // safe(): the Windows device name CON cannot be a folder → _CON; control chars become _.
   // Without these, exportNotes would blow up on Windows with EPERM or a wrong target.
@@ -870,8 +910,8 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     }) as { id: number }
     api.exportNotes()
     assert.ok(
-      existsSync(join(dir, 'notes', '(no map)', '(no type)', '_CON', 'x_y.txt')),
-      'CON → _CON, kontrol karakteri → _'
+      existsSync(join(dir, 'notes', '(no map)', '(no folder)', '_CON', 'x_y.txt')),
+      'CON → _CON, control character → _'
     )
     api.deleteEntity(evilEnt.id)
   }
@@ -882,7 +922,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.equal(pruneUnusedAssets(), 1)
   assert.ok(existsSync(join(dir, 'assets', 'used.png')), 'a used image must survive')
   assert.ok(!existsSync(join(dir, 'assets', 'unused.png')), 'an unused image must be deleted')
-  rmSync(join(dir, 'assets', 'used.png')) // sonraki packWorld testini etkilemesin
+  rmSync(join(dir, 'assets', 'used.png')) // keep the following packWorld test isolated
   api.updateEntity(a.id, { fields: '{}' }) // clean up for the following tests
   const full = api.getEntity(a.id) as {
     id: number
@@ -895,9 +935,9 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   const featIds = api.entityFeatureIds(a.id)
   api.deleteEntity(a.id)
   assert.equal(api.getEntity(a.id) as unknown, null)
-  api.restoreEntity(full, [{ from_id: b.id, to_id: a.id, relation: 'yönetir', notes: '' }], featIds)
+  api.restoreEntity(full, [{ from_id: b.id, to_id: a.id, relation: 'rules', notes: '' }], featIds)
   const restored = api.getEntity(a.id) as { name: string; inLinks: unknown[] }
-  assert.equal(restored.name, 'Test Devleti')
+  assert.equal(restored.name, 'Test State')
   assert.equal(restored.inLinks.length, 1)
   assert.equal(
     (api.getMap(m.id) as { features: { entity_id: number }[] }).features[0].entity_id,
@@ -911,20 +951,20 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.equal(api.getEntity(b.id) as unknown, null)
   api.restoreEntities(
     [full, bFull],
-    [{ from_id: b.id, to_id: a.id, relation: 'yönetir', notes: '' }], // one record even when captured from both sides
+    [{ from_id: b.id, to_id: a.id, relation: 'rules', notes: '' }], // one record even when captured from both sides
     aFeat.map((fid) => ({ entity_id: a.id, feature_id: fid }))
   )
   const ra = api.getEntity(a.id) as { inLinks: unknown[] }
-  assert.equal(ra.inLinks.length, 1) // link tam bir kez geri geldi (dedup)
+  assert.equal(ra.inLinks.length, 1) // link restored exactly once (dedup)
   assert.ok(api.getEntity(b.id))
   assert.equal(
     (api.getMap(m.id) as { features: { entity_id: number }[] }).features[0].entity_id,
     a.id
   )
   // Map-delete undo: row + feature return with original ids, the child map keeps its parent link
-  const child = api.createMap({ name: 'Şehir', parent_map_id: m.id }) as { id: number }
-  // listMaps order is INSERTION order (not alphabetical): 'Ada' was added last → last in the list
-  const late = api.createMap({ name: 'Ada' }) as { id: number }
+  const child = api.createMap({ name: 'City', parent_map_id: m.id }) as { id: number }
+  // listMaps order is INSERTION order (not alphabetical): 'Island' was added last → last in the list
+  const late = api.createMap({ name: 'Island' }) as { id: number }
   assert.equal((api.listMaps() as { id: number }[]).at(-1)?.id, late.id)
   api.deleteMap(late.id)
   const mFull = api.getMap(m.id) as {
@@ -975,10 +1015,10 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   const dunya = join(dir, 'test.dunya')
   packWorld(dunya)
   assert.ok(existsSync(dunya))
-  api.updateEntity(a.id, { name: 'Paketten Sonra Değişti' })
+  api.updateEntity(a.id, { name: 'Changed After Packing' })
   rmSync(join(dir, 'assets', 'test.png'))
   unpackWorld(dunya)
-  assert.equal((api.getEntity(a.id) as { name: string }).name, 'Test Devleti') // the state at pack time
+  assert.equal((api.getEntity(a.id) as { name: string }).name, 'Test State') // the state at pack time
   assert.deepEqual([...readFileSync(join(dir, 'assets', 'test.png'))], [1, 2, 3]) // the image came back out
   assert.equal(api.getSetting('worldFile'), dunya)
   assert.ok(
@@ -1044,38 +1084,37 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   // one real data risk of anglicising the codebase — years of parent chains, banners and
   // dynasty links depend on it. Turkish fixtures below are the point of the test.
   {
-    const old = api.createEntity({ name: 'Eski Kayıt' }) as { id: number }
-    const kid = api.createEntity({ name: 'Eski Çocuk' }) as { id: number }
+    const old = api.createEntity({ name: 'Legacy Record' }) as { id: number }
+    const kid = api.createEntity({ name: 'Legacy Child' }) as { id: number }
     db.prepare(`UPDATE entities SET fields = ? WHERE id = ?`).run(
       JSON.stringify({
-        üst: '[{"from":null,"id":7}]',
-        sancak: 'assets/eski.png',
-        notlar: '[{"title":"a","content":"b"}]',
-        hiyerarşi: '#kontluk',
-        yönetim: 'feodal',
-        renk: '#ff0000',
-        din: 'İslam' // harita modu boyutu — KULLANICININ kendi sözcüğü, ASLA çevrilmemeli
+        '\u00fcst': '[{"from":null,"id":7}]',
+        '\u0073\u0061\u006e\u0063\u0061\u006b': 'assets/old.png',
+        '\u006e\u006f\u0074\u006c\u0061\u0072': '[{"title":"a","content":"b"}]',
+        'hiyerar\u015fi': '#county',
+        'y\u00f6netim': 'feudal',
+        '\u0072\u0065\u006e\u006b': '#ff0000',
+        religion: 'Islam' // user-defined map-mode dimension: never translate it
       }),
       old.id
     )
-    db.prepare(`INSERT INTO links (from_id, to_id, relation) VALUES (?, ?, 'baba')`).run(
-      kid.id,
-      old.id
-    )
+    db.prepare(
+      `INSERT INTO links (from_id, to_id, relation) VALUES (?, ?, '\u0062\u0061\u0062\u0061')`
+    ).run(kid.id, old.id)
     assert.ok(migrateLegacyKeys() > 0)
     const f = JSON.parse((api.getEntity(old.id) as { fields: string }).fields) as Record<
       string,
       string
     >
-    assert.equal(f['parent'], '[{"from":null,"id":7}]', 'üst must migrate to parent')
-    assert.equal(f['banner'], 'assets/eski.png')
-    assert.equal(f['hierarchy'], '#kontluk')
-    assert.equal(f['government'], 'feodal')
+    assert.equal(f['parent'], '[{"from":null,"id":7}]', 'legacy parent must migrate')
+    assert.equal(f['banner'], 'assets/old.png')
+    assert.equal(f['hierarchy'], '#county')
+    assert.equal(f['government'], 'feudal')
     assert.equal(f['color'], '#ff0000')
-    assert.equal(f['din'], 'İslam', 'user-defined fields must be LEFT ALONE')
+    assert.equal(f['religion'], 'Islam', 'user-defined fields must be LEFT ALONE')
     // gender VALUE migration
     db.prepare(`UPDATE entities SET fields = ? WHERE id = ?`).run(
-      JSON.stringify({ cinsiyet: 'kadın' }),
+      JSON.stringify({ '\u0063\u0069\u006e\u0073\u0069\u0079\u0065\u0074': 'kad\u0131n' }),
       kid.id
     )
     migrateLegacyKeys()
@@ -1085,7 +1124,10 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       'female',
       'gender value must migrate too'
     )
-    assert.ok(!('üst' in f) && !('sancak' in f), 'legacy keys must be removed')
+    assert.ok(
+      !('\u00fcst' in f) && !('\u0073\u0061\u006e\u0063\u0061\u006b' in f),
+      'legacy keys must be removed'
+    )
     assert.equal(
       (
         db.prepare(`SELECT relation FROM links WHERE from_id = ?`).get(kid.id) as {
@@ -1093,13 +1135,13 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
         }
       ).relation,
       'father',
-      'baba must migrate to father'
+      'legacy relation must migrate to father'
     )
     // Running twice must be harmless (it runs on every launch)
     assert.equal(migrateLegacyKeys(), 0, 'migration must be idempotent')
     // A stale Turkish key must NOT overwrite an existing English value
     db.prepare(`UPDATE entities SET fields = ? WHERE id = ?`).run(
-      JSON.stringify({ üst: 'eski', parent: 'yeni' }),
+      JSON.stringify({ '\u00fcst': 'stale', parent: 'current' }),
       old.id
     )
     migrateLegacyKeys()
@@ -1107,8 +1149,8 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       string,
       string
     >
-    assert.equal(f2['parent'], 'yeni', 'the existing English value must win')
-    assert.ok(!('üst' in f2))
+    assert.equal(f2['parent'], 'current', 'the existing English value must win')
+    assert.ok(!('\u00fcst' in f2))
   }
 
   db.close()

@@ -4,8 +4,10 @@ const inv = <T>(method: string, ...args: unknown[]): Promise<T> =>
 
 export interface EntityRow {
   id: number
-  type: string
   name: string
+  folder?: string | null // sidebar folder id (fields['folder']); null/absent = root
+  created_at?: string
+  updated_at?: string
 }
 
 export interface OutLink {
@@ -47,7 +49,7 @@ export interface Feature {
   geometry: string // GeoJSON
   style: string // JSON: MapView'daki FeatureStyle (color, fillOpacity, weight, size, font, childMapId, from/to, opacity/dash: yol)
   entity_name: string | null
-  entity_type: string | null
+  entity_folder: string | null // the bound article's sidebar folder id — drives the default color
 }
 
 export interface WorldMap extends MapRow {
@@ -58,18 +60,11 @@ export interface WorldMap extends MapRow {
   features: Feature[]
 }
 
-export interface TypeDef {
-  name: string
-  color: string
-  isPerson?: boolean // is this a person type (mother/father/spouse/ruler forms + map binding use it)
-}
-
 export interface Hierarchy {
   tags: string[]
   govs: string[] // government forms seen on entities (fields.government)
   entities: {
     id: number
-    type: string
     name: string
     fields: string // raw JSON — map-mode values (religion/language…) are read from it
     gov: string | null
@@ -90,26 +85,21 @@ export const api = {
   listEntities: (search = '') => inv<EntityRow[]>('listEntities', search),
   getEntity: (id: number) => inv<Entity | null>('getEntity', id),
   findEntityByName: (name: string) => inv<EntityRow | null>('findEntityByName', name),
-  createEntity: (e: { name: string; type?: string; content?: string }) =>
-    inv<{ id: number }>('createEntity', e),
-  updateEntity: (
-    id: number,
-    patch: Partial<Pick<Entity, 'type' | 'name' | 'content' | 'fields'>>
-  ) => inv<void>('updateEntity', id, patch),
+  createEntity: (e: { name: string; content?: string }) => inv<{ id: number }>('createEntity', e),
+  updateEntity: (id: number, patch: Partial<Pick<Entity, 'name' | 'content' | 'fields'>>) =>
+    inv<void>('updateEntity', id, patch),
   deleteEntity: (id: number) => inv<void>('deleteEntity', id),
-  retypeEntities: (oldType: string, newType: string) =>
-    inv<void>('retypeEntities', oldType, newType),
   hierarchy: () => inv<Hierarchy>('hierarchy'),
   // Full-text search: content/field hits (name matches excluded), with a context snippet
   searchContent: (q: string) =>
-    inv<{ id: number; type: string; name: string; snippet: string }[]>('searchContent', q),
+    inv<{ id: number; folder: string | null; name: string; snippet: string }[]>('searchContent', q),
   restoreEntity: (
-    row: Pick<Entity, 'id' | 'type' | 'name' | 'content' | 'fields' | 'created_at'>,
+    row: Pick<Entity, 'id' | 'name' | 'content' | 'fields' | 'created_at'>,
     links: { from_id: number; to_id: number; relation: string; notes: string }[],
     featureIds: number[]
   ) => inv<void>('restoreEntity', row, links, featureIds),
   restoreEntities: (
-    rows: Pick<Entity, 'id' | 'type' | 'name' | 'content' | 'fields' | 'created_at'>[],
+    rows: Pick<Entity, 'id' | 'name' | 'content' | 'fields' | 'created_at'>[],
     links: { from_id: number; to_id: number; relation: string; notes: string }[],
     features: { entity_id: number; feature_id: number }[]
   ) => inv<void>('restoreEntities', rows, links, features),
@@ -180,17 +170,6 @@ export const api = {
   ) => inv<string | null>('exportMapImage', rect, defaultName)
 }
 
-export async function getTypes(): Promise<TypeDef[]> {
-  const raw = await api.getSetting('types')
-  return raw ? (JSON.parse(raw) as TypeDef[]) : []
-}
-
-export const saveTypes = (types: TypeDef[]): Promise<void> =>
-  api.setSetting('types', JSON.stringify(types))
-
-export const typeColor = (types: TypeDef[], type: string | null): string =>
-  types.find((t) => t.name === type)?.color ?? '#888888'
-
 export async function getHierConfig(): Promise<HierConfig> {
   const raw = await api.getSetting('hierarchyConfig')
   if (!raw) return { govs: [] }
@@ -207,6 +186,26 @@ export async function getHierConfig(): Promise<HierConfig> {
 
 export const saveHierConfig = (cfg: HierConfig): Promise<void> =>
   api.setSetting('hierarchyConfig', JSON.stringify(cfg))
+
+// Built-in starter presets for the rank ladders. Merged, never forced (the "everything
+// renameable" rule): a first-time user loads one to see how the ladder system works, then renames
+// or reorders freely. The tags are only example ranks.
+export const HIER_PRESETS: { name: string; govs: HierConfig['govs'] }[] = [
+  {
+    name: 'Medieval',
+    govs: [
+      { name: 'feudal', tags: ['#empire', '#kingdom', '#duchy', '#county', '#barony'] },
+      { name: 'tribal', tags: ['#confederation', '#tribe', '#clan'] }
+    ]
+  },
+  {
+    name: 'Modern',
+    govs: [
+      { name: 'unitary', tags: ['#state', '#province', '#district'] },
+      { name: 'federal', tags: ['#federation', '#state', '#county'] }
+    ]
+  }
+]
 
 // Add an empty ladder to the config for government forms newly discovered on entities
 export function mergeHierConfig(cfg: HierConfig, discoveredGovs: string[]): HierConfig {
@@ -375,8 +374,6 @@ export const saveMapModes = (m: MapModes): Promise<void> =>
 // as does the template itself. Application goes through saveFields, so Ctrl+Z undoes it.
 export interface EntityTemplate {
   name: string
-  type?: string // assigned only when the entity has no type (a TypeDef name; survives type
-  // deletion/rename as free text — entities.type is a free column anyway)
   fields: Record<string, string> // field → default value (empty value = skeleton only)
 }
 
@@ -395,8 +392,35 @@ export const RESERVED_FIELDS = [
   'gender',
   'birth',
   'death',
+  'folder', // sidebar file-tree folder id (organisation only, not article metadata)
   '_tpl' // name of the applied template (informational; keeps EntityPage's select in sync)
 ]
+
+// Sidebar file tree (settings 'entityFolders', global): user-made folders that group articles like
+// Obsidian. An article's membership is fields['folder'] = a folder id (absent = root). Folders nest
+// via `parent` (a folder id, null = root); `order` is the manual creation order.
+export interface FolderDef {
+  id: string
+  name: string
+  parent: string | null
+  order: number
+  color?: string // shown as the row dot; also the default color of drawings bound to its articles
+  isPerson?: boolean // people live here (family/dynasty pickers; they cannot be bound to the map)
+}
+
+export const getEntityFolders = async (): Promise<FolderDef[]> =>
+  JSON.parse((await api.getSetting('entityFolders')) || '[]')
+
+export const saveEntityFolders = (list: FolderDef[]): Promise<void> =>
+  api.setSetting('entityFolders', JSON.stringify(list))
+
+// The old typeColor, re-homed: a drawing's default color is its article's folder color.
+export const folderColor = (folders: FolderDef[], folderId: string | null): string =>
+  folders.find((f) => f.id === folderId)?.color ?? '#888888'
+
+// Ids of folders flagged as "people" (replaces the old TypeDef.isPerson)
+export const personFolderIds = (folders: FolderDef[]): Set<string> =>
+  new Set(folders.filter((f) => f.isPerson).map((f) => f.id))
 
 export const getTemplates = async (): Promise<EntityTemplate[]> =>
   JSON.parse((await api.getSetting('templates')) || '[]')
