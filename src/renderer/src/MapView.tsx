@@ -174,6 +174,9 @@ const LABEL_MIN = 5
 // The text is user input embedded into an html string → must be escaped (no XSS from a shared
 // world.db; same rationale as blocking raw HTML in markdown).
 const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+// Polygon label content. The span is what `.poly-label` centres with a CSS transform — the
+// tooltip container itself is 0x0 so Leaflet never measures the text (see main.css for why).
+const polyLabelHtml = (name: string): string => `<span>${escapeHtml(name)}</span>`
 // A textPath href resolves document-wide → every label's path id must be unique
 let labelSeq = 0
 // Feature clipboard (Ctrl+C/V). MODULE level: MapView remounts on map switch (App keys it
@@ -580,6 +583,9 @@ export default function MapView({
   // De-jure parent chain (rank view + conquest): entity → parent history, rank targets, feature → entity
   const parentHist = useRef(new Map<number, ParentRec[]>())
   const rungTargets = useRef(new Map<number, string>()) // entities at the rank → color
+  // Every entity's rank tags — conquest resolves "the ancestor at rank X" for ANY rank, not just
+  // the displayed one (rungTargets only covers the active rank).
+  const entTags = useRef(new Map<number, string[]>())
   const featEnt = useRef(new Map<number, number>())
   // For the default (root) view: base entities, every entity's color/name, feature areas
   const baseSet = useRef(new Set<number>())
@@ -598,6 +604,14 @@ export default function MapView({
   )
   const dimValue = useRef(new Map<number, string>())
   const derivedLabels = useRef<{ m: L.Marker; base: number }[]>([])
+  // TEMPORARY, for the zoom-tremble hunt — F9 cycles it. Every candidate cause so far has been
+  // guessed and missed, so this splits the question in the app itself instead:
+  //   0 off · 1 labels FROZEN (updateOverlaySizes does nothing — no per-frame size writes at all)
+  //   2 labels frozen AND hidden (`.dbg-nolabels`)
+  // Tremble survives mode 2 → it is the polygons. Stops at mode 1 → it is the per-frame sizing.
+  // Stops only at mode 2 → it is the label's own rendering. Delete this once it is answered.
+  const [dbgMode, setDbgMode] = useState(0)
+  const dbgRef = useRef(0) // kept in sync from the F9 handler (a ref must not be written in render)
   const derivedSig = useRef('') // fid:group signature — no work on year ticks where ownership is unchanged
   // Mosaic-governed entities (year-independent): those appearing in ANY year of the base
   // polygons' parent histories. Their own drawings never show in the default view — on full
@@ -642,15 +656,53 @@ export default function MapView({
   // parent that year), step 2 pick the conquered base polygons, OK → the picks join the
   // receiver from the slider year on. State + ref are kept together so layer click handlers
   // see the current state without a reload.
+  // Two independent ranks. `recvLevel` = the rank the CONQUEROR is identified at, `level` = the
+  // rank of what changes hands. The receiver is the clicked entity ITSELF, so nothing needs a
+  // parent to conquer (a duchy can take another duchy, a county another county). Conquering at a
+  // higher rank re-parents THAT rank's entity, so its whole sub-tree follows and its internal
+  // structure survives (a conquered duchy keeps its counties).
   type Conquest =
     | null
-    | { step: 'receiver' }
-    | { step: 'picking'; receiverId: number; receiverName: string; picked: Set<number> }
+    | { step: 'receiver'; level: string | null; recvLevel: string | null }
+    | {
+        step: 'picking'
+        level: string | null
+        recvLevel: string | null
+        receiverId: number
+        receiverName: string
+        picked: Set<number>
+      }
   const [conquest, setConquestState] = useState<Conquest>(null)
   const conquestRef = useRef<Conquest>(null)
   const setConquest = (c: Conquest): void => {
     conquestRef.current = c
     setConquestState(c)
+  }
+  const [ladderTags, setLadderTags] = useState<string[]>([])
+  // Climb the parent chain to the ancestor carrying `level` (null level = the entity itself).
+  // Returns null when that year's chain has no such ancestor. Cycle-guarded.
+  const levelAncestor = (eid: number, level: string | null, year: number): number | null => {
+    if (!level) return eid
+    let cur: number | undefined = eid
+    const seen = new Set<number>()
+    while (cur !== undefined && !seen.has(cur)) {
+      if ((entTags.current.get(cur) ?? []).includes(level)) return cur
+      seen.add(cur)
+      cur = parentAt(parentHist.current.get(cur) ?? [], year) ?? undefined
+    }
+    return null
+  }
+  // Is `maybeAncestor` somewhere up `node`'s chain that year? Guards against conquering your own
+  // overlord, which would make the parent chain a loop.
+  const isAncestorOf = (maybeAncestor: number, node: number, year: number): boolean => {
+    let cur: number | undefined = node
+    const seen = new Set<number>()
+    while (cur !== undefined && !seen.has(cur)) {
+      if (cur === maybeAncestor) return true
+      seen.add(cur)
+      cur = parentAt(parentHist.current.get(cur) ?? [], year) ?? undefined
+    }
+    return false
   }
 
   // 📏 Scale tool (state of the right panel's 'scale' tool): saved scale + active measure
@@ -993,6 +1045,7 @@ export default function MapView({
   const updateOverlaySizes = (reposition = false): void => {
     const map = mapRef.current
     if (!map || !featureGroupRef.current) return
+    if (dbgRef.current > 0) return // F9 debug: freeze every overlay size (see dbgMode)
     const scale = 2 ** map.getZoom()
     featureGroupRef.current.eachLayer((l) => {
       const fl = l as FeatureLayer
@@ -1264,6 +1317,7 @@ export default function MapView({
     renderStyle.current.clear()
     parentHist.current.clear()
     rungTargets.current.clear()
+    entTags.current.clear()
     featEnt.current.clear()
     weldTouched.current.clear()
     dragPartners.current = []
@@ -1286,7 +1340,10 @@ export default function MapView({
         e.id,
         (JSON.parse(e.fields || '{}') as Record<string, string>)['color'] ?? autoColor(e.name)
       )
+      if (e.tags.length) entTags.current.set(e.id, e.tags)
     }
+    // Ladder tags top→bottom (deduped across government forms) — the conquest rank picker
+    setLadderTags([...new Set(cfg.govs.flatMap((g) => g.tags))])
     // The lowest rank is per-government: each ladder's LAST tag is that government's base
     // rank (shared lowestRungSet source with Atlas).
     for (const eid of lowestRungSet(cfg, h.entities)) baseSet.current.add(eid)
@@ -1458,7 +1515,7 @@ export default function MapView({
           // (DivOverlay._updateContent) — an entity NAMED `<img onerror=…>` in a shared .dunya
           // would run code with no click.
           if (isPolygon) {
-            layer.bindTooltip(escapeHtml(f.entity_name), {
+            layer.bindTooltip(polyLabelHtml(f.entity_name), {
               permanent: true,
               direction: 'center',
               className: 'poly-label'
@@ -1488,32 +1545,45 @@ export default function MapView({
           const c = conquestRef.current
           if (c) {
             if (!f.entity_id || !isPolygon) return
+            const year = yearRef.current
+            // Clicks land on base polygons; roll each one up to the rank being used.
             if (c.step === 'receiver') {
-              const pid = parentAt(parentHist.current.get(f.entity_id) ?? [], yearRef.current)
-              if (pid === null) {
-                alertDialog(
-                  t('This entity has no parent — first set a "Parent" from the entity page.')
-                )
+              // The conqueror is the clicked entity itself — no parent needed.
+              const recv = levelAncestor(f.entity_id, c.recvLevel, year)
+              if (recv === null) {
+                alertDialog(t('This region has no owner at that rank in this year.'))
                 return
               }
               setConquest({
                 step: 'picking',
-                receiverId: pid,
-                receiverName: allEntities.find((x) => x.id === pid)?.name ?? `#${pid}`,
+                level: c.level,
+                recvLevel: c.recvLevel,
+                receiverId: recv,
+                receiverName:
+                  entNames.current.get(recv) ??
+                  allEntities.find((x) => x.id === recv)?.name ??
+                  `#${recv}`,
                 picked: new Set()
               })
               return
             }
-            // step 2: toggle the pick (the receiver's own children that year are skipped)
-            if (
-              parentAt(parentHist.current.get(f.entity_id) ?? [], yearRef.current) === c.receiverId
-            )
+            const at = levelAncestor(f.entity_id, c.level, year)
+            if (at === null) {
+              alertDialog(t('This region has no owner at that rank in this year.'))
               return
+            }
+            // step 2: toggle the pick — skip the conqueror itself and what it already owns
+            if (at === c.receiverId) return
+            if (parentAt(parentHist.current.get(at) ?? [], year) === c.receiverId) return
+            if (isAncestorOf(at, c.receiverId, year)) {
+              alertDialog(t('A region cannot conquer the realm it belongs to.'))
+              return
+            }
             const picked = new Set(c.picked)
-            if (picked.has(f.entity_id)) picked.delete(f.entity_id)
-            else picked.add(f.entity_id)
+            if (picked.has(at)) picked.delete(at)
+            else picked.add(at)
             setConquest({ ...c, picked })
-            highlightPicked(picked)
+            highlightPicked(picked, c.level)
             return
           }
           // Ctrl+click: add to / remove from the selection (primary unchanged → same panel controls)
@@ -1825,17 +1895,22 @@ export default function MapView({
     // Default (root) view: base polygons painted in the color of the entity at the TOP of
     // that year's chain (no parent = top); the root's name becomes one label over its largest piece.
     const topOnly = activeModeRef.current === null
-    // Climb the parent chain by year to the ancestor at the displayed rank (cycle-guarded).
-    // The owner id resolves separately: color + derived label text share one climb.
+    // Climb the parent chain by year to the entity that HOLDS this one at the displayed rank
+    // (cycle-guarded). We deliberately keep climbing past the first match and return the TOPMOST
+    // one: after a same-rank conquest (duchy A takes duchy B) B still carries the rank tag, so
+    // stopping at the first match would keep painting B's land in B's own color and the conquest
+    // would be invisible in this view — the holder is A. The owner id resolves separately: color
+    // + derived label text share one climb.
     const rungOwnerAt = (eid: number): number | null => {
       let cur: number | undefined = eid
       const seen = new Set<number>()
+      let holder: number | null = null
       while (cur !== undefined && !seen.has(cur)) {
-        if (rungTargets.current.has(cur)) return cur
+        if (rungTargets.current.has(cur)) holder = cur
         seen.add(cur)
         cur = parentAt(parentHist.current.get(cur) ?? [], year) ?? undefined
       }
-      return null // no owner at this rank that year
+      return holder // null = no owner at this rank that year
     }
     const rungColor = (eid: number): string => {
       const o = rungOwnerAt(eid)
@@ -1954,7 +2029,7 @@ export default function MapView({
             else {
               if (labelRoot !== null) {
                 const name = entNames.current.get(labelRoot) ?? ''
-                tt.setContent(escapeHtml(name)) // a string tooltip = innerHTML (same as bindTooltip)
+                tt.setContent(polyLabelHtml(name)) // a string tooltip = innerHTML (same as bindTooltip)
                 const b = (l as L.Polygon).getBounds()
                 labelMeta.current.set(fid, {
                   base: Math.min(
@@ -2179,12 +2254,17 @@ export default function MapView({
   )
 
   // Conquest pick highlights: restore canonical styles first, then highlight the picked entities' polygons
-  const highlightPicked = (picked: Set<number>): void => {
+  // `picked` holds entities at the conquest RANK, so every base polygon underneath one of them
+  // lights up — picking a duchy highlights all of its counties.
+  const highlightPicked = (picked: Set<number>, level: string | null): void => {
     applyYear(yearRef.current)
-    for (const [fid, eid] of featEnt.current)
-      if (picked.has(eid))
-        for (const ly of allLayers.current.get(fid) ?? [])
-          (ly as L.Path).setStyle?.({ color: '#ffffff', weight: 4, dashArray: '6' })
+    const year = yearRef.current
+    for (const [fid, eid] of featEnt.current) {
+      const at = levelAncestor(eid, level, year)
+      if (at === null || !picked.has(at)) continue
+      for (const ly of allLayers.current.get(fid) ?? [])
+        (ly as L.Path).setStyle?.({ color: '#ffffff', weight: 4, dashArray: '6' })
+    }
   }
 
   // Feature shortcuts: Del/Backspace delete, Ctrl+C copy, Ctrl+V paste under the cursor,
@@ -2205,6 +2285,11 @@ export default function MapView({
         // the capture phase → runs before App's and cuts the chain here.
         e.stopImmediatePropagation()
         void removeFeature(...selIdsRef.current)
+      } else if (e.key === 'F9') {
+        e.preventDefault() // TEMPORARY zoom-tremble debug switch — see dbgMode
+        const next = (dbgRef.current + 1) % 3
+        dbgRef.current = next
+        setDbgMode(next)
       } else if (e.ctrlKey && k === 'c' && has) copySelection()
       else if (e.ctrlKey && k === 'v' && getClipboard().length) {
         e.preventDefault()
@@ -3217,7 +3302,13 @@ export default function MapView({
               })()}
             </defs>
           </svg>
-          <div ref={divRef} className="leaflet-host" />
+          <div ref={divRef} className={`leaflet-host${dbgMode === 2 ? ' dbg-nolabels' : ''}`} />
+          {/* TEMPORARY zoom-tremble debug readout (F9) — remove with dbgMode */}
+          {dbgMode > 0 && !exporting && (
+            <div className="dbg-badge">
+              F9 · {dbgMode === 1 ? t('Labels frozen') : t('Labels frozen + hidden')}
+            </div>
+          )}
           {/* Scale bar: a round distance (1/2/5×10ⁿ) is picked, pixel width comes from zoom.
               Zoom updates HUD state every tick so the render stays fresh. Kept in exports. */}
           {mapScale &&
@@ -3249,7 +3340,41 @@ export default function MapView({
               />
               {conquest?.step === 'receiver' && (
                 <div className="link-hint">
-                  {t("⚔ Click the conqueror's border polygon (receiver = its parent)…")}{' '}
+                  {t('⚔ Click the conqueror — the picks join it…')}{' '}
+                  <label>
+                    {t('conqueror')}{' '}
+                    <select
+                      value={conquest.recvLevel ?? ''}
+                      title={t('Which rank the conqueror is taken as')}
+                      onChange={(e) =>
+                        setConquest({ ...conquest, recvLevel: e.target.value || null })
+                      }
+                    >
+                      <option value="">{t('base')}</option>
+                      {ladderTags.map((tag) => (
+                        <option key={tag} value={tag}>
+                          {tag}
+                        </option>
+                      ))}
+                    </select>
+                  </label>{' '}
+                  <label>
+                    {t('takes')}{' '}
+                    <select
+                      value={conquest.level ?? ''}
+                      title={t(
+                        'Which ladder rank changes hands (upper ranks take their whole branch)'
+                      )}
+                      onChange={(e) => setConquest({ ...conquest, level: e.target.value || null })}
+                    >
+                      <option value="">{t('base')}</option>
+                      {ladderTags.map((tag) => (
+                        <option key={tag} value={tag}>
+                          {tag}
+                        </option>
+                      ))}
+                    </select>
+                  </label>{' '}
                   <button className="mini" onClick={() => setConquest(null)}>
                     {t('cancel')}
                   </button>
@@ -3261,6 +3386,9 @@ export default function MapView({
                     name: conquest.receiverName,
                     n: conquest.picked.size
                   })}{' '}
+                  <span className="tag-chip">
+                    {conquest.recvLevel ?? t('base')} ← {conquest.level ?? t('base')}
+                  </span>{' '}
                   <button className="mini" onClick={commitConquest}>
                     {t('OK')}
                   </button>{' '}
@@ -3400,7 +3528,12 @@ export default function MapView({
                   setConquest(null)
                   reloadFeatures()
                 }}
-                onConquest={() => setConquest({ step: 'receiver' })}
+                // The conquest rank defaults to the rank you are LOOKING at (viewing duchies →
+                // you conquer duchies); the hint bar's picker can still change it.
+                onConquest={() => {
+                  const at = activeMode?.kind === 'rank' ? activeMode.key : null
+                  setConquest({ step: 'receiver', level: at, recvLevel: at })
+                }}
                 onOpenEntity={onOpenEntity}
                 onLocate={locateEntity}
               />

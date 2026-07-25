@@ -253,10 +253,10 @@ const TR: Record<string, string> = {
   'county, religion, language…': 'kontluk, din, dil…',
   'Government form': 'Yönetim biçimi',
   'feudal, nomadic…': 'feodal, göçebe…',
-  Parent: 'Üst',
+  'Belongs to': 'Bağlı olduğu',
   start: 'başlangıç',
   'year {n}': 'yıl {n}',
-  'parent entity': 'üst madde',
+  'belongs to…': 'bağlı olduğu madde',
   'year (blank=from start)': 'yıl (boş=baştan)',
   'Map history': 'Harita geçmişi',
   always: 'her zaman',
@@ -281,6 +281,12 @@ const TR: Record<string, string> = {
   '👤 Person folder ✓': '👤 Kişi klasörü ✓',
   'Enlarge — center it on screen for reading': 'Büyüt — okumak için ekranın ortasına al',
   'Pin folders': 'Pin klasörleri',
+  rank: 'kademe',
+  base: 'taban',
+  'Which ladder rank changes hands (upper ranks take their whole branch)':
+    'Hangi kademe el değiştiriyor (üst kademeler tüm dalını götürür)',
+  'This region has no owner at that rank in this year.':
+    'Bu bölgenin o yıl o kademede bir sahibi yok.',
   '(no folder)': '(klasörsüz)',
   '＋ Note': '＋ Not',
   '＋ Folder': '＋ Klasör',
@@ -315,6 +321,10 @@ const TR: Record<string, string> = {
   'birth year': 'doğum yılı',
   'death year': 'ölüm yılı',
   'child…': 'çocuk…',
+  'Labels frozen': 'Etiketler donduruldu',
+  'Labels frozen + hidden': 'Etiketler donduruldu + gizlendi',
+  '🎲 Random male name': '🎲 Rastgele erkek ismi',
+  '🎲 Random female name': '🎲 Rastgele kadın ismi',
   'in content': 'içerikte',
 
   // HierarchyPanel.tsx
@@ -366,8 +376,6 @@ const TR: Record<string, string> = {
   // MapView.tsx
   'The slider must be within the year range the drawing exists (after its start).':
     'Slider, çizimin var olduğu yıl aralığının içinde (başlangıcından sonra) olmalı.',
-  'This entity has no parent — first set a "Parent" from the entity page.':
-    'Bu maddenin üstü yok — önce madde sayfasından "Üst" ata.',
   '📖 Open entity': '📖 Maddeyi aç',
   '🔍 Show in panel': '🔍 Panelde göster',
   '🔗 Link to entity…': '🔗 Maddeye bağla…',
@@ -395,8 +403,12 @@ const TR: Record<string, string> = {
     'Her şey tek zeminde. Çizimleri katmanlara ayırmak için zemin ekle.',
   'Delete board "{name}"? Its drawings move to the first board.':
     '"{name}" zemini silinsin mi? Çizimleri ilk zemine taşınır.',
-  "⚔ Click the conqueror's border polygon (receiver = its parent)…":
-    '⚔ Fethedenin sınırdaki poligonuna tıkla (alıcı = onun üstü)…',
+  '⚔ Click the conqueror — the picks join it…': '⚔ Fethedene tıkla — seçtiklerin ona bağlanır…',
+  conqueror: 'fetheden',
+  takes: 'aldığı',
+  'Which rank the conqueror is taken as': 'Fetheden hangi kademe olarak alınsın',
+  'A region cannot conquer the realm it belongs to.':
+    'Bir bölge bağlı olduğu üst devleti fethedemez.',
   cancel: 'iptal',
   '⚔ Select polygons to join {name} ({n} selected)':
     "⚔ {name}'e katılacak poligonları seç ({n} seçili)",

@@ -25,6 +25,7 @@ import { confirmDialog } from './dialog'
 import { deleteEntityWithUndo } from './entityOps'
 import FamilyTree from './FamilyTree'
 import { useT } from './i18n'
+import { randomName } from './names'
 import { pushUndo } from './undo'
 
 interface Props {
@@ -407,7 +408,38 @@ export default function EntityPage({
   }
 
   // One family row: existing ties as chips + an add form (unless a singular slot is filled)
-  const famRow = (label: string, rel: string, single: boolean): React.JSX.Element => {
+  // 🎲 random-name buttons next to a person input. `put` fills a controlled input; without it
+  // the name goes straight into the sibling <input name="name"> of the same form.
+  // gen null = gender unknown here, so offer both.
+  const dice = (gen: 'M' | 'F' | null, put?: (n: string) => void): React.JSX.Element => (
+    <>
+      {(gen ? [gen] : (['M', 'F'] as const)).map((g) => (
+        <button
+          key={g}
+          type="button"
+          className="mini"
+          title={g === 'F' ? t('🎲 Random female name') : t('🎲 Random male name')}
+          onClick={(e) => {
+            const nm = randomName(g)
+            if (put) put(nm)
+            else {
+              const inp = e.currentTarget.form?.elements.namedItem('name')
+              if (inp instanceof HTMLInputElement) inp.value = nm
+            }
+          }}
+        >
+          {g === 'F' ? '🎲♀' : '🎲♂'}
+        </button>
+      ))}
+    </>
+  )
+
+  const famRow = (
+    label: string,
+    rel: string,
+    single: boolean,
+    gen: 'M' | 'F' | null
+  ): React.JSX.Element => {
     const cur = familyLinks(rel)
     return (
       <div className="tag-row">
@@ -453,6 +485,7 @@ export default function EntityPage({
               }}
             >
               <input name="name" list="person-list" placeholder={t('person…')} />
+              {dice(gen)}
               <button className="mini" type="submit">
                 +
               </button>
@@ -921,7 +954,7 @@ export default function EntityPage({
               </datalist>
             </div>
             <div className="tag-row">
-              <span className="field-key">{t('Parent')}</span>
+              <span className="field-key">{t('Belongs to')}</span>
               <span className="chrono-list">
                 {parents.map((p, i) => (
                   <span className="tag-chip" key={i}>
@@ -952,7 +985,7 @@ export default function EntityPage({
                 >
                   <input
                     list="entity-list"
-                    placeholder={t('parent entity')}
+                    placeholder={t('belongs to…')}
                     value={parentName}
                     onChange={(e) => setParentName(e.target.value)}
                   />
@@ -1092,6 +1125,7 @@ export default function EntityPage({
                       value={rulerName}
                       onChange={(e) => setRulerName(e.target.value)}
                     />
+                    {dice(null, setRulerName)}
                     <input
                       type="number"
                       placeholder={t('year (blank=from start)')}
@@ -1203,9 +1237,15 @@ export default function EntityPage({
                     />
                   ))}
                 </div>
-                {famRow(t('Mother'), 'mother', true)}
-                {famRow(t('Father'), 'father', true)}
-                {famRow(t('Spouse'), 'spouse', false)}
+                {famRow(t('Mother'), 'mother', true, 'F')}
+                {famRow(t('Father'), 'father', true, 'M')}
+                {/* a spouse is assumed to be of the opposite gender; unknown → offer both */}
+                {famRow(
+                  t('Spouse'),
+                  'spouse',
+                  false,
+                  inferredGender === 'F' ? 'M' : inferredGender === 'M' ? 'F' : null
+                )}
                 {/* A child = a reversed link (child → this person). The relation becomes
                     mother/father by this person's gender (father assumed when unknown; later
                     ones correct themselves once a gender is set). */}
@@ -1251,6 +1291,7 @@ export default function EntityPage({
                       }}
                     >
                       <input name="name" list="person-list" placeholder={t('child…')} />
+                      {dice(null)}
                       <button className="mini" type="submit">
                         +
                       </button>
