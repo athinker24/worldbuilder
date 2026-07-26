@@ -2177,6 +2177,9 @@ a {
 }
 
 .link-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
   position: absolute;
   left: 50%;
   transform: translateX(-50%);

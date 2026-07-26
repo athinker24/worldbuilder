@@ -4,6 +4,16 @@ import { Lang } from './api'
 // English is the canonical text used directly in JSX (t('Some Text')); this dictionary
 // only needs to hold the Turkish alternative. Missing keys fall back to the English text.
 const TR: Record<string, string> = {
+  // Map hint bars: the glyph became a leading <Icon>, so the key lost it.
+  'Click the conqueror — the picks join it…': 'Fethedene tıkla — seçtiklerin ona bağlanır…',
+  'Select polygons to join {name} ({n} selected)':
+    "{name}'e katılacak poligonları seç ({n} seçili)",
+  'Click the START pin…': 'Başlangıç pinine tıkla…',
+  'Now click the DESTINATION pin ({from} → …)': 'Şimdi varış pinine tıkla ({from} → …)',
+  'Click the FIRST point of a known distance…': 'Bilinen bir mesafenin İLK noktasına tıkla…',
+  'Now click the SECOND point…': 'Şimdi İKİNCİ noktaya tıkla…',
+  'Real distance between the two points:': 'İki nokta arasındaki gerçek mesafe:',
+  'Event name (year {n}):': 'Olay adı (yıl {n}):',
   // Context-menu labels: the glyph moved out of the key and into MenuItem.icon.
   'Change border from this year': 'Sınırı bu yıldan itibaren değiştir',
   'Move mode': 'Taşı modu',

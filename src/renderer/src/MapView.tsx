@@ -3500,7 +3500,7 @@ export default function MapView({
               />
               {conquest?.step === 'receiver' && (
                 <div className="link-hint">
-                  {t('⚔ Click the conqueror — the picks join it…')}{' '}
+                  <Icon name="conquest" size={13} /> {t('Click the conqueror — the picks join it…')}{' '}
                   <label>
                     {t('conqueror')}{' '}
                     <select
@@ -3542,7 +3542,8 @@ export default function MapView({
               )}
               {conquest?.step === 'picking' && (
                 <div className="link-hint">
-                  {t('⚔ Select polygons to join {name} ({n} selected)', {
+                  <Icon name="conquest" size={13} />{' '}
+                  {t('Select polygons to join {name} ({n} selected)', {
                     name: conquest.receiverName,
                     n: conquest.picked.size
                   })}{' '}
@@ -3565,9 +3566,10 @@ export default function MapView({
               )}
               {nav && nav.step !== 'result' && (
                 <div className="link-hint">
+                  <Icon name="map" size={13} />{' '}
                   {nav.step === 'a'
-                    ? t('🧭 Click the START pin…')
-                    : t('🧭 Now click the DESTINATION pin ({from} → …)', { from: nav.aName })}{' '}
+                    ? t('Click the START pin…')
+                    : t('Now click the DESTINATION pin ({from} → …)', { from: nav.aName })}{' '}
                   <button className="mini" onClick={endNav}>
                     {t('cancel')}
                   </button>
@@ -3575,9 +3577,10 @@ export default function MapView({
               )}
               {measure?.kind === 'calib' && (
                 <div className="link-hint">
+                  <Icon name="ruler" size={13} />{' '}
                   {measure.pts.length === 0
-                    ? t('📏 Click the FIRST point of a known distance…')
-                    : t('📏 Now click the SECOND point…')}{' '}
+                    ? t('Click the FIRST point of a known distance…')
+                    : t('Now click the SECOND point…')}{' '}
                   <button className="mini" onClick={endMeasure}>
                     {t('cancel')}
                   </button>
@@ -3592,7 +3595,7 @@ export default function MapView({
                     saveCalib(Number(fd.get('dist')), String(fd.get('unit') ?? 'km'))
                   }}
                 >
-                  {t('📏 Real distance between the two points:')}{' '}
+                  <Icon name="ruler" size={13} /> {t('Real distance between the two points:')}{' '}
                   <input
                     name="dist"
                     type="number"
@@ -3612,7 +3615,7 @@ export default function MapView({
               )}
               {measure?.kind === 'dist' && (
                 <div className="link-hint">
-                  📏{' '}
+                  <Icon name="ruler" size={13} />{' '}
                   {t('Distance: {val} {unit}', {
                     val: fmtDist(ringLen(ptsXY(measure.pts)) * measureK),
                     unit: measureUnit
@@ -3624,7 +3627,7 @@ export default function MapView({
               )}
               {measure?.kind === 'area' && (
                 <div className="link-hint">
-                  📐{' '}
+                  <Icon name="polygon" size={13} />{' '}
                   {t('Area: {val} {unit}²', {
                     val: fmtDist(ringArea(ptsXY(measure.pts)) * measureK * measureK),
                     unit: measureUnit
@@ -3656,7 +3659,8 @@ export default function MapView({
                     saveEventDraft(new FormData(e.currentTarget).get('name') as string)
                   }}
                 >
-                  {t('📅 Event name (year {n}):', { n: eventDraft.year })}{' '}
+                  <Icon name="calendar" size={13} />{' '}
+                  {t('Event name (year {n}):', { n: eventDraft.year })}{' '}
                   <input name="name" autoFocus placeholder={t('event name')} />
                   <button className="mini" type="submit">
                     {t('add')}
