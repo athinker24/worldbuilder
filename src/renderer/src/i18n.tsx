@@ -33,7 +33,7 @@ const TR: Record<string, string> = {
   'Project Preferences': 'Proje Tercihleri',
   Preferences: 'Tercihler',
   'Open a map first.': 'Önce bir harita aç.',
-  'Show sidebar (Ctrl+B)': 'Kenar çubuğunu göster (Ctrl+B)',
+  'Show panels (Tab)': 'Panelleri göster (Tab)',
   'Drag to resize': 'Boyutlandırmak için sürükle',
   // Hata sınırı (bozuk .dunya render'ı patlatırsa çıkış yolu)
   'This world could not be opened': 'Bu dünya açılamadı',
@@ -55,7 +55,8 @@ const TR: Record<string, string> = {
     'Madde adı öner — ↑↓ ile seç, Enter/Tab ile ekle',
   'Close the suggestion list': 'Öneri listesini kapat',
   'Search everything (palette)': 'Her şeyde ara (palet)',
-  'Show/hide the sidebar': 'Kenar çubuğunu göster/gizle',
+  'Hide every panel (Photoshop style)': 'Tüm panelleri gizle (Photoshop gibi)',
+  'Hide panels but keep the map tools': 'Panelleri gizle ama harita araçları kalsın',
   'New world': 'Yeni dünya',
   'Save world / Save as': 'Dünyayı kaydet / Farklı kaydet',
   'Open world': 'Dünya aç',

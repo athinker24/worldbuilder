@@ -160,6 +160,10 @@ interface Props {
   // Deliberately an opaque () => void — capturePage needs the live .leaflet-host element, which
   // only exists here, and no Leaflet type may leave this file.
   onExportReady?: (fn: (() => void) | null) => void
+  // Photoshop's Tab / Shift+Tab, driven from App: hidePanels covers the inspector and the tool
+  // settings popover, hideTools additionally hides the floating tool palette.
+  hidePanels?: boolean
+  hideTools?: boolean
 }
 
 interface FeatureLayer extends L.Layer {
@@ -562,7 +566,9 @@ export default function MapView({
   onNavigate,
   onOpenEntity,
   onChanged,
-  onExportReady
+  onExportReady,
+  hidePanels,
+  hideTools
 }: Props): React.JSX.Element {
   const t = useT()
   const divRef = useRef<HTMLDivElement>(null)
@@ -3673,8 +3679,8 @@ export default function MapView({
                   (position:relative) like the other floats, so opening the 380px inspector shrinks
                   that box and they slide left with it — no collision handling needed. Inside the
                   !exporting guard so neither lands in the exported PNG. */}
-              <MapToolbar active={tool} onTool={activateTool} />
-              {tool && !selected && (
+              {!hideTools && <MapToolbar active={tool} onTool={activateTool} />}
+              {tool && !selected && !hidePanels && (
                 <div className="map-tool-popover">
                   <ToolPanel
                     buttons={false} // the buttons live in MapToolbar now
@@ -3711,7 +3717,7 @@ export default function MapView({
             </>
           )}
         </div>
-        {selected && (
+        {selected && !hidePanels && (
           <div
             className="pane-resize"
             title={t('Drag to resize')}
@@ -3728,7 +3734,16 @@ export default function MapView({
           />
         )}
         {selected && (
-          <div className="map-panel" style={{ width: panelW, minWidth: panelW }}>
+          // display:none, not unmounted — hiding panels must not tear down the inspector's
+          // EntityPage and lose whatever the user was editing in it.
+          <div
+            className="map-panel"
+            style={{
+              width: panelW,
+              minWidth: panelW,
+              display: hidePanels ? 'none' : undefined
+            }}
+          >
             <div className="map-panel-head">
               <b>
                 {selIds.length > 1

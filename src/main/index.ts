@@ -119,7 +119,6 @@ const PREFS = join(app.getPath('userData'), 'prefs.json')
 type Prefs = {
   language?: string
   theme?: string
-  sidebarOpen?: boolean
   sidebarWidth?: number
   mapPanelWidth?: number
 }
@@ -206,7 +205,8 @@ const MENU_TR: Record<string, string> = {
   Preferences: 'Tercihler',
   Maps: 'Haritalar',
   Overview: 'Genel Bakış',
-  'Toggle Sidebar': 'Kenar Çubuğunu Aç/Kapat',
+  'Hide Panels': 'Panelleri Gizle',
+  'Hide Panels, Keep Tools': 'Panelleri Gizle, Araçlar Kalsın',
   Atlas: 'Atlas',
   Chronology: 'Kronoloji',
   Relations: 'İlişkiler',
@@ -280,10 +280,20 @@ function buildMenu(): void {
       {
         label: ml('View'),
         submenu: [
+          // Photoshop's Tab / Shift+Tab. registerAccelerator:false — Tab is the focus key, and
+          // registering it natively would kill keyboard navigation in every input on the page.
+          // The renderer owns the key and skips it while a form control has focus.
           {
-            label: ml('Toggle Sidebar'),
-            accelerator: 'CmdOrCtrl+B',
-            click: () => send('view.toggleSidebar')
+            label: ml('Hide Panels'),
+            accelerator: 'Tab',
+            registerAccelerator: false,
+            click: () => send('view.togglePanels')
+          },
+          {
+            label: ml('Hide Panels, Keep Tools'),
+            accelerator: 'Shift+Tab',
+            registerAccelerator: false,
+            click: () => send('view.togglePanelsKeepTools')
           },
           { type: 'separator' },
           { label: ml('Maps'), click: () => send('view.maps') },

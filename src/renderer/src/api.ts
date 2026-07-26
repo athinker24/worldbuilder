@@ -6,7 +6,6 @@ const inv = <T>(method: string, ...args: unknown[]): Promise<T> =>
 export interface UiPrefs {
   language?: string
   theme?: string
-  sidebarOpen?: boolean
   sidebarWidth?: number
   mapPanelWidth?: number
 }

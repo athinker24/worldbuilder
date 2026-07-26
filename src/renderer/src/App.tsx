@@ -67,26 +67,26 @@ export default function App(): React.JSX.Element {
   const t = (s: string, params?: Record<string, string | number>): string =>
     translate(lang, s, params)
 
-  // Sidebar layout: collapsible and drag-resizable, both remembered in userData/prefs.json.
-  // Defaults match the old fixed 260px, so a fresh install looks unchanged.
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  // Photoshop's Tab / Shift+Tab: 'all' hides every chrome including the map tool palette,
+  // 'panels' keeps the palette so you can still draw. Pressing either key while hidden restores,
+  // whichever one hid it — that is how Photoshop behaves.
+  // Deliberately NOT persisted (widths are): launching into a chrome-less window would read as a
+  // broken app. This is a temporary view mode, not a layout preference.
+  const [hidden, setHidden] = useState<null | 'panels' | 'all'>(null)
   const [sidebarW, setSidebarW] = useState(260)
 
   useEffect(() => {
     getLanguage().then(setLang)
     getTheme().then(setTheme)
     api.getPrefs().then((p) => {
-      if (p.sidebarOpen === false) setSidebarOpen(false)
       if (p.sidebarWidth) setSidebarW(p.sidebarWidth)
     })
   }, [])
 
-  const toggleSidebar = useCallback((): void => {
-    setSidebarOpen((open) => {
-      api.savePrefs({ sidebarOpen: !open })
-      return !open
-    })
-  }, [])
+  const togglePanels = useCallback(
+    (keepTools: boolean): void => setHidden((h) => (h ? null : keepTools ? 'panels' : 'all')),
+    []
+  )
 
   // The theme is applied via <html data-theme> — the CSS tokens (main.css) branch on it
   useEffect(() => {
@@ -308,8 +308,10 @@ export default function App(): React.JSX.Element {
           return setView({ kind: 'preferences' })
         case 'view.maps':
           return void openMaps()
-        case 'view.toggleSidebar':
-          return toggleSidebar()
+        case 'view.togglePanels':
+          return togglePanels(false)
+        case 'view.togglePanelsKeepTools':
+          return togglePanels(true)
         case 'view.projectPrefs':
           return setView({ kind: 'projectPrefs' })
         case 'help.shortcuts':
@@ -325,7 +327,7 @@ export default function App(): React.JSX.Element {
     openMaps,
     refresh,
     showToast,
-    toggleSidebar,
+    togglePanels,
     lang
   ])
 
@@ -340,6 +342,11 @@ export default function App(): React.JSX.Element {
       if (e.ctrlKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPalette((p) => !p)
+      } else if (e.key === 'Tab' && !typing && t.tagName !== 'SELECT' && t.tagName !== 'BUTTON') {
+        // Photoshop's Tab / Shift+Tab. SELECT and BUTTON are excluded alongside the typing guard
+        // so Tab keeps doing its real job — moving focus — whenever a control actually has it.
+        e.preventDefault()
+        togglePanels(e.shiftKey)
       } else if (e.key === 'Escape') {
         setPalette(false)
       } else if (
@@ -379,7 +386,7 @@ export default function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [refresh, deleteSelected])
+  }, [refresh, deleteSelected, togglePanels])
 
   // Sidebar file tree: articles are grouped under user-made folders (fields['folder']); a folder
   // id that no longer exists resolves to root (like map boards' resolveBoard).
@@ -662,14 +669,14 @@ export default function App(): React.JSX.Element {
   return (
     <LangContext.Provider value={lang}>
       <div className="app">
-        {/* Collapsed: a thin rail with a ▸ button, so closing the sidebar is never a one-way
-            door even if the user forgets Ctrl+B / View ▸ Toggle Sidebar. */}
-        {!sidebarOpen && (
+        {/* Shift+Tab leaves a thin rail as the way back; plain Tab is presentation mode and
+            hides even that, exactly like Photoshop. The View menu is the guaranteed way out. */}
+        {hidden === 'panels' && (
           <button
             className="sidebar-rail"
-            title={t('Show sidebar (Ctrl+B)')}
-            aria-label={t('Show sidebar (Ctrl+B)')}
-            onClick={toggleSidebar}
+            title={t('Show panels (Tab)')}
+            aria-label={t('Show panels (Tab)')}
+            onClick={() => togglePanels(false)}
           >
             ▸
           </button>
@@ -681,7 +688,7 @@ export default function App(): React.JSX.Element {
           style={{
             width: sidebarW,
             minWidth: sidebarW,
-            display: sidebarOpen ? undefined : 'none'
+            display: hidden ? 'none' : undefined
           }}
         >
           <input
@@ -766,7 +773,7 @@ export default function App(): React.JSX.Element {
             {t('⚙ Project Preferences')}
           </div>
         </div>
-        {sidebarOpen && (
+        {!hidden && (
           <div
             className="pane-resize"
             title={t('Drag to resize')}
@@ -852,6 +859,8 @@ export default function App(): React.JSX.Element {
               onOpenEntity={openEntity}
               onChanged={refresh}
               onExportReady={handleExportReady}
+              hidePanels={hidden !== null}
+              hideTools={hidden === 'all'}
             />
           )}
           {view.kind === 'preferences' && (
