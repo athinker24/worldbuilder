@@ -3133,10 +3133,11 @@ export default function MapView({
         </div>
         <div className="layers-menu">
           <button
-            className={`layers-btn ${mapsOpen ? 'open' : ''}`}
+            className={`layers-btn tier-1 ${mapsOpen ? 'open' : ''}`}
             onClick={() => setMapsOpen((o) => !o)}
           >
-            🗺 {t('Maps')}
+            <Icon name="map" size={14} />
+            {t('Maps')}
             {maps.length > 1 && <span className="layers-count">{maps.length}</span>}
           </button>
           {mapsOpen && (
@@ -3256,10 +3257,11 @@ export default function MapView({
             the header keeps only map CONTEXT: search, maps, boards, layers. */}
         <div className="layers-menu">
           <button
-            className={`layers-btn ${boardsOpen ? 'open' : ''}`}
+            className={`layers-btn tier-2 ${boardsOpen ? 'open' : ''}`}
             onClick={() => setBoardsOpen((o) => !o)}
           >
-            📚 {t('Boards')}
+            <Icon name="board" size={14} />
+            {t('Boards')}
             {boards.list.length > 0 && (
               <span className="layers-count">
                 {(boards.list.find((b) => b.id === boards.active)?.name ?? boards.list[0]?.name) ||
@@ -3355,10 +3357,11 @@ export default function MapView({
         </div>
         <div className="layers-menu">
           <button
-            className={`layers-btn ${layersOpen ? 'open' : ''}`}
+            className={`layers-btn tier-3 ${layersOpen ? 'open' : ''}`}
+            title={t('Layers')}
             onClick={() => setLayersOpen((o) => !o)}
           >
-            🗂 {t('Layers')}{' '}
+            <Icon name="eye" size={14} />
             <span className="layers-count">{Object.values(layersOn).filter(Boolean).length}/4</span>
           </button>
           {layersOpen && (
