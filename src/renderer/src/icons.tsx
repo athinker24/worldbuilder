@@ -20,6 +20,7 @@ export type IconName =
   // structure / navigation
   | 'chevron-right'
   | 'chevron-down'
+  | 'chevron-up'
   | 'arrow-up-right'
   | 'search'
   | 'folder'
@@ -58,6 +59,7 @@ export type IconName =
 const PATHS: Record<IconName, string> = {
   'chevron-right': 'M9 18l6-6-6-6',
   'chevron-down': 'M6 9l6 6 6-6',
+  'chevron-up': 'M18 15l-6-6-6 6',
   'arrow-up-right': 'M7 7h10v10M7 17L17 7',
   search: 'M19 11a8 8 0 1 1-16 0 8 8 0 1 1 16 0M21 21l-4.3-4.3',
   folder:

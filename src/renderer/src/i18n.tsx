@@ -114,6 +114,8 @@ const TR: Record<string, string> = {
   'Exported {n} note file(s); opening the folder…': '{n} not dosyası yazıldı; klasör açılıyor…',
   Person: 'Kişi',
   'Hierarchy Ranks': 'Hiyerarşi Kademeleri',
+  'Move up': 'Yukarı taşı',
+  'Move down': 'Aşağı taşı',
   'Load preset': 'Hazır şablon',
   'Adds example government forms and ladders (existing ones are kept)':
     'Örnek yönetim biçimleri ve merdivenleri ekler (mevcutlar korunur)',
