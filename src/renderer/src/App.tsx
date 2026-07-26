@@ -523,9 +523,9 @@ export default function App(): React.JSX.Element {
       x: ev.clientX,
       y: ev.clientY,
       items: [
-        { label: t('🗒 New note'), onClick: () => createNote(folder.id) },
-        { label: t('📁 New folder'), onClick: () => addFolder(folder.id) },
-        { label: t('✎ Rename'), onClick: () => setRenamingFolder(folder.id) },
+        { icon: 'file-text', label: t('New note'), onClick: () => createNote(folder.id) },
+        { icon: 'folder', label: t('New folder'), onClick: () => addFolder(folder.id) },
+        { icon: 'pencil', label: t('Rename'), onClick: () => setRenamingFolder(folder.id) },
         {
           // People live in folders now (the old "Person" entity type): family/dynasty pickers
           // only suggest articles from these, and they cannot be bound to the map.
@@ -535,7 +535,7 @@ export default function App(): React.JSX.Element {
               folders.map((f) => (f.id === folder.id ? { ...f, isPerson: !f.isPerson } : f))
             )
         },
-        { label: t('🗑 Delete'), danger: true, onClick: () => deleteFolder(folder) }
+        { icon: 'trash', label: t('Delete'), danger: true, onClick: () => deleteFolder(folder) }
       ]
     })
   }
@@ -558,10 +558,11 @@ export default function App(): React.JSX.Element {
           x: ev.clientX,
           y: ev.clientY,
           items: [
-            { label: t('📖 Open'), onClick: () => openEntity(e.id) },
-            { label: t('📍 Show on map'), onClick: () => locateEntity(e.id) },
+            { icon: 'file-text', label: t('Open'), onClick: () => openEntity(e.id) },
+            { icon: 'map-pin', label: t('Show on map'), onClick: () => locateEntity(e.id) },
             {
-              label: t('🗑 Delete'),
+              icon: 'trash',
+              label: t('Delete'),
               danger: true,
               onClick: async () => {
                 if (await deleteEntityWithUndo(e.id)) {

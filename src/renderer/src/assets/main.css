@@ -2734,6 +2734,10 @@ a {
 }
 
 .ctx-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-muted);
   padding: 6px 10px;
   border-radius: var(--r-s);
   cursor: pointer;
@@ -2745,6 +2749,7 @@ a {
 
 .ctx-item:hover {
   background: var(--surface-hover);
+  color: var(--text);
 }
 
 .ctx-item.danger:hover {

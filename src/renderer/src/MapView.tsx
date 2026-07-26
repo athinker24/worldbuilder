@@ -1846,7 +1846,11 @@ export default function MapView({
           e.originalEvent.preventDefault()
           const items: MenuItem[] = []
           if (f.entity_id)
-            items.push({ label: t('📖 Open entity'), onClick: () => onOpenEntity(f.entity_id!) })
+            items.push({
+              icon: 'file-text',
+              label: t('Open entity'),
+              onClick: () => onOpenEntity(f.entity_id!)
+            })
           items.push({
             label: f.entity_id ? t('🔍 Show in panel') : t('🔗 Link to entity…'),
             onClick: () => setSelected(f)
@@ -1856,24 +1860,37 @@ export default function MapView({
           // the selection (syncEditMode), and the [selected, tool] effect re-syncs once the state
           // lands. setTool, not activateTool — the latter toggles off when handed the current tool.
           items.push({
-            label: t('✏️ Edit shape'),
+            icon: 'pencil',
+            label: t('Edit shape'),
             onClick: () => (setSelected(f), setTool('edit'))
           })
-          items.push({ label: t('✋ Move'), onClick: () => (setSelected(f), setTool('drag')) })
+          items.push({
+            icon: 'maximize',
+            label: t('Move'),
+            onClick: () => (setSelected(f), setTool('drag'))
+          })
           if (style.childMapId)
             items.push({
-              label: t('🗺 Open map →'),
+              icon: 'map',
+              label: t('Open map'),
               onClick: () => onNavigate(style.childMapId!)
             })
           items.push({
-            label: t('⏳ Change border from this year'),
+            icon: 'clock',
+            label: t('Change border from this year'),
             onClick: () => forkFeature(f)
           })
           items.push({
-            label: t('📅 Add event to this drawing'),
+            icon: 'calendar',
+            label: t('Add event to this drawing'),
             onClick: () => setEventDraft({ f, year: yearRef.current })
           })
-          items.push({ label: t('🗑 Delete'), danger: true, onClick: () => removeFeature(f.id) })
+          items.push({
+            icon: 'trash',
+            label: t('Delete'),
+            danger: true,
+            onClick: () => removeFeature(f.id)
+          })
           setMenu({ x: e.originalEvent.clientX, y: e.originalEvent.clientY, items })
         })
         fg.addLayer(layer)
@@ -2677,13 +2694,13 @@ export default function MapView({
         x: e.originalEvent.clientX,
         y: e.originalEvent.clientY,
         items: [
-          { label: t('⬠ Draw polygon'), onClick: () => activateTool('polygon') },
-          { label: t('〰 Draw path'), onClick: () => activateTool('line') },
-          { label: t('📍 Add location'), onClick: () => activateTool('marker') },
-          { label: t('🏷 Add label'), onClick: () => activateTool('label') },
-          { label: t('✏️ Edit mode'), onClick: () => activateTool('edit') },
-          { label: t('✋ Move mode'), onClick: () => activateTool('drag') },
-          { label: t('🗑 Delete mode'), onClick: () => activateTool('remove') }
+          { icon: 'polygon', label: t('Draw polygon'), onClick: () => activateTool('polygon') },
+          { icon: 'path', label: t('Draw path'), onClick: () => activateTool('line') },
+          { icon: 'map-pin', label: t('Add location'), onClick: () => activateTool('marker') },
+          { icon: 'label', label: t('Add label'), onClick: () => activateTool('label') },
+          { icon: 'pencil', label: t('Edit mode'), onClick: () => activateTool('edit') },
+          { icon: 'maximize', label: t('Move mode'), onClick: () => activateTool('drag') },
+          { icon: 'trash', label: t('Delete mode'), onClick: () => activateTool('remove') }
         ]
       })
     })

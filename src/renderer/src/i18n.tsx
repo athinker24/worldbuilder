@@ -4,6 +4,19 @@ import { Lang } from './api'
 // English is the canonical text used directly in JSX (t('Some Text')); this dictionary
 // only needs to hold the Turkish alternative. Missing keys fall back to the English text.
 const TR: Record<string, string> = {
+  // Context-menu labels: the glyph moved out of the key and into MenuItem.icon.
+  'Change border from this year': 'Sınırı bu yıldan itibaren değiştir',
+  'Move mode': 'Taşı modu',
+  'Edit mode': 'Düzenle modu',
+  'Edit shape': 'Şekli düzenle',
+  'Draw polygon': 'Poligon çiz',
+  'Draw path': 'Yol çiz',
+  'Add label': 'Etiket ekle',
+  'Add event to this drawing': 'Bu çizime olay ekle',
+  'Add location': 'Konum ekle',
+  Open: 'Aç',
+  'Delete mode': 'Silme modu',
+  'Open map': 'Haritayı aç',
   // App.tsx
   'Search…  (Ctrl+K)': 'Ara…  (Ctrl+K)',
   Maps: 'Haritalar',
