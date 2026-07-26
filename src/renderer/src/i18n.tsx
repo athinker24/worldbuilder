@@ -91,6 +91,7 @@ const TR: Record<string, string> = {
   'Edits apply to all selected drawings. Ctrl+click to add/remove.':
     'Düzenlemeler seçili tüm çizimlere uygulanır. Ctrl+tık ile ekle/çıkar.',
   '📜 Chronology': '📜 Kronoloji',
+  Chronology: 'Kronoloji',
   'This will discard unsaved changes. Continue?':
     'Kaydedilmemiş değişiklikler kaybolacak. Devam edilsin mi?',
   // Başlangıç ekranı (son kullanılan .dunya dosyaları)

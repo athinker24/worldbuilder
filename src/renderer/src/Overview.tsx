@@ -3,6 +3,7 @@ import Atlas from './Atlas'
 import Chronology from './Chronology'
 import Diplomacy from './Diplomacy'
 import { useT } from './i18n'
+import { Tabs } from './ui'
 
 // The project-wide workspace: views that answer "what does my world look like as a whole?"
 // rather than "what is this one article?". They used to be three separate sidebar entries.
@@ -10,11 +11,11 @@ import { useT } from './i18n'
 export type OverviewTab = 'atlas' | 'chronology' | 'relations'
 
 const TABS: { key: OverviewTab; label: string }[] = [
-  { key: 'atlas', label: '📊 Atlas' },
-  { key: 'chronology', label: '📜 Chronology' },
+  { key: 'atlas', label: 'Atlas' },
+  { key: 'chronology', label: 'Chronology' },
   // "Relations" is this view's user-facing name; the component, its props and the link data
   // model are unchanged (it was called Diplomacy).
-  { key: 'relations', label: '🕸 Relations' }
+  { key: 'relations', label: 'Relations' }
 ]
 
 interface Props {
@@ -42,18 +43,10 @@ export default function Overview({
         <div className="page-head">
           <h2>{t('Overview')}</h2>
         </div>
-        {/* Same chip idiom as the entity page's section tabs — no new component, no new styles. */}
-        <div className="hier-tabs">
-          {TABS.map((x) => (
-            <span
-              key={x.key}
-              className={`tag-chip clickable ${tab === x.key ? 'active' : ''}`}
-              onClick={() => onTab(x.key)}
-            >
-              {t(x.label)}
-            </span>
-          ))}
-        </div>
+        {/* Real tabs, not chips. A chip is DATA; these are navigation, and rendering
+            them identically was the main reason nothing in the app distinguished a
+            tag from a section switch. */}
+        <Tabs tabs={TABS.map((x) => ({ ...x, label: t(x.label) }))} active={tab} onChange={onTab} />
       </div>
       {tab === 'atlas' && <Atlas onOpenEntity={onOpenEntity} />}
       {tab === 'chronology' && (
