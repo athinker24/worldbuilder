@@ -583,19 +583,20 @@ h4 {
 }
 
 .kron-row + .kron-row {
-  border-top: 1px dashed var(--border);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .kron-year {
-  color: var(--muted);
-  font-size: 13px;
+  color: var(--text-muted);
+  font-size: var(--fs-2);
   text-align: right;
 }
 
 .kron-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+  width: 3px;
+  height: 100%;
+  min-height: 18px;
+  border-radius: 2px;
   justify-self: center;
 }
 
@@ -628,6 +629,13 @@ h4 {
 
 .atlas-map {
   margin-bottom: 22px;
+}
+
+.atlas-map h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
 }
 
 .atlas-map h4 {

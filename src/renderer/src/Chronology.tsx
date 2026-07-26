@@ -9,6 +9,7 @@ import {
   TimelineConfig
 } from './api'
 import { useT } from './i18n'
+import { EmptyState } from './ui'
 
 interface Props {
   onOpenEntity: (id: number) => void
@@ -80,11 +81,13 @@ export default function Kronoloji({ onOpenEntity, onLocateFeature }: Props): Rea
     <div className="page kron-page">
       {/* No <h2> — Overview's tab bar already names this view. */}
       {moments.length === 0 && (
-        <p className="hint">
-          {t(
-            'No events or reigns recorded yet. Add events from the map timeline, or ruler reigns from an entity page.'
+        <EmptyState
+          icon="calendar"
+          title={t('Nothing recorded yet')}
+          hint={t(
+            'Add events from the map timeline, or a ruler’s reign from an entity page — both land here.'
           )}
-        </p>
+        />
       )}
       <div className="kron-list">
         {moments.map((m, i) => {

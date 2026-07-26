@@ -18,7 +18,9 @@ import {
   WorldMap
 } from './api'
 import { MapScale } from './ToolPanel'
+import Icon from './icons'
 import { useT } from './i18n'
+import { EmptyState } from './ui'
 
 interface Props {
   onOpenEntity: (id: number) => void
@@ -204,20 +206,22 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
         )}
       </div>
       {atlas.length === 0 && (
-        <p className="hint">
-          {t(
-            'No measurable regions yet. Draw base-rank polygons on a map (and set a map scale with the 📏 tool for real areas).'
+        <EmptyState
+          icon="polygon"
+          title={t('Nothing to measure yet')}
+          hint={t(
+            'Draw base-rank polygons on a map, and set a map scale with the Scale tool to get real areas rather than map units.'
           )}
-        </p>
+        />
       )}
       {atlas.map(({ map, unit, total, realms, dims }) => (
         <div key={map.id} className="atlas-map">
           <h3>
-            🗺 {map.name}
+            <Icon name="map" size={15} /> {map.name}
             <span className="hint">
               {' '}
               — {t('mapped area')}: {fmtArea(total)} {unit ? `${unit}²` : t('mu²')}
-              {!unit && ` (${t('no scale set — 📏 tool on the map')})`}
+              {!unit && ` (${t('no scale set — use the Scale tool on the map')})`}
             </span>
           </h3>
           <h4>{t('Realms')}</h4>

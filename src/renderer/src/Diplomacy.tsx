@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, autoColor, FolderDef, personFolderIds } from './api'
 import { useT } from './i18n'
+import { EmptyState } from './ui'
 
 interface Props {
   folders: FolderDef[]
@@ -78,11 +79,13 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
     <div className="page">
       {/* No <h2> — Overview's tab bar already names this view ("Relations"). */}
       {web.nodes.length === 0 && (
-        <p className="hint">
-          {t(
-            'No relations between entities yet. Add links from the Relations tab of an entity page.'
+        <EmptyState
+          icon="link"
+          title={t('No relations yet')}
+          hint={t(
+            'Link two entities from the Relations section of an entity page and the web draws itself.'
           )}
-        </p>
+        />
       )}
       {web.relations.length > 0 && (
         <div className="diplo-legend">
