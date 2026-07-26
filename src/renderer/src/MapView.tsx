@@ -65,6 +65,60 @@ import { pushUndo } from './undo'
 
 L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl })
 
+// --- Two Leaflet patches that steady the POLYGONS under a smooth (fractional) wheel zoom. ------
+// Both were measured in a throwaway Leaflet harness (continuous setZoomAround sweep, logging each
+// overlay's per-frame deviation from its own layer point); the numbers below are from that run.
+// They were once reverted because the tremble persisted — that turned out to be the TEXT
+// (see `text-rendering: geometricPrecision` in main.css), a separate cause. These fix the shapes.
+// Module level is required: Leaflet captures a layer's handlers when it is ADDED, so a patch
+// applied later does not take.
+//
+// 1. `Map.latLngToLayerPoint` ROUNDS the projected point so overlays land on whole pixels. During
+//    a continuous zoom each vertex crosses its pixel boundary at a different moment, so an outline
+//    wobbles up to a pixel while the map scales: 0.921px per-vertex wobble, 0.000px unrounded.
+//    The rounding must come off for PATHS AND MARKERS TOGETHER — unround only one and the other
+//    snaps against it, which just moves the tremble onto the labels (measured: 0.921px again).
+//    The map half is in the map-setup effect; this is the marker half.
+type Positionable = {
+  update(): L.Marker
+  _icon?: HTMLElement
+  _map?: L.Map
+  _latlng: L.LatLng
+  _zIndex: number
+  _setPos(p: L.Point): void
+  _resetZIndex(): void
+}
+const markerProto = L.Marker.prototype as unknown as Positionable
+const stockMarkerUpdate = markerProto.update
+markerProto.update = function (this: Positionable): L.Marker {
+  if (!this._icon || !this._map) return stockMarkerUpdate.call(this)
+  this._setPos(this._map.latLngToLayerPoint(this._latlng)) // stock rounds this point
+  this._zIndex = Math.round(this._zIndex) // _setPos derives it from y; a z-index must be integer
+  this._resetZIndex()
+  return this as unknown as L.Marker
+}
+
+// 2. Polyline simplification measures its tolerance in projected PIXELS at the current zoom and
+//    re-runs on every re-projection, so the surviving vertex set kept changing: the outline
+//    morphed on 174 of 199 swept frames, each change moving the border by up to `smoothFactor`
+//    pixels. Invisible inside one realm (neighbours share a colour), glaring in rank/paint view
+//    where every boundary is a colour edge. Scaling the tolerance by 2^(z - round(z)) makes it
+//    constant in MAP units within a zoom level, so the shape is frozen while zooming and only
+//    re-simplifies when crossing a whole zoom: 2 of 199 frames, with BORDER_SMOOTH's LOD intact.
+//    Only works together with (1) — alone, the rounding noise flips borderline vertices anyway.
+type Simplifiable = { _simplifyPoints(): void; _map?: L.Map; options: { smoothFactor?: number } }
+const stockSimplify = (L.Polyline.prototype as unknown as Simplifiable)._simplifyPoints
+;(L.Polyline.prototype as unknown as Simplifiable)._simplifyPoints = function (
+  this: Simplifiable
+): void {
+  const zoom = this._map?.getZoom()
+  const tol = this.options.smoothFactor
+  if (zoom === undefined || !tol) return stockSimplify.call(this)
+  this.options.smoothFactor = tol * 2 ** (zoom - Math.round(zoom))
+  stockSimplify.call(this)
+  this.options.smoothFactor = tol
+}
+
 // Shape of the Feature.style JSON (all optional — old records fall back to defaults)
 interface FeatureStyle {
   color?: string
@@ -166,7 +220,7 @@ const pinDivIcon = (m: {
 // Free text label (LegendKeeper "Labels"): map text without polygon or pin — a sea, a
 // mountain range, a region name. iconSize/iconAnchor [0,0]: the icon's top-left sits exactly
 // on the point and the inner div centers itself via translate(-50%,-50%) → no width math per
-// text length. Font size is written by zoom in updateOverlaySizes (LABEL_BASE = zoom-0 base).
+// text length. Zoom scales it via the `--lz` custom property (LABEL_BASE = zoom-0 base).
 const LABEL_BASE = 16
 // Derived-mode label (rank/paint): a base font (map units) below this means the region is too
 // small, so no label is drawn (CK3 does not name tiny regions either)
@@ -191,23 +245,36 @@ const setClipboard = (v: ClipItem[]): void => {
   clipboard = v
 }
 const getClipboard = (): ClipItem[] => clipboard
-const labelDivIcon = (s: {
-  text?: string
-  color?: string
-  angle?: number
-  curve?: number
-}): L.DivIcon => {
+const labelDivIcon = (
+  s: {
+    text?: string
+    color?: string
+    angle?: number
+    curve?: number
+    font?: string
+  },
+  basePx: number
+): L.DivIcon => {
   const text = escapeHtml(s.text ?? '')
   const color = escapeHtml(s.color ?? '#ffffff')
+  const font = escapeHtml(s.font ?? 'Cinzel')
   const angle = Number(s.angle) || 0
   const curve = Number(s.curve) || 0
   // Straight text renders through SVG textPath too (curve=0 → the arc collapses to a line;
   // measured: same position/width as an HTML div). The single path exists for CLICKING: a
   // div's hit area is always the whole box (clicks beside the letters still select), while
   // SVG with visiblePainted makes only the letters clickable. Design space font-size=100;
-  // the SVG sizes in em → the fontSize written to _icon scales text and arc TOGETHER, the
-  // zoom branch stays unchanged. The arc is a quadratic Bézier: its midpoint (t=0.5) sits
-  // exactly on the anchor (cy = H/2 + sag).
+  // the SVG sizes in em. The arc is a quadratic Bézier: its midpoint (t=0.5) sits exactly on
+  // the anchor (cy = H/2 + sag).
+  //
+  // ZOOM SCALING IS A TRANSFORM, NOT A FONT SIZE — the size is BAKED here and zoom only writes
+  // the `--lz` custom property (inherited from _icon, see updateOverlaySizes). Measured in a
+  // Leaflet harness by reading getStartPositionOfChar per glyph over a continuous zoom sweep:
+  // rewriting font-size relaid the glyphs on 149 of 149 frames (up to 0.68 user units of
+  // per-glyph shift) because every size change re-quantises glyph advances — along a curved
+  // textPath that is exactly the letters "dancing". With scale() it was 0 of 149, identical to
+  // not touching the label at all. transform-origin stays the default centre, so
+  // translate(-50%,-50%) keeps the midpoint pinned to the anchor at every scale and angle.
   const F = 100
   const w = Math.max(text.length * F * 0.62, F) // estimated text width (~0.62em per letter)
   const sag = (curve / 100) * w * 0.3 // arc height (sagitta); + bends up, − bends down
@@ -216,7 +283,7 @@ const labelDivIcon = (s: {
   const H = 3 * F + 2 * Math.abs(sag)
   const cy = H / 2 + sag
   const id = `lblp${++labelSeq}`
-  const html = `<svg class="map-label-svg" viewBox="0 0 ${W} ${H}" style="width:${W / F}em;height:${H / F}em;transform:translate(-50%,-50%) rotate(${angle}deg)"><defs><path id="${id}" fill="none" d="M ${pad},${cy} Q ${W / 2},${cy - 2 * sag} ${W - pad},${cy}"/></defs><text font-size="${F}" fill="${color}" text-anchor="middle" dominant-baseline="central"><textPath href="#${id}" startOffset="50%">${text}</textPath></text></svg>`
+  const html = `<svg class="map-label-svg" viewBox="0 0 ${W} ${H}" style="width:${W / F}em;height:${H / F}em;font-size:${basePx}px;font-family:'${font}',serif;transform:translate(-50%,-50%) scale(var(--lz,1)) rotate(${angle}deg)"><defs><path id="${id}" fill="none" d="M ${pad},${cy} Q ${W / 2},${cy - 2 * sag} ${W - pad},${cy}"/></defs><text font-size="${F}" fill="${color}" text-anchor="middle" dominant-baseline="central"><textPath href="#${id}" startOffset="50%">${text}</textPath></text></svg>`
   return L.divIcon({ className: 'map-label', html, iconSize: [0, 0], iconAnchor: [0, 0] })
 }
 
@@ -497,8 +564,9 @@ export default function MapView({
   const imageLayerRef = useRef<L.ImageOverlay | null>(null)
   // Label base sizes in map units (zoom-0 pixels); converted to pixels on every zoom
   const labelMeta = useRef(new Map<number, { base: number; font: string }>())
-  // Free text labels (labelMeta's divIcon counterpart; font size scales with zoom)
-  const labelText = useRef(new Map<number, { base: number; font: string }>())
+  // Which features are free text labels — size/font live baked in the icon, so zoom only needs
+  // to know WHICH icons take the `--lz` scale write (pins take a different branch)
+  const labelText = useRef(new Set<number>())
   // Pin size multipliers; scale with zoom like polygon labels (glued to the map).
   // ar is set only on FREE custom-image pins (height = width / ar; no DOM measurement).
   const markerSize = useRef(new Map<number, { size: number; ar?: number }>())
@@ -603,15 +671,9 @@ export default function MapView({
     >()
   )
   const dimValue = useRef(new Map<number, string>())
-  const derivedLabels = useRef<{ m: L.Marker; base: number }[]>([])
-  // TEMPORARY, for the zoom-tremble hunt — F9 cycles it. Every candidate cause so far has been
-  // guessed and missed, so this splits the question in the app itself instead:
-  //   0 off · 1 labels FROZEN (updateOverlaySizes does nothing — no per-frame size writes at all)
-  //   2 labels frozen AND hidden (`.dbg-nolabels`)
-  // Tremble survives mode 2 → it is the polygons. Stops at mode 1 → it is the per-frame sizing.
-  // Stops only at mode 2 → it is the label's own rendering. Delete this once it is answered.
-  const [dbgMode, setDbgMode] = useState(0)
-  const dbgRef = useRef(0) // kept in sync from the F9 handler (a ref must not be written in render)
+  // Derived-mode region labels. Their base size is baked into the icon, so zoom only writes
+  // `--lz` on each — nothing else about them is needed on the hot path.
+  const derivedLabels = useRef<L.Marker[]>([])
   const derivedSig = useRef('') // fid:group signature — no work on year ticks where ownership is unchanged
   // Mosaic-governed entities (year-independent): those appearing in ANY year of the base
   // polygons' parent histories. Their own drawings never show in the default view — on full
@@ -952,9 +1014,7 @@ export default function MapView({
     const el = (drawInst('Marker')?._hintMarker as unknown as { _icon?: HTMLElement } | undefined)
       ?._icon
     if (!el) return
-    const l = drawRef.current.label
-    el.style.fontSize = `${LABEL_BASE * (l.size ?? 1) * scale}px`
-    el.style.fontFamily = `'${l.font}', serif`
+    el.style.setProperty('--lz', String(scale)) // size/font are baked by applyDrawStyle's icon
   }
 
   // Apply drawRef.current to the active draw tool (the shared path of tool start + setting
@@ -970,7 +1030,10 @@ export default function MapView({
     const inst = drawInst(shape)
     const live = inst?.enabled?.() ?? false
     if (tl === 'marker' || tl === 'label') {
-      const icon = tl === 'marker' ? pinDivIcon(s.marker) : labelDivIcon(s.label)
+      const icon =
+        tl === 'marker'
+          ? pinDivIcon(s.marker)
+          : labelDivIcon(s.label, LABEL_BASE * (s.label.size ?? 1))
       if (live) {
         inst?.setOptions?.({ markerStyle: { icon } })
         inst?._hintMarker?.setIcon(icon)
@@ -1045,7 +1108,6 @@ export default function MapView({
   const updateOverlaySizes = (reposition = false): void => {
     const map = mapRef.current
     if (!map || !featureGroupRef.current) return
-    if (dbgRef.current > 0) return // F9 debug: freeze every overlay size (see dbgMode)
     const scale = 2 ** map.getZoom()
     featureGroupRef.current.eachLayer((l) => {
       const fl = l as FeatureLayer
@@ -1078,19 +1140,17 @@ export default function MapView({
           pinEl.style.marginTop = `${-w / 2}px`
         }
       }
-      // free text label: like a pin but the FONT scales, not the size (the inner div inherits).
-      // No tooltip.update() → one style write on the hot path, no reflow risk.
-      const lt = labelText.current.get(fl.featureId)
-      if (lt && pinEl) {
-        pinEl.style.fontSize = `${lt.base * scale}px`
-        pinEl.style.fontFamily = `'${lt.font}', serif`
-      }
+      // Free text label: size and font are baked into the icon; zoom only writes `--lz`, which
+      // the svg's transform reads (see labelDivIcon for why a transform and not a font size).
+      // A custom property INHERITS, so writing it here on _icon reaches the svg — no lookup.
+      if (labelText.current.has(fl.featureId) && pinEl)
+        pinEl.style.setProperty('--lz', String(scale))
     })
     // Derived-mode labels (on the map, outside the featureGroup): same pattern as free labels
     // — one fontSize write, no DOM measuring (SVG em sizing scales text + arc together)
-    for (const d of derivedLabels.current) {
-      const el = (d.m as unknown as { _icon?: HTMLElement })._icon
-      if (el) el.style.fontSize = `${d.base * scale}px`
+    for (const m of derivedLabels.current) {
+      const el = (m as unknown as { _icon?: HTMLElement })._icon
+      if (el) el.style.setProperty('--lz', String(scale)) // base is baked; see labelDivIcon
     }
     // the open label preview (the hint marker is outside the featureGroup too) — scale it on zoom
     if (toolRef.current === 'label') styleHintLabel(scale)
@@ -1329,7 +1389,7 @@ export default function MapView({
     labelGeo.current.clear()
     dimValue.current.clear()
     // Derived labels live on the map, not in the featureGroup — fg.clearLayers() won't remove them
-    for (const d of derivedLabels.current) d.m.remove()
+    for (const m of derivedLabels.current) m.remove()
     derivedLabels.current = []
     derivedSig.current = ''
     for (const e of h.entities) {
@@ -1426,7 +1486,9 @@ export default function MapView({
           noClip: fillColor !== color
         } as L.PolylineOptions,
         pointToLayer: (_gf, latlng) =>
-          L.marker(latlng, { icon: isLabel ? labelDivIcon(style) : pinDivIcon(style) })
+          L.marker(latlng, {
+            icon: isLabel ? labelDivIcon(style, LABEL_BASE * (style.size ?? 1)) : pinDivIcon(style)
+          })
       })
       featKind.current.set(
         f.id,
@@ -1503,11 +1565,7 @@ export default function MapView({
             size: style.size ?? 1,
             ar: style.img && style.imgFree ? (style.imgAR ?? 1) : undefined
           })
-        if (isLabel)
-          labelText.current.set(f.id, {
-            base: LABEL_BASE * (style.size ?? 1),
-            font: style.font ?? 'Cinzel'
-          })
+        if (isLabel) labelText.current.add(f.id)
         // No tooltip on a label — its text is already visible
         if (f.entity_name && !derived && !isLabel) {
           // On a polygon the name sits centred, sized with the polygon; on a marker it shows
@@ -1764,7 +1822,7 @@ export default function MapView({
     const map = mapRef.current
     const mode = activeModeRef.current
     const clear = (): void => {
-      for (const d of derivedLabels.current) d.m.remove()
+      for (const m of derivedLabels.current) m.remove()
       derivedLabels.current = []
       derivedSig.current = ''
     }
@@ -1860,11 +1918,11 @@ export default function MapView({
       const base = Math.min(300, (extent * 0.8) / (0.62 * Math.max(4, text.length)))
       if (base < LABEL_MIN) continue // a tiny region gets no label
       const m = L.marker([cy, cx], {
-        icon: labelDivIcon({ text, color: '#ffffff', angle, curve: 10 }),
+        icon: labelDivIcon({ text, color: '#ffffff', angle, curve: 10 }, base),
         interactive: false,
         pmIgnore: true
       } as L.MarkerOptions).addTo(map)
-      derivedLabels.current.push({ m, base })
+      derivedLabels.current.push(m)
     }
   }
 
@@ -2285,11 +2343,6 @@ export default function MapView({
         // the capture phase → runs before App's and cuts the chain here.
         e.stopImmediatePropagation()
         void removeFeature(...selIdsRef.current)
-      } else if (e.key === 'F9') {
-        e.preventDefault() // TEMPORARY zoom-tremble debug switch — see dbgMode
-        const next = (dbgRef.current + 1) % 3
-        dbgRef.current = next
-        setDbgMode(next)
       } else if (e.ctrlKey && k === 'c' && has) copySelection()
       else if (e.ctrlKey && k === 'v' && getClipboard().length) {
         e.preventDefault()
@@ -2378,7 +2431,10 @@ export default function MapView({
     // Left-drag panning off (free for drawing/selection); pan with middle mouse; no zoom
     // buttons (there is a HUD). scrollWheelZoom off: replaced below by a custom continuous
     // (fractional, animation-free) wheel zoom
+    // One explicit renderer for the whole map, so its container placement can be corrected below
+    const renderer = L.svg()
     const map = L.map(divRef.current, {
+      renderer,
       crs: L.CRS.Simple,
       minZoom: -4,
       maxZoom: 4,
@@ -2389,6 +2445,31 @@ export default function MapView({
       attributionControl: false
     })
     mapRef.current = map
+    // The map half of patch 1 (see the module top): project without the `._round()`. Every path
+    // vertex, marker and tooltip goes through this one call, so they all share one fractional space.
+    map.latLngToLayerPoint = (latlng: L.LatLngExpression): L.Point =>
+      map.project(L.latLng(latlng)).subtract(map.getPixelOrigin())
+    // A third, independent 1px source, measured the same way: the labels sat EXACTLY on their
+    // layer point while the polygons swung 0.99px, because path coordinates and the renderer's
+    // viewBox both come from latLngToLayerPoint while Renderer._updateTransform places the
+    // container from its own unrounded projection. That leftover fraction sawtooths across ±0.5px
+    // as the zoom changes, sliding every polygon a whole pixel under everything on top of it.
+    // When the renderer is already in sync with the map's zoom — every frame of our animate:false
+    // wheel zoom, since _resetView re-projects — put the container exactly where its own viewBox
+    // says. Measured after: 0.000px. The scaled branch is left alone for real animated zooms
+    // (flyTo), where the renderer deliberately lags and IS being scaled.
+    const rend = renderer as unknown as {
+      _updateTransform(center: L.LatLng, zoom: number): void
+      _zoom: number
+      _bounds?: L.Bounds
+      _container?: HTMLElement
+    }
+    const stockTransform = rend._updateTransform.bind(rend)
+    rend._updateTransform = (center: L.LatLng, zoom: number): void => {
+      const min = rend._bounds?.min
+      if (zoom === rend._zoom && min && rend._container) L.DomUtil.setPosition(rend._container, min)
+      else stockTransform(center, zoom)
+    }
     map.pm.setGlobalOptions({ tooltips: false }) // silence geoman's "Click to place marker" hints
 
     const host = divRef.current
@@ -3302,13 +3383,7 @@ export default function MapView({
               })()}
             </defs>
           </svg>
-          <div ref={divRef} className={`leaflet-host${dbgMode === 2 ? ' dbg-nolabels' : ''}`} />
-          {/* TEMPORARY zoom-tremble debug readout (F9) — remove with dbgMode */}
-          {dbgMode > 0 && !exporting && (
-            <div className="dbg-badge">
-              F9 · {dbgMode === 1 ? t('Labels frozen') : t('Labels frozen + hidden')}
-            </div>
-          )}
+          <div ref={divRef} className="leaflet-host" />
           {/* Scale bar: a round distance (1/2/5×10ⁿ) is picked, pixel width comes from zoom.
               Zoom updates HUD state every tick so the render stays fresh. Kept in exports. */}
           {mapScale &&

@@ -321,8 +321,6 @@ const TR: Record<string, string> = {
   'birth year': 'doğum yılı',
   'death year': 'ölüm yılı',
   'child…': 'çocuk…',
-  'Labels frozen': 'Etiketler donduruldu',
-  'Labels frozen + hidden': 'Etiketler donduruldu + gizlendi',
   '🎲 Random male name': '🎲 Rastgele erkek ismi',
   '🎲 Random female name': '🎲 Rastgele kadın ismi',
   'in content': 'içerikte',
