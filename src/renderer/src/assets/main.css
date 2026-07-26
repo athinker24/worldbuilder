@@ -2962,12 +2962,14 @@ a {
   flex-direction: column;
 }
 
-/* Banner: 140px, not 200px, and it CARRIES the title instead of pushing it
-   below the fold. The scrim keeps the name legible over any uploaded image. */
+/* The banner CARRIES the title rather than pushing it below the fold — which is
+   what made the old 200px block a problem. Because the name now rides on the
+   image, height costs nothing structurally, so it gets room to actually read as
+   a picture. Scales with the window but never eats more than a third of it. */
 .entity-banner {
   position: relative;
   flex: none;
-  height: 140px;
+  height: clamp(180px, 26vh, 300px);
   background: var(--surface-sunken);
 }
 
@@ -2984,8 +2986,8 @@ a {
   inset: 0;
   background: linear-gradient(
     to bottom,
-    transparent 30%,
-    color-mix(in srgb, var(--surface) 85%, transparent) 100%
+    transparent 45%,
+    color-mix(in srgb, var(--surface) 92%, transparent) 100%
   );
   pointer-events: none;
 }
