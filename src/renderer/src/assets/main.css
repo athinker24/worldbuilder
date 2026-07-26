@@ -90,9 +90,9 @@
   --font-ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
   --font-title: 'Cinzel', Georgia, serif; /* workspace titles ONLY (bundled) */
   --font-mono: Consolas, 'Cascadia Mono', monospace;
-  --fs-1: 11px;
-  --fs-2: 12px;
-  --fs-3: 13px;
+  --fs-1: 12px;
+  --fs-2: 13px;
+  --fs-3: 14px;
   --fs-4: 14px;
   --fs-5: 16px;
   --fs-6: 20px;
@@ -454,6 +454,7 @@ h4 {
 /* Workspace navigation: places you GO, distinct from the article rows above and
    separated by a real boundary rather than sharing their styling. */
 .side-nav {
+  flex: none;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -3149,10 +3150,43 @@ a {
   font-size: var(--fs-5);
 }
 
-/* A rail row's label is a user-authored key on the Fields section, so it wraps
-   rather than truncating — a clipped field name is worse than a two-line one. */
+/* At 320px a label COLUMN cannot work: "Government form" wrapped to two lines and
+   still left the input too narrow to read. The rail stacks label over control —
+   the same call the inspector already makes at 380px. */
+.entity-rail .row {
+  position: relative;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: var(--sp-1) 0;
+}
+
 .entity-rail .row-label {
-  flex-basis: 88px;
+  flex: none;
+}
+
+.entity-rail .row-value > input,
+.entity-rail .row-value > select {
+  width: 100%;
+}
+
+/* Inline add-forms wrap instead of running past the rail edge. */
+.entity-rail .tag-add {
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.entity-rail .tag-add input {
+  flex: 1;
+  width: auto;
+  min-width: 90px;
+}
+
+/* The action sits with the row it belongs to now that rows are stacked. */
+.entity-rail .row-action {
+  position: absolute;
+  top: 0;
+  right: 0;
 }
 
 /* A chain (barony → county → duchy) is a sequence, not a bag of tags. */
