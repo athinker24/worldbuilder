@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { PinImage } from './api'
 import ColorPicker from './ColorPicker'
+import { IconName } from './icons'
 import { ImageStrip } from './pinIcons'
 import { useT } from './i18n'
 
@@ -104,39 +105,40 @@ const fmtNav = (v: number): string =>
 export const FONTS = ['Cinzel', 'IM Fell English', 'MedievalSharp', 'Uncial Antiqua', 'system-ui']
 
 // Exported so MapToolbar can show the same icon and name for the subset it displays — one source
-// for tool labels, whichever container renders the buttons.
-export const TOOLS: { key: Tool; icon: string; name: string; hint?: string }[] = [
-  { key: 'polygon', icon: '⬠', name: 'Polygon' },
-  { key: 'line', icon: '〰', name: 'Path', hint: 'Draw roads, routes, borders as lines.' },
-  { key: 'marker', icon: '📍', name: 'Location' },
+// for tool labels, whichever container renders the buttons. Drawing tools carry the icon of the
+// SHAPE they produce, so the palette reads as its own output.
+export const TOOLS: { key: Tool; icon: IconName; name: string; hint?: string }[] = [
+  { key: 'polygon', icon: 'polygon', name: 'Polygon' },
+  { key: 'line', icon: 'path', name: 'Path', hint: 'Draw roads, routes, borders as lines.' },
+  { key: 'marker', icon: 'map-pin', name: 'Location' },
   {
     key: 'label',
-    icon: '🏷',
+    icon: 'label',
     name: 'Label',
     hint: 'Free text on the map — name seas, mountain ranges, regions.'
   },
   {
     key: 'scale',
-    icon: '📏',
+    icon: 'ruler',
     name: 'Scale',
     hint: 'Set the map scale; measure distance and area without drawing.'
   },
   {
     key: 'nav',
-    icon: '🧭',
+    icon: 'map',
     name: 'Navigate',
     hint: 'Pick two pins; the route follows your drawn paths.'
   },
   {
     key: 'edit',
-    icon: '✏️',
+    icon: 'pencil',
     name: 'Edit',
     hint: 'Drag the corner points of drawings to change their shape.'
   },
-  { key: 'drag', icon: '✋', name: 'Move', hint: 'Drag drawings to move them.' },
+  { key: 'drag', icon: 'maximize', name: 'Move', hint: 'Drag drawings to move them.' },
   {
     key: 'remove',
-    icon: '🗑',
+    icon: 'trash',
     name: 'Delete',
     hint: 'Clicked drawing is deleted (undo with Ctrl+Z).'
   }

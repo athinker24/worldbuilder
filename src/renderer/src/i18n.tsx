@@ -259,7 +259,26 @@ const TR: Record<string, string> = {
   'target entity': 'hedef madde',
   'Linked from here': 'Buraya bağlananlar',
   'mentions in content': 'içerikte anıyor',
-  '🗒 New tab': '🗒 Yeni sekme',
+  'New tab': 'Yeni sekme',
+  // Entity page — the identity rail's sections and rows. Emoji left the JSX for
+  // the SVG icon set, so these keys lost their glyphs; the English string IS the
+  // key, so a stale entry here silently falls back to English.
+  Identity: 'Kimlik',
+  Folder: 'Klasör',
+  Ranks: 'Kademeler',
+  Rulers: 'Hükümdarlar',
+  // Family / Life already exist further down (the dynasty block) — keys are unique.
+  Born: 'Doğum',
+  Died: 'Ölüm',
+  Fields: 'Alanlar',
+  'Delete field': 'Alanı sil',
+  'Open entity': 'Maddeyi aç',
+  'Open full page': 'Tam sayfayı aç',
+  'Independent — belongs to no other realm.': 'Bağımsız — başka bir ülkeye bağlı değil.',
+  Appearance: 'Görünüm',
+  Close: 'Kapat',
+  Expand: 'Genişlet',
+  Collapse: 'Daralt',
   'New note': 'Yeni not',
   'New folder': 'Yeni klasör',
   'Delete note "{name}"?': '"{name}" notu silinsin mi?',

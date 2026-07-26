@@ -2,54 +2,163 @@
   box-sizing: border-box;
 }
 
-/* Theme token layer: :root = dark (teal, default), [data-theme='light'] = light (turquoise).
-   App.tsx writes document.documentElement.dataset.theme (settings.theme). MAP CONTENT
-   (drawing colors, autoColor, color-picker spectrum, polygon-label white) is theme-independent. */
+/* ============================================================================
+   DESIGN TOKENS — :root = dark (default), [data-theme='light'] = light.
+   App.tsx writes document.documentElement.dataset.theme (prefs.json).
+
+   Tokens are named by ROLE, not by number: `--bg2` told you nothing about where
+   it belonged, which is how the sidebar ended up LIGHTER than the workspace it
+   frames. `--surface-sunken` cannot be misfiled.
+
+   The surface ramp, deepest → highest:
+     canvas  map void (the only surface the map image sits on)
+     sunken  sidebar and secondary chrome — RECESSED, below the workspace
+     base    the workspace / page background
+     raised  docked panels, the inspector, blocks inside a panel
+     float   popovers, menus, dialogs, floating map chrome
+   Each step is ~4 points of lightness — the old ramp stepped ~3 and leaned on a
+   1px border everywhere to compensate, which is what made the UI read as boxed-in.
+
+   MAP CONTENT (drawing colors, autoColor, color-picker spectrum, polygon-label
+   white, pin badge frame) is deliberately theme-independent — see updateOverlaySizes,
+   which runs every zoom frame and must never look a token up.
+   ============================================================================ */
 :root {
-  --bg0: #0f1416; /* deepest: map void, tree panel */
-  --bg: #151a1c;
-  --bg2: #1b2225;
-  --bg3: #242d30;
-  --text: #d5dcdc;
-  --muted: #84928f;
-  --accent: #3ec4ad;
-  --accent-soft: rgba(62, 196, 173, 0.14); /* selected background + focus ring */
-  --border: #323d40;
+  /* --- surfaces --- */
+  --surface-canvas: #0b1012;
+  --surface-sunken: #12191b;
+  --surface: #1a2225;
+  --surface-raised: #222b2f;
+  --surface-float: #2a353a;
+  /* Interaction states are TRANSLUCENT so they compose over whichever surface
+     they land on — a hover in the sidebar and a hover in a popover both read. */
+  --surface-hover: rgba(255, 255, 255, 0.055);
+  --surface-active: rgba(255, 255, 255, 0.09);
+  /* Controls (inputs, buttons, selects) — translucent for the same reason: a
+     control nested inside a raised panel must still sit above it. */
+  --control: rgba(255, 255, 255, 0.05);
+  --control-hover: rgba(255, 255, 255, 0.09);
+
+  /* --- text --- */
+  --text: #dde5e5;
+  --text-muted: #93a3a2; /* secondary text, labels */
+  --text-faint: #6d7c7b; /* section headings, disabled */
+
+  /* --- accents ---
+     Teal = the APPLICATION talking (selection, active, focus, interaction).
+     Warm gold = the WORLD's own content (rulers, eras, year marks, templates) —
+     the family tree already used gold for rulers; this formalises that.
+     Neither ever paints user data: that stays autoColor(), theme-exempt. */
+  --accent: #3ec4ad; /* active/selected text and icons */
+  --accent-soft: rgba(62, 196, 173, 0.14); /* active/selected backgrounds */
+  --accent-strong: #3ec4ad; /* the one high-emphasis fill per view */
+  --accent-contrast: #08201c; /* text ON --accent-strong */
+  --accent-warm: #d9a441;
+  --accent-warm-soft: rgba(217, 164, 65, 0.14);
   --danger: #e06c75;
-  --gold: #d9a441; /* ruler / active-measurement highlight */
+  --danger-soft: rgba(224, 108, 117, 0.14);
   --male: #5b8fd6;
   --female: #d67ba8;
+
+  /* --- borders: subtle divides siblings, strong marks a real edge --- */
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
+
+  /* --- elevation. The hairline dark ring in shadow-2/3 replaces the border a
+     float used to carry: it defines the edge against a similar-luminance
+     backdrop without reading as an outline. --- */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 2px 10px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.35);
+  --shadow-3: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 0, 0, 0.45);
   --overlay: rgba(0, 0, 0, 0.55); /* modal backdrop */
-  --tint-1: rgba(255, 255, 255, 0.03); /* subtle surface tint */
+
+  /* --- geometry --- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --r-s: 4px; /* controls */
+  --r-m: 6px; /* panels, popovers */
+  --r-l: 10px; /* dialogs */
+  --h-sm: 24px;
+  --h-md: 28px;
+  --h-lg: 32px;
+
+  /* --- type --- */
+  --font-ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-title: 'Cinzel', Georgia, serif; /* workspace titles ONLY (bundled) */
+  --font-mono: Consolas, 'Cascadia Mono', monospace;
+  --fs-1: 11px;
+  --fs-2: 12px;
+  --fs-3: 13px;
+  --fs-4: 14px;
+  --fs-5: 16px;
+  --fs-6: 20px;
+  --fs-7: 26px;
+
+  /* --- motion --- */
+  --dur-fast: 100ms; /* hover, color, icon state */
+  --dur: 160ms; /* popover, menu, dialog, tab */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --focus-ring: 0 0 0 2px var(--accent-soft);
+
+  /* --- compatibility aliases ---
+     The rest of this file (and ~2000 lines of it) still speaks in --bg0..--bg3.
+     Aliasing rather than rewriting every rule means the ramp fix reaches the
+     whole app immediately; rules are migrated to role names as they are touched. */
+  --bg0: var(--surface-canvas);
+  --bg: var(--surface);
+  --bg2: var(--surface-raised);
+  --bg3: var(--control);
+  --muted: var(--text-muted);
+  --border: var(--border-strong);
+  --gold: var(--accent-warm);
+  --tint-1: rgba(255, 255, 255, 0.03);
   --tint-2: rgba(255, 255, 255, 0.07);
-  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4); /* small element */
-  --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.4); /* floating panel */
-  --shadow-3: 0 12px 40px rgba(0, 0, 0, 0.55); /* diyalog / palet */
-  --r-s: 5px;
-  --r-m: 8px;
-  --r-l: 12px;
 }
 
+/* Light theme: the SAME role ordering, re-derived — not hand-tuned per token.
+   That is what fixes the old inversion, where --bg0 (the map void) was darker
+   than --bg2 and so became the darkest thing on a light screen. */
 [data-theme='light'] {
-  --bg0: #d6e0e0;
-  --bg: #eef2f2;
-  --bg2: #ffffff;
-  --bg3: #e2eaea;
-  --text: #1d2a2a;
-  --muted: #5f7270;
+  --surface-canvas: #ccd7d8;
+  --surface-sunken: #e2e9e9;
+  --surface: #eef2f2;
+  --surface-raised: #f8fafa;
+  --surface-float: #ffffff;
+  --surface-hover: rgba(15, 40, 40, 0.055);
+  --surface-active: rgba(15, 40, 40, 0.09);
+  --control: rgba(15, 40, 40, 0.045);
+  --control-hover: rgba(15, 40, 40, 0.085);
+
+  --text: #16211f;
+  --text-muted: #536664;
+  --text-faint: #778886;
+
   --accent: #0d9488;
   --accent-soft: rgba(13, 148, 136, 0.13);
-  --border: #c8d4d4;
+  --accent-strong: #0d9488;
+  --accent-contrast: #ffffff;
+  --accent-warm: #a8761c;
+  --accent-warm-soft: rgba(168, 118, 28, 0.14);
   --danger: #c4404b;
-  --gold: #a8761c;
+  --danger-soft: rgba(196, 64, 75, 0.13);
   --male: #3c6cb4;
   --female: #b85583;
+
+  --border-subtle: rgba(15, 40, 40, 0.1);
+  --border-strong: rgba(15, 40, 40, 0.18);
+
+  --shadow-1: 0 1px 2px rgba(15, 40, 40, 0.12);
+  --shadow-2: 0 2px 10px rgba(15, 40, 40, 0.13), 0 0 0 1px rgba(15, 40, 40, 0.08);
+  --shadow-3: 0 16px 48px rgba(15, 40, 40, 0.2), 0 0 0 1px rgba(15, 40, 40, 0.1);
   --overlay: rgba(20, 40, 40, 0.35);
+
   --tint-1: rgba(15, 40, 40, 0.04);
   --tint-2: rgba(15, 40, 40, 0.08);
-  --shadow-1: 0 1px 3px rgba(15, 40, 40, 0.12);
-  --shadow-2: 0 4px 16px rgba(15, 40, 40, 0.14);
-  --shadow-3: 0 12px 40px rgba(15, 40, 40, 0.22);
 }
 
 html,
@@ -60,40 +169,82 @@ body,
 }
 
 body {
-  font-family: 'Segoe UI', system-ui, sans-serif;
-  background: var(--bg);
+  font-family: var(--font-ui);
+  background: var(--surface);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--fs-4);
   /* Desktop-app feel: no free text selection/dragging like a web page. */
   user-select: none;
   -webkit-user-drag: none;
 }
 
+/* Text you READ is selectable; chrome is not. Previously only inputs and the
+   markdown view opted back in, so an entity name, a computed area or a
+   coordinate could not be copied — all things a user genuinely wants to lift. */
 input,
 textarea,
 .content-view,
-.content-edit {
+.content-edit,
+.page-title,
+.row-value,
+.scale-info,
+.nav-total,
+.atlas-num,
+.kron-text,
+kbd {
   user-select: text;
 }
 
 /* --- typography hierarchy (one scale; local rules override through specificity) --- */
 h2 {
-  font-size: 20px;
+  font-size: var(--fs-6);
   font-weight: 650;
   letter-spacing: -0.01em;
 }
 
 h3 {
-  font-size: 16px;
+  font-size: var(--fs-5);
   font-weight: 600;
 }
 
+/* Section heading: quieter and smaller than before — a label over a group, not
+   a heading competing with content. */
 h4 {
-  font-size: 13px;
+  font-size: var(--fs-1);
   font-weight: 600;
-  color: var(--muted);
+  color: var(--text-faint);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.06em;
+}
+
+/* Workspace titles — the one place the bundled display face appears outside the
+   map itself. Everything else stays --font-ui. */
+.page-title {
+  font-family: var(--font-title);
+  font-size: var(--fs-7);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+}
+
+/* Numbers that change in place must not change width: years, areas, percentages,
+   zoom, distances, coordinates. */
+.num,
+.zoom-pct,
+.atlas-num,
+.kron-year,
+.timeline-year,
+.cp-row input[type='number'] {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* --- scrollbar (desktop feel) --- */
@@ -161,24 +312,27 @@ h4 {
 }
 
 .sidebar-rail:hover {
-  background: var(--bg3);
+  background: var(--surface-hover);
   color: var(--accent);
 }
 
 /* --- sidebar --- */
 /* Width comes from App's inline style (drag-resizable, remembered in prefs.json); these are the
    fallback for the split second before prefs load. */
+/* SUNKEN, not raised. Persistent chrome sits BELOW the workspace it frames —
+   the single change that stops the app reading as a web page with a nav rail.
+   (It used to use --bg2, i.e. a raised level, and so was lighter than the page.) */
 .sidebar {
   width: 260px;
   min-width: 260px;
   flex-shrink: 0;
-  background: var(--bg2);
-  border-right: 1px solid var(--border);
+  background: var(--surface-sunken);
+  border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding: 8px;
-  gap: 8px;
+  padding: var(--sp-2);
+  gap: var(--sp-2);
 }
 
 .search {
@@ -210,7 +364,7 @@ h4 {
   user-select: none;
 }
 .side-folder:hover {
-  background: var(--bg3);
+  background: var(--surface-hover);
 }
 .tree-caret {
   width: 12px;
@@ -276,7 +430,7 @@ h4 {
 }
 
 .side-item:hover {
-  background: var(--bg3);
+  background: var(--surface-hover);
 }
 
 .side-label {
@@ -441,7 +595,7 @@ h4 {
 }
 
 .atlas-bar-track {
-  background: var(--bg3);
+  background: var(--surface-sunken);
   border-radius: 4px;
   height: 14px;
   overflow: hidden;
@@ -548,9 +702,8 @@ h4 {
   bottom: 16px;
   z-index: 1000;
   pointer-events: none;
-  background: var(--bg3);
+  background: var(--surface-float);
   color: var(--text);
-  border: 1px solid var(--border);
   border-radius: var(--r-m);
   box-shadow: var(--shadow-2);
   padding: 8px 14px;
@@ -565,8 +718,7 @@ h4 {
   max-width: 320px;
   max-height: 210px;
   overflow-y: auto;
-  background: var(--bg2);
-  border: 1px solid var(--border);
+  background: var(--surface-float);
   border-radius: var(--r-m);
   box-shadow: var(--shadow-2);
   padding: 4px;
@@ -604,14 +756,19 @@ h4 {
 .shortcut-table td:first-child {
   white-space: nowrap;
 }
+/* A key cap reads as a physical thing: raised surface, a hairline, and a bottom
+   edge that suggests depth. It borrowed the control background before, so it
+   looked like an input. */
 kbd {
-  font-family: inherit;
-  font-size: 12px;
-  background: var(--bg3);
-  border: 1px solid var(--border);
+  font-family: var(--font-ui);
+  font-size: var(--fs-2);
+  background: var(--surface-float);
+  border: 1px solid var(--border-subtle);
+  border-bottom-color: var(--border-strong);
   border-radius: var(--r-s);
   padding: 1px 6px;
   color: var(--text);
+  white-space: nowrap;
 }
 
 /* Start screen (Photoshop/Krita "home"): recently used .dunya files. */
@@ -727,10 +884,6 @@ kbd {
 }
 
 /* --- fields and rows --- */
-.fields {
-  margin-bottom: 12px;
-}
-
 .field-row {
   display: flex;
   gap: 6px;
@@ -773,57 +926,7 @@ kbd {
 }
 
 /* --- sancak (banner) --- */
-.banner {
-  position: relative;
-  margin-bottom: 12px;
-}
-
-.banner img {
-  display: block;
-  width: 100%;
-  height: 200px;
-  object-fit: cover; /* accepts every image size; overflow is cropped */
-  border-radius: 8px;
-}
-
-.page.compact .banner img {
-  height: 100px;
-}
-
 /* Visible, clickable placeholder when no banner exists — discoverability. */
-.banner-placeholder {
-  display: block;
-  width: 100%;
-  padding: 10px;
-  margin-bottom: 12px;
-  background: transparent;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  color: var(--muted);
-  font-size: 13px;
-  cursor: pointer;
-  text-align: center;
-}
-
-.banner-placeholder:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.banner .banner-actions {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  display: flex;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.banner:hover .banner-actions {
-  opacity: 1;
-}
-
 /* --- note tabs --- */
 .notes-region {
   margin-top: 12px;
@@ -832,7 +935,7 @@ kbd {
 
 .note-tab {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-m);
   margin-bottom: 8px;
 }
 
@@ -882,8 +985,8 @@ kbd {
   padding: 32px;
 }
 .note-focus {
-  background: var(--bg1);
-  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--r-l);
   box-shadow: var(--shadow-3);
   width: min(900px, 100%);
@@ -933,8 +1036,8 @@ kbd {
 }
 
 .tree-panel {
-  background: var(--bg0);
-  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--r-l);
   width: 92vw;
   height: 86vh;
@@ -1052,7 +1155,7 @@ kbd {
   gap: 8px;
   padding: 7px 11px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   background: var(--tint-1);
   cursor: pointer;
   white-space: nowrap;
@@ -1174,7 +1277,7 @@ kbd {
   padding: 4px;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-m);
   cursor: pointer;
 }
 
@@ -1297,23 +1400,6 @@ kbd {
 }
 
 /* --- relations --- */
-.links-section .hier-tabs {
-  margin-bottom: 10px;
-}
-
-.links-section {
-  margin-top: 20px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-}
-
-.links-section h3 {
-  font-size: 13px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
 .link-row {
   display: flex;
   gap: 8px;
@@ -1335,11 +1421,11 @@ kbd {
 }
 
 .map-toolbar {
-  padding: 8px 12px;
-  background: var(--bg2);
-  border-bottom: 1px solid var(--border);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
-  gap: 10px;
+  gap: var(--sp-2);
   align-items: center;
 }
 
@@ -1357,9 +1443,40 @@ kbd {
   min-width: 0;
 }
 
-.leaflet-host {
+/* THE MAP CANVAS. Double class on purpose: leaflet.css loads AFTER main.css (it
+   is imported from MapView.tsx, deep in the module graph) and declares
+   `.leaflet-container { background: #ddd }` on this very element — equal
+   specificity, later rule wins, which is why the void was a light grey slab
+   against a dark shell. `.leaflet-host.leaflet-container` outranks it.
+
+   Three deliberate steps: chrome → canvas → map. The canvas is the deepest
+   surface, carrying a very quiet FIXED grid (not zoom-reactive: that would mean
+   new work on updateOverlaySizes, the per-frame hot path) so it reads as a
+   drafting surface rather than an empty hole. */
+.leaflet-host,
+.leaflet-host.leaflet-container {
   flex: 1;
-  background: var(--bg0);
+  background-color: var(--surface-canvas);
+  background-image:
+    linear-gradient(var(--canvas-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--canvas-grid) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+:root {
+  --canvas-grid: rgba(255, 255, 255, 0.028);
+}
+
+[data-theme='light'] {
+  --canvas-grid: rgba(15, 40, 40, 0.045);
+}
+
+/* The map image reads as a lit object on a dark table, not a texture bleeding
+   into the void. Leaflet gives the base image its own <img> in the overlay pane. */
+.leaflet-image-layer {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.09),
+    0 8px 40px rgba(0, 0, 0, 0.55);
 }
 
 /* Selection highlight (single or Ctrl+click multi-select). A filter, not setStyle, preserves a
@@ -1368,56 +1485,71 @@ kbd {
   filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 5px #000);
 }
 
-/* Width is set inline by MapView (drag-resizable, remembered in prefs.json). */
+/* The contextual map inspector. RAISED, not floating: it is docked, and it keeps
+   exactly one border — the real edge where it meets the map. Width is set inline
+   by MapView (drag-resizable, remembered in prefs.json). */
 .map-panel {
   width: 380px;
   min-width: 380px;
   flex-shrink: 0;
-  background: var(--bg2);
-  border-left: 1px solid var(--border);
+  background: var(--surface-raised);
+  border-left: 1px solid var(--border-strong);
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
 }
 
-.map-panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
+/* A control group in the inspector. Label-over-control, not label-beside: at
+   380px a label column leaves the control too narrow to actually use.
+   Separated by a hairline only BETWEEN groups — no box around each one. */
 .panel-block {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
+  gap: var(--sp-1);
+  padding: var(--sp-2) 0;
+}
+
+.panel-block + .panel-block {
+  border-top: 1px solid var(--border-subtle);
 }
 
 .panel-block label {
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--text-muted);
+  font-size: var(--fs-2);
+  font-variant-numeric: tabular-nums;
 }
 
-/* --- form elements --- */
+/* A range immediately under its own label belongs to it — close the gap so the
+   pairing is unmistakable when six of them stack up. */
+.panel-block label + input[type='range'] {
+  margin-top: -2px;
+}
+
+/* --- form elements ---
+   Backgrounds are translucent so a control composes over whichever surface it
+   lands on: the same button reads correctly in the sunken sidebar, on the page,
+   and inside a raised inspector. A solid --bg3 could only ever suit one of them. */
 input,
 textarea,
 select,
 button {
-  background: var(--bg3);
+  background: var(--control);
   color: var(--text);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--r-s);
-  padding: 6px 10px;
+  padding: 0 var(--sp-2);
+  min-height: var(--h-md);
   font: inherit;
   transition:
-    background-color 0.1s,
-    border-color 0.1s,
-    color 0.1s,
-    box-shadow 0.1s;
+    background-color var(--dur-fast),
+    border-color var(--dur-fast),
+    color var(--dur-fast),
+    box-shadow var(--dur-fast);
+}
+
+textarea {
+  padding: var(--sp-2);
 }
 
 input:focus,
@@ -1425,38 +1557,86 @@ textarea:focus,
 select:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: var(--focus-ring);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-faint);
 }
 
 input[type='checkbox'],
 input[type='radio'],
 input[type='range'] {
   accent-color: var(--accent);
+  min-height: 0;
+}
+
+/* Controls that are a fixed glyph-sized square, not a text control: the shared
+   control height would blow their containers open (a --h-md tall × inside a chip
+   would make every chip 28px). */
+input[type='color'],
+.tag-x,
+.pin-img-x,
+.locate,
+.map-row-btn,
+.recent-x,
+.cp-trigger,
+.cp-recent-sw,
+.tool-fbtn,
+.sidebar-rail {
+  min-height: 0;
 }
 
 button {
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
 }
 
 button:hover {
-  border-color: var(--accent);
-  /* Slightly lighter in dark mode and darker in light mode — one rule for both themes. */
-  background: color-mix(in srgb, var(--bg3), var(--text) 6%);
+  background: var(--control-hover);
+  border-color: var(--border-strong);
 }
 
-button:focus-visible {
+/* Focus is the ONE place a ring appears; hover never draws an accent border,
+   so "focused" and "hovered" stay distinguishable. */
+button:focus-visible,
+.side-item:focus-visible,
+.layers-row:focus-visible,
+.ctx-item:focus-visible,
+.palette-item:focus-visible,
+.tab:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: var(--focus-ring);
 }
 
 button.mini {
-  padding: 2px 8px;
-  font-size: 12px;
+  padding: 0 var(--sp-2);
+  min-height: var(--h-sm);
+  font-size: var(--fs-2);
+}
+
+/* The one high-emphasis fill per view. */
+button.primary {
+  background: var(--accent-strong);
+  border-color: transparent;
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+button.primary:hover {
+  background: var(--accent-strong);
+  border-color: transparent;
+  filter: brightness(1.08);
 }
 
 button.danger:hover {
-  border-color: var(--danger);
+  background: var(--danger-soft);
+  border-color: transparent;
   color: var(--danger);
 }
 
@@ -1479,8 +1659,7 @@ a {
 .palette {
   width: 480px;
   max-width: 90vw;
-  background: var(--bg2);
-  border: 1px solid var(--border);
+  background: var(--surface-float);
   border-radius: var(--r-l);
   padding: 10px;
   display: flex;
@@ -1575,9 +1754,8 @@ a {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  background: var(--surface-float);
+  border-radius: var(--r-m);
   padding: 10px;
   box-shadow: var(--shadow-2);
 }
@@ -1595,8 +1773,7 @@ a {
   border-radius: 4px;
   cursor: crosshair;
   background-image:
-    linear-gradient(to top, #000, transparent),
-    linear-gradient(to right, #fff, transparent);
+    linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent);
   background-blend-mode: normal;
 }
 
@@ -1799,9 +1976,8 @@ a {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--surface-float);
+  border-radius: var(--r-m);
   box-shadow: var(--shadow-2);
   padding: 8px 10px;
   box-sizing: border-box;
@@ -1930,9 +2106,8 @@ a {
   transform: translateX(-50%);
   top: 56px;
   z-index: 1500;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--surface-float);
+  border-radius: var(--r-m);
   box-shadow: var(--shadow-2);
   padding: 6px 12px;
 }
@@ -1960,8 +2135,15 @@ a {
 }
 
 .scale-info {
-  font-size: 12px;
-  color: var(--muted);
+  font-size: var(--fs-2);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.scale-info span {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 
 /* Entity-template row (below the add-field form). */
@@ -2072,8 +2254,7 @@ a {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
+  background: var(--surface-float);
   border-radius: var(--r-m);
   padding: 4px;
   box-shadow: var(--shadow-2);
@@ -2106,7 +2287,7 @@ a {
 }
 
 .tool-fbtn:hover {
-  background: var(--bg3);
+  background: var(--surface-hover);
   border-color: var(--border);
 }
 
@@ -2125,8 +2306,7 @@ a {
   max-height: calc(100% - 24px);
   overflow-y: auto;
   overflow-x: hidden;
-  background: var(--bg2);
-  border: 1px solid var(--border);
+  background: var(--surface-float);
   border-radius: var(--r-m);
   box-shadow: var(--shadow-2);
 }
@@ -2141,9 +2321,8 @@ a {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--surface-float);
+  border-radius: var(--r-m);
   padding: 10px;
   box-shadow: var(--shadow-2);
 }
@@ -2362,9 +2541,8 @@ a {
   right: 0;
   z-index: 901;
   width: 260px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--surface-float);
+  border-radius: var(--r-m);
   box-shadow: var(--shadow-2);
   padding: 6px;
 }
@@ -2388,7 +2566,7 @@ a {
 }
 
 .layers-row:hover {
-  background: var(--bg3);
+  background: var(--surface-hover);
 }
 
 .layers-row input {
@@ -2442,9 +2620,8 @@ a {
 .ctx-menu {
   position: fixed;
   min-width: 170px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  background: var(--surface-float);
+  border-radius: var(--r-m);
   padding: 4px;
   box-shadow: var(--shadow-2);
 }
@@ -2463,8 +2640,7 @@ a {
 .dialog-box {
   min-width: 300px;
   max-width: 440px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
+  background: var(--surface-float);
   border-radius: var(--r-l);
   padding: 18px 20px 14px;
   box-shadow: var(--shadow-3);
@@ -2492,14 +2668,485 @@ a {
 }
 
 .ctx-item:hover {
-  background: var(--bg3);
+  background: var(--surface-hover);
 }
 
 .ctx-item.danger:hover {
   color: var(--danger);
 }
 
-/* leaflet koyu tema uyumu */
-.leaflet-container {
+/* Leaflet dark-theme fit. Double class for the same reason as .leaflet-host
+   above: leaflet.css loads later and sets `font-family: "Helvetica Neue", Arial`
+   on .leaflet-container, so at equal specificity every control Leaflet owns was
+   silently rendering in Arial instead of the app face. */
+.leaflet-container.leaflet-container {
   font: inherit;
+}
+
+/* ============================================================================
+   PRIMITIVES — the small set every screen is built from. New screens compose
+   these rather than growing another one-off rule; that is what makes the system
+   propagate instead of each page being restyled by hand.
+   ============================================================================ */
+
+/* --- icons: one shared state rule, so no icon ever carries its own colour --- */
+.icon {
+  flex: none;
+  display: block;
+  color: inherit;
+}
+
+/* Icon-only button: a hit target around a glyph, invisible until approached. */
+.icon-btn {
+  width: var(--h-md);
+  height: var(--h-md);
+  min-height: 0;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.icon-btn:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
+  color: var(--text);
+}
+
+.icon-btn.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+.icon-btn.danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.icon-btn.sm {
+  width: var(--h-sm);
+  height: var(--h-sm);
+}
+
+/* --- tabs: NAVIGATION, and therefore deliberately not a chip ---
+   Chips were doing tab duty in five places, which is why nothing told you
+   whether you were looking at a tag, a toggle or a section switch. A sliding
+   underline is unmistakably navigation. */
+.tabs {
+  display: flex;
+  gap: var(--sp-4);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 var(--sp-1);
+}
+
+.tab {
+  position: relative;
+  appearance: none;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0 0 var(--sp-2);
+  min-height: var(--h-lg);
+  color: var(--text-muted);
+  font-size: var(--fs-3);
+  font-weight: 500;
+  cursor: pointer;
+  transition: color var(--dur-fast);
+}
+
+.tab:hover {
+  background: none;
+  color: var(--text);
+}
+
+.tab::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform var(--dur) var(--ease-out);
+}
+
+.tab.active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tab.active::after {
+  transform: scaleX(1);
+}
+
+/* --- section: a labelled group. Does the job a border used to do — heading,
+   consistent internal spacing and a shared background read as "these belong
+   together" without drawing a box around them. --- */
+.section + .section {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-3) 0 var(--sp-2);
+  background: none;
+  border: none;
+  border-radius: 0;
+  min-height: 0;
+  color: var(--text-faint);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.section-head:hover {
+  background: none;
+  border-color: transparent;
+  color: var(--text-muted);
+}
+
+.section-head .icon {
+  color: var(--text-faint);
+}
+
+.section-title {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The caret rotates rather than swapping glyphs — the same object, turned. */
+.section-caret {
+  transition: transform var(--dur) var(--ease-out);
+}
+
+.section.open > .section-head .section-caret {
+  transform: rotate(90deg);
+}
+
+.section-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding-bottom: var(--sp-3);
+}
+
+/* --- row: label / value / action. The workhorse of the rail and both
+   settings screens. --- */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--h-md);
+}
+
+.row-label {
+  flex: 0 0 96px;
+  color: var(--text-muted);
+  font-size: var(--fs-2);
+  line-height: 1.3;
+}
+
+.row-value {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.row-value > input,
+.row-value > select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Destructive actions stay out of sight until the row is approached — a live ×
+   on every row reads as an invitation to delete things. */
+.row-action {
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+}
+
+.row:hover .row-action,
+.row:focus-within .row-action {
+  opacity: 1;
+}
+
+/* --- empty state: the moment that teaches the screen, not a muted sentence --- */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.empty .icon {
+  color: var(--text-faint);
+  opacity: 0.6;
+}
+
+.empty-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.empty-hint {
+  font-size: var(--fs-2);
+  max-width: 46ch;
+  line-height: 1.5;
+}
+
+/* ============================================================================
+   ENTITY WORKSPACE — the full page and the map inspector are two presentations
+   of ONE object, so they share every class below. The full page adds the
+   document column; the inspector shows the rail alone.
+   ============================================================================ */
+
+.entity-page {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Banner: 140px, not 200px, and it CARRIES the title instead of pushing it
+   below the fold. The scrim keeps the name legible over any uploaded image. */
+.entity-banner {
+  position: relative;
+  flex: none;
+  height: 140px;
+  background: var(--surface-sunken);
+}
+
+.entity-banner img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.entity-banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    transparent 30%,
+    color-mix(in srgb, var(--surface) 85%, transparent) 100%
+  );
+  pointer-events: none;
+}
+
+.entity-banner .banner-actions {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+  z-index: 1;
+  display: flex;
+  gap: var(--sp-1);
+  opacity: 0;
+  transition: opacity var(--dur);
+}
+
+.entity-banner:hover .banner-actions {
+  opacity: 1;
+}
+
+/* Without an image the banner collapses to a slim, clearly-clickable strip —
+   a 140px dashed rectangle would be a hole in the page. */
+.banner-add {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 0;
+  padding: var(--sp-2);
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: var(--fs-2);
+}
+
+.banner-add:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--accent);
+}
+
+.entity-head {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-5) var(--sp-3);
+}
+
+/* The title is the entity's name and edits in place: no border until you reach
+   for it, so the page reads as a document rather than a form. */
+.entity-title {
+  flex: 1;
+  min-width: 0;
+  padding: 2px var(--sp-1);
+  margin-left: calc(var(--sp-1) * -1);
+  font-family: var(--font-title);
+  font-size: var(--fs-7);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: transparent;
+  border-color: transparent;
+}
+
+.entity-title:hover {
+  border-color: var(--border-subtle);
+}
+
+/* When the banner exists the title sits over its lower edge. */
+.entity-banner + .entity-head {
+  margin-top: -46px;
+  position: relative;
+}
+
+/* Two columns: the document reads at a comfortable measure, the identity rail
+   holds everything that used to be buried behind bottom tabs. */
+/* Two columns, capped and centred. Uncapped, the document column reaches ~2100px
+   on a 2560px display and note tabs stretch with it; capping only the column
+   would instead open a gap between the document and the rail. Centring the whole
+   pair is what editors do, and it keeps the leftover space symmetric and
+   deliberate rather than a void on one side. */
+.entity-body {
+  flex: 1;
+  width: 100%;
+  max-width: 1320px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--sp-5);
+  align-items: start;
+  padding: 0 var(--sp-5) var(--sp-6);
+}
+
+/* The head follows the same measure so the title lines up with the document. */
+.entity-head {
+  width: 100%;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.entity-doc {
+  min-width: 0;
+}
+
+/* The measure belongs to running PROSE, not to the column: note tabs, relation
+   rows and the editor all want the full width, while a 2000px line of body text
+   is unreadable. */
+.entity-doc .content-view {
+  max-width: 74ch;
+}
+
+.entity-rail {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-raised);
+  border-radius: var(--r-m);
+  padding: 0 var(--sp-3) var(--sp-2);
+}
+
+/* Below this the rail cannot hold its measure beside the document, so it flows
+   underneath — but ABOVE the note tabs, so identity still precedes prose. */
+@media (max-width: 1100px) {
+  .entity-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .entity-doc {
+    max-width: none;
+  }
+
+  .entity-rail {
+    position: static;
+    order: -1;
+  }
+}
+
+/* The inspector shows the rail alone: same sections, same rows, same rhythm —
+   no card inside a card, because the panel already is the surface. */
+.map-panel .entity-rail {
+  position: static;
+  background: none;
+  border-radius: 0;
+  padding: 0 var(--sp-3);
+}
+
+/* Where the feature's style controls end and the bound entity begins. */
+.entity-compact-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3) 0;
+  margin-top: var(--sp-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.entity-title.sm {
+  font-size: var(--fs-5);
+}
+
+/* A rail row's label is a user-authored key on the Fields section, so it wraps
+   rather than truncating — a clipped field name is worse than a two-line one. */
+.entity-rail .row-label {
+  flex-basis: 88px;
+}
+
+/* A chain (barony → county → duchy) is a sequence, not a bag of tags. */
+.rail-year {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- inspector header: identity + the continuity gesture back to the page --- */
+.inspector-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.inspector-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.inspector-body {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--sp-3) var(--sp-2);
 }

@@ -42,6 +42,8 @@ import { ImageStrip } from './pinIcons'
 import EntityPage from './EntityPage'
 import HierarchyPanel, { ActiveMode } from './HierarchyPanel'
 import { alertDialog, confirmDialog } from './dialog'
+import Icon from './icons'
+import { IconButton } from './ui'
 import { useT } from './i18n'
 import Timeline from './Timeline'
 import MapToolbar from './MapToolbar'
@@ -3742,412 +3744,444 @@ export default function MapView({
               display: hidePanels ? 'none' : undefined
             }}
           >
-            <div className="map-panel-head">
-              <b>
+            {/* The inspector names the OBJECT, not the row id: "Drawing #47" told
+                you nothing you could act on. Kind + bound entity is what the user
+                is actually looking at. */}
+            <div className="inspector-head">
+              <Icon
+                name={
+                  selIsPolygon ? 'polygon' : selIsLine ? 'path' : selIsLabel ? 'label' : 'map-pin'
+                }
+                size={14}
+              />
+              <span className="inspector-title">
                 {selIds.length > 1
                   ? t('{n} drawings selected', { n: selIds.length })
-                  : t('Drawing #{id}', { id: selected.id })}
-              </b>
-              <button className="mini" onClick={clearSel}>
-                ×
-              </button>
+                  : (selected.entity_name ??
+                    selStyle.text ??
+                    t(
+                      selIsPolygon
+                        ? 'Polygon'
+                        : selIsLine
+                          ? 'Path'
+                          : selIsLabel
+                            ? 'Label'
+                            : 'Location'
+                    ))}
+              </span>
+              <IconButton icon="x" label={t('Close')} onClick={clearSel} />
             </div>
-            {selIds.length > 1 && (
-              // Controls follow the primary feature's kind; edits apply to the WHOLE selection
-              <div className="panel-block">
-                <label>
-                  {t('Edits apply to all selected drawings. Ctrl+click to add/remove.')}
-                </label>
-              </div>
-            )}
-
-            <div className="panel-block">
-              <label>{t('View:')}</label>
-              {selIsPolygon ? (
-                <>
-                  <ColorPicker
-                    value={selStyle.color ?? folderColor(folders, selected.entity_folder)}
-                    onChange={(color) => editSelectedStyle({ color })}
-                  />
+            <div className="inspector-body">
+              {selIds.length > 1 && (
+                // Controls follow the primary feature's kind; edits apply to the WHOLE selection
+                <div className="panel-block">
                   <label>
-                    {t('Fill opacity: {val}', { val: (selStyle.fillOpacity ?? 0.25).toFixed(2) })}
+                    {t('Edits apply to all selected drawings. Ctrl+click to add/remove.')}
                   </label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={selStyle.fillOpacity ?? 0.25}
-                    onChange={(e) => editSelectedStyle({ fillOpacity: Number(e.target.value) })}
-                  />
-                  <label>{t('Outline thickness: {val}px', { val: selStyle.weight ?? 2 })}</label>
-                  <input
-                    type="range"
-                    min={1}
-                    max={10}
-                    step={1}
-                    value={selStyle.weight ?? 2}
-                    onChange={(e) => editSelectedStyle({ weight: Number(e.target.value) })}
-                  />
-                  <label>{t('Label font')}</label>
-                  <select
-                    value={selStyle.font ?? 'Cinzel'}
-                    style={{ fontFamily: selStyle.font ?? 'Cinzel' }}
-                    onChange={(e) => editSelectedStyle({ font: e.target.value })}
-                  >
-                    {FONTS.map((fnt) => (
-                      <option key={fnt} value={fnt} style={{ fontFamily: fnt }}>
-                        {fnt}
-                      </option>
-                    ))}
-                  </select>
-                  <label>{t('Fill image (click again to remove)')}</label>
-                  <ImageStrip
-                    img={selStyle.fillImg}
-                    images={pinImages}
-                    onImg={(p) =>
-                      editSelectedStyle(
-                        selStyle.fillImg === p ? { fillImg: undefined } : { fillImg: p }
-                      )
-                    }
-                    onUpload={() => uploadPinImage((p) => editSelectedStyle({ fillImg: p }))}
-                    onRemoveImg={(path) => savePinLib(pinImages.filter((p) => p.path !== path))}
-                  />
-                  {selStyle.fillImg && (
-                    <button
-                      className="mini"
-                      onClick={() => editSelectedStyle({ fillImg: undefined })}
-                    >
-                      {t('Remove fill image')}
-                    </button>
-                  )}
-                </>
-              ) : selIsLine ? (
-                <>
-                  <ColorPicker
-                    value={selStyle.color ?? '#b08968'}
-                    onChange={(color) => editSelectedStyle({ color })}
-                  />
-                  <label>{t('Thickness: {val}px', { val: selStyle.weight ?? 3 })}</label>
-                  <input
-                    type="range"
-                    min={1}
-                    max={12}
-                    step={1}
-                    value={selStyle.weight ?? 3}
-                    onChange={(e) => editSelectedStyle({ weight: Number(e.target.value) })}
-                  />
-                  <label>
-                    {t('Opacity: {val}', { val: (selStyle.opacity ?? 0.9).toFixed(2) })}
-                  </label>
-                  <input
-                    type="range"
-                    min={0.1}
-                    max={1}
-                    step={0.05}
-                    value={selStyle.opacity ?? 0.9}
-                    onChange={(e) => editSelectedStyle({ opacity: Number(e.target.value) })}
-                  />
-                  <label>{t('Line style')}</label>
-                  <select
-                    value={selStyle.dash ?? 'solid'}
-                    onChange={(e) => editSelectedStyle({ dash: e.target.value as LineDash })}
-                  >
-                    {LINE_DASHES.map((d) => (
-                      <option key={d} value={d}>
-                        {t(DASH_LABELS[d])}
-                      </option>
-                    ))}
-                  </select>
-                  <label>{t('Curviness: {val}', { val: selStyle.curviness ?? 0 })}</label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={5}
-                    value={selStyle.curviness ?? 0}
-                    onChange={(e) => editSelectedStyle({ curviness: Number(e.target.value) })}
-                  />
-                  <label>{t('Direction arrow')}</label>
-                  <select
-                    value={selStyle.arrow ?? 'none'}
-                    onChange={(e) => editSelectedStyle({ arrow: e.target.value as LineArrow })}
-                  >
-                    {LINE_ARROWS.map((a) => (
-                      <option key={a} value={a}>
-                        {t(ARROW_LABELS[a])}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              ) : selIsLabel ? (
-                <>
-                  <label>{t('Text')}</label>
-                  <input
-                    value={selStyle.text ?? ''}
-                    placeholder={t('sea, mountain range…')}
-                    onChange={(e) => editSelectedStyle({ text: e.target.value })}
-                  />
-                  <label>{t('Color')}</label>
-                  <ColorPicker
-                    value={selStyle.color ?? '#ffffff'}
-                    onChange={(color) => editSelectedStyle({ color })}
-                  />
-                  <label>{t('Label font')}</label>
-                  <select
-                    value={selStyle.font ?? 'Cinzel'}
-                    style={{ fontFamily: selStyle.font ?? 'Cinzel' }}
-                    onChange={(e) => editSelectedStyle({ font: e.target.value })}
-                  >
-                    {FONTS.map((fnt) => (
-                      <option key={fnt} value={fnt} style={{ fontFamily: fnt }}>
-                        {fnt}
-                      </option>
-                    ))}
-                  </select>
-                  <label>{t('Size: ×{val}', { val: (selStyle.size ?? 1).toFixed(2) })}</label>
-                  <input
-                    type="range"
-                    min={0.5}
-                    max={10}
-                    step={0.25}
-                    value={selStyle.size ?? 1}
-                    onChange={(e) => editSelectedStyle({ size: Number(e.target.value) })}
-                  />
-                  <label>{t('Angle: {val}°', { val: selStyle.angle ?? 0 })}</label>
-                  <input
-                    type="range"
-                    min={-90}
-                    max={90}
-                    step={5}
-                    value={selStyle.angle ?? 0}
-                    onChange={(e) => editSelectedStyle({ angle: Number(e.target.value) })}
-                  />
-                  <label>{t('Curve: {val}', { val: selStyle.curve ?? 0 })}</label>
-                  <input
-                    type="range"
-                    min={-100}
-                    max={100}
-                    step={5}
-                    value={selStyle.curve ?? 0}
-                    onChange={(e) => editSelectedStyle({ curve: Number(e.target.value) })}
-                  />
-                  {zoomVisControls()}
-                </>
-              ) : (
-                <>
-                  {/* Free mode has no badge → color has no effect, hide the control */}
-                  {!(selStyle.img && selStyle.imgFree) && (
-                    <>
-                      <label>{t('Color')}</label>
-                      <ColorPicker
-                        value={selStyle.color ?? '#c0603a'}
-                        onChange={(color) => editSelectedStyle({ color })}
-                      />
-                    </>
-                  )}
-                  <label>{t('Pin image (click again to remove)')}</label>
-                  <ImageStrip
-                    img={selStyle.img}
-                    images={pinImages}
-                    onImg={(img, imgAR) =>
-                      editSelectedStyle(
-                        selStyle.img === img ? { img: undefined, imgAR: undefined } : { img, imgAR }
-                      )
-                    }
-                    onUpload={() =>
-                      uploadPinImage((img, imgAR) => editSelectedStyle({ img, imgAR }))
-                    }
-                    onRemoveImg={(path) => savePinLib(pinImages.filter((p) => p.path !== path))}
-                  />
-                  {selStyle.img && (
-                    <>
-                      <label>{t('Image style')}</label>
-                      <div className="measure-btns">
-                        <button
-                          className={`mini ${!selStyle.imgFree ? 'active' : ''}`}
-                          onClick={() => editSelectedStyle({ imgFree: false })}
-                        >
-                          {t('Badge')}
-                        </button>
-                        <button
-                          className={`mini ${selStyle.imgFree ? 'active' : ''}`}
-                          onClick={() => editSelectedStyle({ imgFree: true })}
-                        >
-                          {t('Free')}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                  <label>{t('Size: ×{val}', { val: (selStyle.size ?? 1).toFixed(2) })}</label>
-                  <input
-                    type="range"
-                    min={0.5}
-                    max={10}
-                    step={0.25}
-                    value={selStyle.size ?? 1}
-                    onChange={(e) => editSelectedStyle({ size: Number(e.target.value) })}
-                  />
-                  {zoomVisControls()}
-                </>
+                </div>
               )}
-            </div>
 
-            {mapScale &&
-              (selIsPolygon || selIsLine) &&
-              (() => {
-                const g = JSON.parse(selected.geometry) as { coordinates: unknown }
-                const k = mapScale.perUnit
-                if (selIsLine)
+              <div className="panel-block">
+                <label>{t('Appearance')}</label>
+                {selIsPolygon ? (
+                  <>
+                    <ColorPicker
+                      value={selStyle.color ?? folderColor(folders, selected.entity_folder)}
+                      onChange={(color) => editSelectedStyle({ color })}
+                    />
+                    <label>
+                      {t('Fill opacity: {val}', { val: (selStyle.fillOpacity ?? 0.25).toFixed(2) })}
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={selStyle.fillOpacity ?? 0.25}
+                      onChange={(e) => editSelectedStyle({ fillOpacity: Number(e.target.value) })}
+                    />
+                    <label>{t('Outline thickness: {val}px', { val: selStyle.weight ?? 2 })}</label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={10}
+                      step={1}
+                      value={selStyle.weight ?? 2}
+                      onChange={(e) => editSelectedStyle({ weight: Number(e.target.value) })}
+                    />
+                    <label>{t('Label font')}</label>
+                    <select
+                      value={selStyle.font ?? 'Cinzel'}
+                      style={{ fontFamily: selStyle.font ?? 'Cinzel' }}
+                      onChange={(e) => editSelectedStyle({ font: e.target.value })}
+                    >
+                      {FONTS.map((fnt) => (
+                        <option key={fnt} value={fnt} style={{ fontFamily: fnt }}>
+                          {fnt}
+                        </option>
+                      ))}
+                    </select>
+                    <label>{t('Fill image (click again to remove)')}</label>
+                    <ImageStrip
+                      img={selStyle.fillImg}
+                      images={pinImages}
+                      onImg={(p) =>
+                        editSelectedStyle(
+                          selStyle.fillImg === p ? { fillImg: undefined } : { fillImg: p }
+                        )
+                      }
+                      onUpload={() => uploadPinImage((p) => editSelectedStyle({ fillImg: p }))}
+                      onRemoveImg={(path) => savePinLib(pinImages.filter((p) => p.path !== path))}
+                    />
+                    {selStyle.fillImg && (
+                      <button
+                        className="mini"
+                        onClick={() => editSelectedStyle({ fillImg: undefined })}
+                      >
+                        {t('Remove fill image')}
+                      </button>
+                    )}
+                  </>
+                ) : selIsLine ? (
+                  <>
+                    <ColorPicker
+                      value={selStyle.color ?? '#b08968'}
+                      onChange={(color) => editSelectedStyle({ color })}
+                    />
+                    <label>{t('Thickness: {val}px', { val: selStyle.weight ?? 3 })}</label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={12}
+                      step={1}
+                      value={selStyle.weight ?? 3}
+                      onChange={(e) => editSelectedStyle({ weight: Number(e.target.value) })}
+                    />
+                    <label>
+                      {t('Opacity: {val}', { val: (selStyle.opacity ?? 0.9).toFixed(2) })}
+                    </label>
+                    <input
+                      type="range"
+                      min={0.1}
+                      max={1}
+                      step={0.05}
+                      value={selStyle.opacity ?? 0.9}
+                      onChange={(e) => editSelectedStyle({ opacity: Number(e.target.value) })}
+                    />
+                    <label>{t('Line style')}</label>
+                    <select
+                      value={selStyle.dash ?? 'solid'}
+                      onChange={(e) => editSelectedStyle({ dash: e.target.value as LineDash })}
+                    >
+                      {LINE_DASHES.map((d) => (
+                        <option key={d} value={d}>
+                          {t(DASH_LABELS[d])}
+                        </option>
+                      ))}
+                    </select>
+                    <label>{t('Curviness: {val}', { val: selStyle.curviness ?? 0 })}</label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={selStyle.curviness ?? 0}
+                      onChange={(e) => editSelectedStyle({ curviness: Number(e.target.value) })}
+                    />
+                    <label>{t('Direction arrow')}</label>
+                    <select
+                      value={selStyle.arrow ?? 'none'}
+                      onChange={(e) => editSelectedStyle({ arrow: e.target.value as LineArrow })}
+                    >
+                      {LINE_ARROWS.map((a) => (
+                        <option key={a} value={a}>
+                          {t(ARROW_LABELS[a])}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                ) : selIsLabel ? (
+                  <>
+                    <label>{t('Text')}</label>
+                    <input
+                      value={selStyle.text ?? ''}
+                      placeholder={t('sea, mountain range…')}
+                      onChange={(e) => editSelectedStyle({ text: e.target.value })}
+                    />
+                    <label>{t('Color')}</label>
+                    <ColorPicker
+                      value={selStyle.color ?? '#ffffff'}
+                      onChange={(color) => editSelectedStyle({ color })}
+                    />
+                    <label>{t('Label font')}</label>
+                    <select
+                      value={selStyle.font ?? 'Cinzel'}
+                      style={{ fontFamily: selStyle.font ?? 'Cinzel' }}
+                      onChange={(e) => editSelectedStyle({ font: e.target.value })}
+                    >
+                      {FONTS.map((fnt) => (
+                        <option key={fnt} value={fnt} style={{ fontFamily: fnt }}>
+                          {fnt}
+                        </option>
+                      ))}
+                    </select>
+                    <label>{t('Size: ×{val}', { val: (selStyle.size ?? 1).toFixed(2) })}</label>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={10}
+                      step={0.25}
+                      value={selStyle.size ?? 1}
+                      onChange={(e) => editSelectedStyle({ size: Number(e.target.value) })}
+                    />
+                    <label>{t('Angle: {val}°', { val: selStyle.angle ?? 0 })}</label>
+                    <input
+                      type="range"
+                      min={-90}
+                      max={90}
+                      step={5}
+                      value={selStyle.angle ?? 0}
+                      onChange={(e) => editSelectedStyle({ angle: Number(e.target.value) })}
+                    />
+                    <label>{t('Curve: {val}', { val: selStyle.curve ?? 0 })}</label>
+                    <input
+                      type="range"
+                      min={-100}
+                      max={100}
+                      step={5}
+                      value={selStyle.curve ?? 0}
+                      onChange={(e) => editSelectedStyle({ curve: Number(e.target.value) })}
+                    />
+                    {zoomVisControls()}
+                  </>
+                ) : (
+                  <>
+                    {/* Free mode has no badge → color has no effect, hide the control */}
+                    {!(selStyle.img && selStyle.imgFree) && (
+                      <>
+                        <label>{t('Color')}</label>
+                        <ColorPicker
+                          value={selStyle.color ?? '#c0603a'}
+                          onChange={(color) => editSelectedStyle({ color })}
+                        />
+                      </>
+                    )}
+                    <label>{t('Pin image (click again to remove)')}</label>
+                    <ImageStrip
+                      img={selStyle.img}
+                      images={pinImages}
+                      onImg={(img, imgAR) =>
+                        editSelectedStyle(
+                          selStyle.img === img
+                            ? { img: undefined, imgAR: undefined }
+                            : { img, imgAR }
+                        )
+                      }
+                      onUpload={() =>
+                        uploadPinImage((img, imgAR) => editSelectedStyle({ img, imgAR }))
+                      }
+                      onRemoveImg={(path) => savePinLib(pinImages.filter((p) => p.path !== path))}
+                    />
+                    {selStyle.img && (
+                      <>
+                        <label>{t('Image style')}</label>
+                        <div className="measure-btns">
+                          <button
+                            className={`mini ${!selStyle.imgFree ? 'active' : ''}`}
+                            onClick={() => editSelectedStyle({ imgFree: false })}
+                          >
+                            {t('Badge')}
+                          </button>
+                          <button
+                            className={`mini ${selStyle.imgFree ? 'active' : ''}`}
+                            onClick={() => editSelectedStyle({ imgFree: true })}
+                          >
+                            {t('Free')}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    <label>{t('Size: ×{val}', { val: (selStyle.size ?? 1).toFixed(2) })}</label>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={10}
+                      step={0.25}
+                      value={selStyle.size ?? 1}
+                      onChange={(e) => editSelectedStyle({ size: Number(e.target.value) })}
+                    />
+                    {zoomVisControls()}
+                  </>
+                )}
+              </div>
+
+              {mapScale &&
+                (selIsPolygon || selIsLine) &&
+                (() => {
+                  const g = JSON.parse(selected.geometry) as { coordinates: unknown }
+                  const k = mapScale.perUnit
+                  if (selIsLine)
+                    return (
+                      <div className="panel-block scale-info">
+                        <span>
+                          <Icon name="ruler" size={12} />
+                          {t('Length: {val} {unit}', {
+                            val: fmtDist(ringLen(g.coordinates as number[][]) * k),
+                            unit: mapScale.unit
+                          })}
+                        </span>
+                      </div>
+                    )
+                  // ponytail: outer ring only — no holed polygons are drawn
+                  const ring = (g.coordinates as number[][][])[0]
                   return (
                     <div className="panel-block scale-info">
-                      📏{' '}
-                      {t('Length: {val} {unit}', {
-                        val: fmtDist(ringLen(g.coordinates as number[][]) * k),
-                        unit: mapScale.unit
-                      })}
+                      <span>
+                        <Icon name="polygon" size={12} />
+                        {t('Area: {val} {unit}²', {
+                          val: fmtDist(ringArea(ring) * k * k),
+                          unit: mapScale.unit
+                        })}
+                      </span>
+                      <span>
+                        <Icon name="ruler" size={12} />
+                        {t('Perimeter: {val} {unit}', {
+                          val: fmtDist(ringLen(ring) * k),
+                          unit: mapScale.unit
+                        })}
+                      </span>
                     </div>
                   )
-                // ponytail: outer ring only — no holed polygons are drawn
-                const ring = (g.coordinates as number[][][])[0]
-                return (
-                  <div className="panel-block scale-info">
-                    <div>
-                      📐{' '}
-                      {t('Area: {val} {unit}²', {
-                        val: fmtDist(ringArea(ring) * k * k),
-                        unit: mapScale.unit
-                      })}
-                    </div>
-                    <div>
-                      📏{' '}
-                      {t('Perimeter: {val} {unit}', {
-                        val: fmtDist(ringLen(ring) * k),
-                        unit: mapScale.unit
-                      })}
-                    </div>
-                  </div>
-                )
-              })()}
+                })()}
 
-            <div className="panel-block">
-              <label>{t('Time (blank = always; negative = before epoch):')}</label>
-              <div className="field-row">
-                <input
-                  type="number"
-                  placeholder={t('start')}
-                  defaultValue={selStyle.from ?? ''}
-                  key={`from-${selected.id}`}
-                  onBlur={(e) =>
-                    editSelectedStyle({
-                      from: e.target.value === '' ? undefined : Number(e.target.value)
-                    })
-                  }
-                />
-                <input
-                  type="number"
-                  placeholder={t('end')}
-                  defaultValue={selStyle.to ?? ''}
-                  key={`to-${selected.id}`}
-                  onBlur={(e) =>
-                    editSelectedStyle({
-                      to: e.target.value === '' ? undefined : Number(e.target.value)
-                    })
-                  }
-                />
-              </div>
-            </div>
-
-            {selected.entity_id ? (
-              <>
-                <button
-                  className="mini"
-                  onClick={async () => (
-                    await api.updateFeature(selected.id, { entity_id: null }),
-                    reloadFeatures(),
-                    setSelected({
-                      ...selected,
-                      entity_id: null,
-                      entity_name: null,
-                      entity_folder: null
-                    })
-                  )}
-                >
-                  {t('Unlink entity')}
-                </button>
-                <EntityPage
-                  id={selected.entity_id}
-                  folders={folders}
-                  compact
-                  onOpen={onOpenEntity}
-                  onChanged={() => (reloadFeatures(), onChanged())}
-                  onDeleted={() => (clearSel(), reloadFeatures())}
-                />
-              </>
-            ) : (
               <div className="panel-block">
-                <label>{t('Link to entity:')}</label>
-                <input
-                  list="entity-list-map"
-                  placeholder={t('search entity…')}
-                  value={linkName}
-                  onChange={(e) => setLinkName(e.target.value)}
-                />
-                <datalist id="entity-list-map">
-                  {allEntities
-                    .filter((en) => !(en.folder && personFolders.has(en.folder)))
-                    .map((en) => (
-                      <option key={en.id} value={en.name} />
-                    ))}
-                </datalist>
-                <button
-                  className="mini"
-                  onClick={async () => {
-                    if (!linkName.trim()) return
-                    const found = allEntities.find(
-                      (en) => en.name === linkName && !(en.folder && personFolders.has(en.folder))
-                    )
-                    if (found) return linkEntity(found.id)
-                    const { id: newId } = await api.createEntity({ name: linkName.trim() })
-                    setAllEntities(await api.listEntities())
+                <label>{t('Time (blank = always; negative = before epoch):')}</label>
+                <div className="field-row">
+                  <input
+                    type="number"
+                    placeholder={t('start')}
+                    defaultValue={selStyle.from ?? ''}
+                    key={`from-${selected.id}`}
+                    onBlur={(e) =>
+                      editSelectedStyle({
+                        from: e.target.value === '' ? undefined : Number(e.target.value)
+                      })
+                    }
+                  />
+                  <input
+                    type="number"
+                    placeholder={t('end')}
+                    defaultValue={selStyle.to ?? ''}
+                    key={`to-${selected.id}`}
+                    onBlur={(e) =>
+                      editSelectedStyle({
+                        to: e.target.value === '' ? undefined : Number(e.target.value)
+                      })
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="panel-block">
+                <label>{t('Child map (door):')}</label>
+                <select
+                  value={selStyle.childMapId ?? ''}
+                  onChange={async (e) => {
+                    const childMapId = e.target.value ? Number(e.target.value) : undefined
+                    await api.updateFeature(selected.id, {
+                      style: JSON.stringify({ ...selStyle, childMapId })
+                    })
+                    if (childMapId) await api.updateMap(childMapId, { parent_map_id: id })
                     onChanged()
-                    await linkEntity(newId)
+                    setSelected({ ...selected, style: JSON.stringify({ ...selStyle, childMapId }) })
                   }}
                 >
-                  {t('Link / Create')}
-                </button>
+                  <option value="">{t('— none —')}</option>
+                  {maps
+                    .filter((m) => m.id !== id)
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                </select>
+                {selStyle.childMapId && (
+                  <button className="mini" onClick={() => onNavigate(selStyle.childMapId!)}>
+                    {t('Open map →')}
+                  </button>
+                )}
               </div>
-            )}
 
-            <div className="panel-block">
-              <label>{t('Child map (door):')}</label>
-              <select
-                value={selStyle.childMapId ?? ''}
-                onChange={async (e) => {
-                  const childMapId = e.target.value ? Number(e.target.value) : undefined
-                  await api.updateFeature(selected.id, {
-                    style: JSON.stringify({ ...selStyle, childMapId })
-                  })
-                  if (childMapId) await api.updateMap(childMapId, { parent_map_id: id })
-                  onChanged()
-                  setSelected({ ...selected, style: JSON.stringify({ ...selStyle, childMapId }) })
-                }}
-              >
-                <option value="">{t('— none —')}</option>
-                {maps
-                  .filter((m) => m.id !== id)
-                  .map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-              </select>
-              {selStyle.childMapId && (
-                <button className="mini" onClick={() => onNavigate(selStyle.childMapId!)}>
-                  {t('Open map →')}
-                </button>
+              {selected.entity_id ? (
+                <div className="panel-block">
+                  <button
+                    className="mini"
+                    onClick={async () => (
+                      await api.updateFeature(selected.id, { entity_id: null }),
+                      reloadFeatures(),
+                      setSelected({
+                        ...selected,
+                        entity_id: null,
+                        entity_name: null,
+                        entity_folder: null
+                      })
+                    )}
+                  >
+                    <Icon name="unlink" size={12} />
+                    {t('Unlink entity')}
+                  </button>
+                </div>
+              ) : (
+                <div className="panel-block">
+                  <label>{t('Link to entity:')}</label>
+                  <input
+                    list="entity-list-map"
+                    placeholder={t('search entity…')}
+                    value={linkName}
+                    onChange={(e) => setLinkName(e.target.value)}
+                  />
+                  <datalist id="entity-list-map">
+                    {allEntities
+                      .filter((en) => !(en.folder && personFolders.has(en.folder)))
+                      .map((en) => (
+                        <option key={en.id} value={en.name} />
+                      ))}
+                  </datalist>
+                  <button
+                    className="mini"
+                    onClick={async () => {
+                      if (!linkName.trim()) return
+                      const found = allEntities.find(
+                        (en) => en.name === linkName && !(en.folder && personFolders.has(en.folder))
+                      )
+                      if (found) return linkEntity(found.id)
+                      const { id: newId } = await api.createEntity({ name: linkName.trim() })
+                      setAllEntities(await api.listEntities())
+                      onChanged()
+                      await linkEntity(newId)
+                    }}
+                  >
+                    <Icon name="plus" size={12} />
+                    {t('Link / Create')}
+                  </button>
+                </div>
               )}
             </div>
+            {/* The bound article, shown as its identity RAIL — the same sections
+                the full page renders, so the inspector and the page are visibly
+                two views of one object rather than two interfaces. The document
+                (markdown, note tabs, relations) stays on the full page: it is
+                unusable at 380px, and "Open full page" sits in the rail header. */}
+            {selected.entity_id && (
+              <EntityPage
+                id={selected.entity_id}
+                folders={folders}
+                compact
+                onOpen={onOpenEntity}
+                onChanged={() => (reloadFeatures(), onChanged())}
+                onDeleted={() => (clearSel(), reloadFeatures())}
+              />
+            )}
           </div>
         )}
       </div>
