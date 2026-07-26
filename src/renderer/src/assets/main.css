@@ -439,16 +439,54 @@ h4 {
   text-overflow: ellipsis;
 }
 
+/* Row actions live in a fixed slot so revealing them never shifts the label. */
 .side-item .locate {
-  visibility: hidden;
-  padding: 0 4px;
-  line-height: 1.2;
-  border: none;
-  background: transparent;
+  flex: none;
+  opacity: 0;
+  transition: opacity var(--dur-fast);
 }
 
-.side-item:hover .locate {
-  visibility: visible;
+.side-item:hover .locate,
+.side-item:focus-within .locate {
+  opacity: 1;
+}
+
+/* Workspace navigation: places you GO, distinct from the article rows above and
+   separated by a real boundary rather than sharing their styling. */
+.side-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.side-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--sp-2);
+  min-height: var(--h-md);
+  padding: 0 var(--sp-2);
+  background: none;
+  border-color: transparent;
+  border-radius: var(--r-s);
+  color: var(--text-muted);
+  font-size: var(--fs-3);
+  text-align: left;
+}
+
+.side-nav-item:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
+  color: var(--text);
+}
+
+.side-nav-item.active {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .side-item.active {

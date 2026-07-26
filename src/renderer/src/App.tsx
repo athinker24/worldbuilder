@@ -13,6 +13,8 @@ import {
   Theme
 } from './api'
 import ContextMenu, { MenuState } from './ContextMenu'
+import Icon from './icons'
+import { IconButton } from './ui'
 import { alertDialog, confirmDialog, DialogHost } from './dialog'
 import EntityPage from './EntityPage'
 import { deleteEntitiesWithUndo, deleteEntityWithUndo } from './entityOps'
@@ -579,22 +581,28 @@ export default function App(): React.JSX.Element {
         onClick={(ev) => ev.stopPropagation()}
         onChange={() => toggleOne(e.id)}
       />
-      <span
-        className="dot"
-        style={{ background: folderColor(folders, e.folder ?? null) }}
-        title={folders.find((f) => f.id === e.folder)?.name ?? ''}
-      />
+      {/* The colour is the FOLDER's, which the row's position under its folder already
+          states — a dot on every row is noise. In search the list is flat and that
+          context is gone, so the dot earns its place there and only there. */}
+      {search.trim() && (
+        <span
+          className="dot"
+          style={{ background: folderColor(folders, e.folder ?? null) }}
+          title={folders.find((f) => f.id === e.folder)?.name ?? ''}
+        />
+      )}
       <span className="side-label">{e.name}</span>
-      <button
-        className="mini locate"
-        title={t('Show on map')}
-        onClick={(ev) => {
-          ev.stopPropagation()
-          locateEntity(e.id)
-        }}
-      >
-        📍
-      </button>
+      <span className="locate">
+        <IconButton
+          icon="map-pin"
+          label={t('Show on map')}
+          small
+          onClick={(ev) => {
+            ev.stopPropagation()
+            locateEntity(e.id)
+          }}
+        />
+      </span>
     </div>
   )
   const renderFolderRow = (folder: FolderDef, depth: number): React.JSX.Element => {
@@ -753,25 +761,35 @@ export default function App(): React.JSX.Element {
 
           {/* Workspaces only. Project commands (save/open/export/backup) live in the File menu,
               application preferences in Edit, and Shortcuts in Help — the sidebar is for places
-              you go, not things you do. */}
-          <div
-            className={`side-item kron-btn ${view.kind === 'map' ? 'active' : ''}`}
-            onClick={openMaps}
-          >
-            🗺 {t('Maps')}
-          </div>
-          <div
-            className={`side-item settings-btn ${view.kind === 'overview' ? 'active' : ''}`}
-            onClick={() => setView({ kind: 'overview', tab: 'atlas' })}
-          >
-            {t('📊 Overview')}
-          </div>
-          <div
-            className={`side-item settings-btn ${view.kind === 'projectPrefs' ? 'active' : ''}`}
-            onClick={() => setView({ kind: 'projectPrefs' })}
-          >
-            {t('⚙ Project Preferences')}
-          </div>
+              you go, not things you do.
+              These are a DIFFERENT kind of thing from the article rows above, so they get their
+              own block above a real boundary: rendered as plain .side-item they were
+              indistinguishable from an entity that happened to start with an emoji. */}
+          <nav className="side-nav">
+            {/* Written out rather than mapped over a tuple list: the lint rule guarding
+                ref access during render false-positives on the `as const` array. */}
+            <button
+              className={`side-nav-item ${view.kind === 'map' ? 'active' : ''}`}
+              onClick={openMaps}
+            >
+              <Icon name="map" size={14} />
+              {t('Maps')}
+            </button>
+            <button
+              className={`side-nav-item ${view.kind === 'overview' ? 'active' : ''}`}
+              onClick={() => setView({ kind: 'overview', tab: 'atlas' })}
+            >
+              <Icon name="landmark" size={14} />
+              {t('Overview')}
+            </button>
+            <button
+              className={`side-nav-item ${view.kind === 'projectPrefs' ? 'active' : ''}`}
+              onClick={() => setView({ kind: 'projectPrefs' })}
+            >
+              <Icon name="template" size={14} />
+              {t('Project Preferences')}
+            </button>
+          </nav>
         </div>
         {!hidden && (
           <div
