@@ -1,0 +1,16 @@
+# The repo stores LF and prettier is configured for LF, but core.autocrlf=true was rewriting the
+# working tree to CRLF on every checkout — which made `npm run lint` report thousands of
+# "Delete ␍" warnings and drowned the real ones. Forcing LF in the working tree too keeps the
+# three in agreement on every platform.
+* text=auto eol=lf
+
+# Binary assets must never be touched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.dunya binary
+*.db binary

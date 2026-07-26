@@ -142,10 +142,10 @@ export const TOOLS: { key: Tool; icon: string; name: string; hint?: string }[] =
   }
 ]
 
+// Settings surface only — the tool BUTTONS live in MapToolbar (the floating palette).
 interface Props {
   active: Tool | null
   settings: DrawSettings
-  onTool: (t: Tool) => void
   onSettings: (s: DrawSettings) => void
   // 📏 Scale tool (state lives in MapView; the panel only displays/triggers)
   scale: MapScale | null
@@ -169,15 +169,11 @@ interface Props {
   pinImages: PinImage[]
   onUploadPinImage: (onPicked: (path: string, ar: number) => void) => void
   onRemovePinImage: (path: string) => void
-  // Render the tool button grid. False when the buttons live in a separate floating toolbar and
-  // this component is only the settings surface.
-  buttons?: boolean
 }
 
 export default function ToolPanel({
   active,
   settings,
-  onTool,
   onSettings,
   scale,
   mapWidthPx,
@@ -197,8 +193,7 @@ export default function ToolPanel({
   onTravelModeIdx,
   pinImages,
   onUploadPinImage,
-  onRemovePinImage,
-  buttons = true
+  onRemovePinImage
 }: Props): React.JSX.Element {
   const t = useT()
   const activeDef = TOOLS.find((tool) => tool.key === active)
@@ -215,22 +210,6 @@ export default function ToolPanel({
 
   return (
     <div className="tool-panel-inner">
-      {buttons && (
-        <div className="tool-btns">
-          {TOOLS.map((tool) => (
-            <button
-              key={tool.key}
-              className={`tool-btn ${active === tool.key ? 'active' : ''}`}
-              title={t(tool.name)}
-              onClick={() => onTool(tool.key)}
-            >
-              <span className="tool-icon">{tool.icon}</span>
-              <span>{t(tool.name)}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
       <div className="tool-settings">
         {active === 'polygon' && (
           <>

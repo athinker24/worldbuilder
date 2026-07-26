@@ -3683,10 +3683,8 @@ export default function MapView({
               {tool && !selected && !hidePanels && (
                 <div className="map-tool-popover">
                   <ToolPanel
-                    buttons={false} // the buttons live in MapToolbar now
                     active={tool}
                     settings={drawSettings}
-                    onTool={activateTool}
                     onSettings={updateDrawSettings}
                     scale={mapScale}
                     mapWidthPx={worldMap?.width ?? null}

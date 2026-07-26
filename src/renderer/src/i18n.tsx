@@ -23,8 +23,6 @@ const TR: Record<string, string> = {
   '📍 Show on map': '📍 Haritada göster',
   'Show on map': 'Haritada göster',
   'Search on map…': 'Haritada ara…',
-  'Pin types': 'Pin tipleri',
-  '(no entity)': '(maddesiz)',
   // Kenar çubuğu çalışma alanları + Overview sekmeleri (proje komutları artık File menüsünde)
   '📊 Overview': '📊 Genel Bakış',
   Overview: 'Genel Bakış',
@@ -93,8 +91,6 @@ const TR: Record<string, string> = {
   'Edits apply to all selected drawings. Ctrl+click to add/remove.':
     'Düzenlemeler seçili tüm çizimlere uygulanır. Ctrl+tık ile ekle/çıkar.',
   '📜 Chronology': '📜 Kronoloji',
-  'Save World': 'Dünyayı Kaydet',
-  'Open World': 'Dünya Aç',
   'This will discard unsaved changes. Continue?':
     'Kaydedilmemiş değişiklikler kaybolacak. Devam edilsin mi?',
   // Başlangıç ekranı (son kullanılan .dunya dosyaları)
@@ -114,15 +110,7 @@ const TR: Record<string, string> = {
 
   // ProjectPreferences.tsx (eski Settings.tsx). Not dışa aktarma artık File ▸ Export ▸ Notes.
   'Exported {n} note file(s); opening the folder…': '{n} not dosyası yazıldı; klasör açılıyor…',
-  'Entity Types': 'Madde Tipleri',
-  'Types are completely free: add, rename, delete. Renaming a type updates all entities of that type.':
-    'Tipler tamamen serbesttir: ekle, yeniden adlandır, sil. Yeniden adlandırma o tipteki tüm maddeleri günceller.',
-  'Delete type "{name}" from the list? (Entities are not deleted, they keep their type)':
-    '"{name}" tipi listeden silinsin mi? (Maddeler silinmez, tipleri kalır)',
-  'new type (state, dynasty, religion…)': 'yeni tip (devlet, hanedan, din…)',
   Person: 'Kişi',
-  'Person entities: family/dynasty pickers only suggest these; they cannot be linked to map polygons.':
-    'Kişi maddeleri: aile/hanedan alanları yalnız bunları önerir; harita poligonlarına bağlanamazlar.',
   'Hierarchy Ranks': 'Hiyerarşi Kademeleri',
   'Load preset': 'Hazır şablon',
   'Adds example government forms and ladders (existing ones are kept)':
@@ -148,7 +136,6 @@ const TR: Record<string, string> = {
     'Başlangıç noktası, dayatma değil: yeni bir maddede şablon seç, alanları hazır gelsin. Değeri boş bırakırsan alan boş gelir, doldurursan varsayılan olur. Sonrasında her şey değiştirilebilir — hem maddede hem burada.',
   'new template (city, dynasty…)': 'yeni şablon (şehir, hanedan…)',
   'Delete template "{name}"?': '"{name}" şablonu silinsin mi?',
-  '(none)': '(yok)',
   'default value (optional)': 'varsayılan değer (isteğe bağlı)',
   'Apply template…': 'Şablon uygula…',
   'Apply a template (adds missing fields only)':
@@ -186,8 +173,6 @@ const TR: Record<string, string> = {
   // Özel pin görselleri
   'Upload image': 'Görsel yükle',
   'Remove from library': 'Kütüphaneden çıkar',
-  'Removing only takes it out of this list; the file stays in your Dünya\\assets folder.':
-    'Çıkarmak yalnız bu listeden siler; dosya Dünya\\assets klasöründe kalır.',
   'Image style': 'Görsel biçimi',
   Badge: 'Rozet',
   Free: 'Serbest',
@@ -213,7 +198,6 @@ const TR: Record<string, string> = {
   'No arrow': 'Ok yok',
   'Arrow at end': 'Sonda ok (varış)',
   Export: 'Dışa aktar',
-  'Export as image': 'Görsel olarak dışa aktar',
   '-100 years (Ctrl+←)': '-100 yıl (Ctrl+←)',
   '-10 years (Shift+←)': '-10 yıl (Shift+←)',
   '+10 years (Shift+→)': '+10 yıl (Shift+→)',

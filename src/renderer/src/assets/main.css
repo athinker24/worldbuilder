@@ -303,15 +303,6 @@ h4 {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.group-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 12px;
-  padding: 6px 4px 2px;
-}
-
 .dot {
   width: 9px;
   height: 9px;
@@ -328,7 +319,6 @@ h4 {
   accent-color: var(--accent);
 }
 .side-item:hover .sel-box,
-.group-head:hover .sel-box,
 .sel-box:checked,
 .sel-box:indeterminate {
   visibility: visible;
@@ -1544,57 +1534,11 @@ a {
   text-overflow: ellipsis;
 }
 
-/* --- right tool panel --- */
-.tool-panel {
-  background: var(--bg2);
-  border-left: 1px solid var(--border);
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
+/* --- tool settings (rendered inside the floating .map-tool-popover) --- */
 .tool-panel-inner {
   display: flex;
   flex-direction: column;
   height: 100%;
-}
-
-.panel-resize {
-  width: 5px;
-  cursor: ew-resize;
-  background: transparent;
-  flex-shrink: 0;
-}
-
-.panel-resize:hover {
-  background: var(--accent);
-}
-
-.tool-btns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.tool-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 8px 10px;
-  min-width: 62px;
-  font-size: 12px;
-}
-
-.tool-btn .tool-icon {
-  font-size: 18px;
-}
-
-.tool-btn.active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-soft);
 }
 
 .tool-settings {

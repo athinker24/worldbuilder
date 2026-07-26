@@ -56,6 +56,9 @@ let mainWindow: BrowserWindow | null = null
 // currentFile = Ctrl+S target (persisted in settings.worldFile); dirty = changes since last save.
 let currentFile: string | null = null
 let dirty = false
+// Set when the startup sequence failed. Reported once the window exists — the point is that the
+// app still opens; a dialog before createWindow() would have nothing to attach to.
+let startupWarning: string | null = null
 // Name + dirty star in the window title (Photoshop pattern). The renderer never sets document.title.
 function updateTitle(): void {
   mainWindow?.setTitle(
@@ -508,17 +511,27 @@ app.whenReady().then(() => {
   adoptLegacyDataDir() // adopt the old Documents\D\u00fcnya folder (BEFORE initDb)
   initDb(DATA_DIR)
   adoptLegacyPrefs() // language/theme out of the settings table — BEFORE the resetWorld() below
-  backupIfNeeded() // daily dated copy of world.db — restore is manual (the backups/ folder)
-  const arg = dunyaArg(process.argv)
-  if (arg) {
-    openWorldFile(arg) // launch with the double-clicked file
-  } else if (hasContent()) {
-    // Photoshop pattern: a normal launch is ALWAYS a blank document. The previous session's
-    // working copy (images included) is packed into backups/ as a full .dunya — nothing is
-    // lost even if it was never saved (subject to the 30-day backup pruning).
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.dunya`))
-    resetWorld()
+  // Everything from here to createWindow() is best-effort. A throw used to escape into the
+  // unhandled-rejection void BEFORE any window existed, so Electron saw zero windows and quit
+  // with code 0 — the app simply never appeared, with nothing on screen to explain why.
+  // Two real ways in: world.db locked by a second instance (EBUSY inside resetWorld), and a
+  // corrupt .dunya passed on the command line, which is untrusted input by the security
+  // contract. The renderer has ErrorBoundary for this class of failure; this is main's.
+  try {
+    backupIfNeeded() // daily dated copy of world.db — restore is manual (the backups/ folder)
+    const arg = dunyaArg(process.argv)
+    if (arg) {
+      openWorldFile(arg) // launch with the double-clicked file
+    } else if (hasContent()) {
+      // Photoshop pattern: a normal launch is ALWAYS a blank document. The previous session's
+      // working copy (images included) is packed into backups/ as a full .dunya — nothing is
+      // lost even if it was never saved (subject to the 30-day backup pruning).
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.dunya`))
+      resetWorld()
+    }
+  } catch (err) {
+    startupWarning = err instanceof Error ? err.message : String(err)
   }
 
   // Register the .dunya extension to the CURRENT exe path on every launch (HKCU — no admin
@@ -572,6 +585,22 @@ app.whenReady().then(() => {
   createWindow()
   buildMenu()
   updateTitle()
+
+  if (startupWarning && mainWindow) {
+    // Non-blocking on purpose: the world may be the previous session's rather than a fresh one,
+    // which is worth knowing but not worth refusing to start over.
+    mainWindow.once('ready-to-show', () =>
+      dialog.showMessageBox(mainWindow!, {
+        type: 'warning',
+        message: 'The world could not be prepared for this session.',
+        detail:
+          `${startupWarning}\n\n` +
+          'This usually means another copy of the app is already open and holding the world ' +
+          'file. The app has started with whatever was already there — save to a .dunya before ' +
+          'making changes you care about.'
+      })
+    )
+  }
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
