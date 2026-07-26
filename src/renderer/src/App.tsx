@@ -665,7 +665,16 @@ export default function App(): React.JSX.Element {
             </span>
           )}
         </div>
-        {open && renderChildren(folder.id, depth + 1)}
+        {/* Indent guide. The wrapper only draws a line via ::before, so rows keep
+            the padding they already compute and nothing shifts. */}
+        {open && (
+          <div
+            className="tree-children"
+            style={{ ['--guide']: `${11 + depth * 12}px` } as React.CSSProperties}
+          >
+            {renderChildren(folder.id, depth + 1)}
+          </div>
+        )}
       </div>
     )
   }
@@ -699,12 +708,15 @@ export default function App(): React.JSX.Element {
             display: hidden ? 'none' : undefined
           }}
         >
-          <input
-            className="search"
-            placeholder={t('Search…  (Ctrl+K)')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <div className="search-field">
+            <Icon name="search" size={14} />
+            <input
+              className="search"
+              placeholder={t('Search…  (Ctrl+K)')}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
 
           <div className="side-section grow">
             <div className="side-head">

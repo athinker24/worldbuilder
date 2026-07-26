@@ -335,8 +335,38 @@ h4 {
   gap: var(--sp-2);
 }
 
+/* Search reads as a search field rather than a bare text box. */
+.search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-field .icon {
+  position: absolute;
+  left: var(--sp-2);
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
 .search {
   width: 100%;
+  padding-left: 28px;
+}
+
+/* Indent guide — what makes a 12px-step tree readable at this density. */
+.tree-children {
+  position: relative;
+}
+
+.tree-children::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--guide);
+  width: 1px;
+  background: var(--border-subtle);
 }
 
 .side-section.grow {
