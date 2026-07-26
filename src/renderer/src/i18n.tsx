@@ -10,6 +10,8 @@ const TR: Record<string, string> = {
   'map name': 'harita adı',
   '🗺 Open': '🗺 Aç',
   '🗑 Delete': '🗑 Sil',
+  '✏️ Edit shape': '✏️ Şekli düzenle',
+  '✋ Move': '✋ Taşı',
   'Delete "{name}" and all drawings on it?':
     '"{name}" haritası ve üzerindeki tüm çizimler silinsin mi?',
   Entities: 'Maddeler',

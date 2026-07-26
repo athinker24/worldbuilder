@@ -44,6 +44,7 @@ import HierarchyPanel, { ActiveMode } from './HierarchyPanel'
 import { alertDialog, confirmDialog } from './dialog'
 import { useT } from './i18n'
 import Timeline from './Timeline'
+import MapToolbar from './MapToolbar'
 import ToolPanel, {
   ARROW_LABELS,
   DASH_LABELS,
@@ -591,6 +592,17 @@ export default function MapView({
     setSelected(null)
     setExtraSel([])
   }
+  // The inspector is the only thing that still changes the map's width (380px flex sibling), and
+  // Leaflet reads its size once at creation — without this its _size stays stale and hit-testing
+  // drifts from what is drawn. rAF so the DOM has already reflowed; pan:false keeps the top-left
+  // anchored, so the extra width is revealed instead of the view jumping.
+  const inspectorOpen = selected !== null
+  useEffect(() => {
+    const id = requestAnimationFrame(() =>
+      mapRef.current?.invalidateSize({ animate: false, pan: false })
+    )
+    return () => cancelAnimationFrame(id)
+  }, [inspectorOpen])
   const [allEntities, setAllEntities] = useState<EntityRow[]>([])
   // Person entities cannot be bound to the map (see EntityPage — they exist for family/dynasty fields)
   const personFolders = personFolderIds(folders) // people cannot be bound to the map
@@ -933,7 +945,6 @@ export default function MapView({
   const toolRef = useRef<Tool | null>(null)
   const [drawSettings, setDrawSettingsState] = useState<DrawSettings>(DEFAULT_DRAW)
   const drawRef = useRef<DrawSettings>(DEFAULT_DRAW)
-  const [panelW, setPanelW] = useState(240)
   // Export: at capture time the UI covering the map (Time strip, HUD, Hierarchy panel,
   // conquest/event hints) temporarily leaves the render — a one-way, non-editable PNG like
   // Wonderdraft's "Export" (Save already happens automatically on every edit).
@@ -1106,6 +1117,26 @@ export default function MapView({
     else if (t === 'drag') map.pm.enableGlobalDragMode()
     else if (t === 'remove') map.pm.enableGlobalRemovalMode()
   }
+  // Set a tool without the toggle: the context menu must always END UP in that mode, whereas
+  // activateTool would close it if it happened to be the current one.
+  const setTool = (t: Tool): void => {
+    if (toolRef.current !== t) activateTool(t)
+  }
+  // Escape leaves the active tool. Needed because Edit/Move are reached from the context menu and
+  // no longer have a toolbar button to press again — without this they would be one-way doors.
+  // The conquest/measure/nav Escape handlers run first (they own their own sessions), so this one
+  // stands down whenever a session is live.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || !toolRef.current) return
+      if (conquest || measure || nav) return
+      const el = e.target as HTMLElement
+      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable) return
+      activateTool(toolRef.current) // same tool = toggle off
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   // Setting change: save + apply to the active draw tool immediately
   const updateDrawSettings = (s: DrawSettings): void => {
@@ -1795,6 +1826,15 @@ export default function MapView({
             label: f.entity_id ? t('🔍 Show in panel') : t('🔗 Link to entity…'),
             onClick: () => setSelected(f)
           })
+          // Edit and Move are MODIFYING actions on an existing drawing, so they live here rather
+          // than in the creation toolbar. Both select the feature first: edit mode applies only to
+          // the selection (syncEditMode), and the [selected, tool] effect re-syncs once the state
+          // lands. setTool, not activateTool — the latter toggles off when handed the current tool.
+          items.push({
+            label: t('✏️ Edit shape'),
+            onClick: () => (setSelected(f), setTool('edit'))
+          })
+          items.push({ label: t('✋ Move'), onClick: () => (setSelected(f), setTool('drag')) })
           if (style.childMapId)
             items.push({
               label: t('🗺 Open map →'),
@@ -3004,21 +3044,6 @@ export default function MapView({
     }
   }
 
-  // Resize the tool panel by dragging its edge
-  const startResize = (e: React.MouseEvent): void => {
-    e.preventDefault()
-    const startX = e.clientX
-    const startW = panelW
-    const onMove = (ev: MouseEvent): void =>
-      setPanelW(Math.min(480, Math.max(180, startW + startX - ev.clientX)))
-    const onUp = (): void => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
-
   const linkEntity = async (entityId: number): Promise<void> => {
     await api.updateFeature(selected!.id, { entity_id: entityId })
     setLinkName('')
@@ -3202,9 +3227,8 @@ export default function MapView({
             {t('Add base image')}
           </button>
         )}
-        <button className="mini" title={t('Export as image')} onClick={exportMap}>
-          📷 {t('Export')}
-        </button>
+        {/* Export moved to File ▸ Export ▸ Current Map as Image (App drives it via onExportReady);
+            the header keeps only map CONTEXT: search, maps, boards, layers. */}
         <div className="layers-menu">
           <button
             className={`layers-btn ${boardsOpen ? 'open' : ''}`}
@@ -3628,6 +3652,45 @@ export default function MapView({
                 onOpenEntity={onOpenEntity}
                 onLocate={locateEntity}
               />
+              {/* Floating tool palette + its settings popover. Both sit inside .map-host-wrap
+                  (position:relative) like the other floats, so opening the 380px inspector shrinks
+                  that box and they slide left with it — no collision handling needed. Inside the
+                  !exporting guard so neither lands in the exported PNG. */}
+              <MapToolbar active={tool} onTool={activateTool} />
+              {tool && !selected && (
+                <div className="map-tool-popover">
+                  <ToolPanel
+                    buttons={false} // the buttons live in MapToolbar now
+                    active={tool}
+                    settings={drawSettings}
+                    onTool={activateTool}
+                    onSettings={updateDrawSettings}
+                    scale={mapScale}
+                    mapWidthPx={worldMap?.width ?? null}
+                    measuring={
+                      measure?.kind === 'dist' || measure?.kind === 'area' ? measure.kind : null
+                    }
+                    onCalibrate={() => startMeasure('calib')}
+                    onMeasure={startMeasure}
+                    onScaleSave={(perUnit, unit) => persistScale({ perUnit, unit })}
+                    onScaleClear={() => (persistScale(null), endMeasure())}
+                    navStep={nav?.step ?? null}
+                    navResult={nav?.step === 'result' ? nav : null}
+                    navBlocked={activeMode !== null}
+                    travelModes={travelModes}
+                    travelModeIdx={travelModeIdx}
+                    onNavStart={startNav}
+                    onNavEnd={endNav}
+                    onTravelModes={saveTravelModes}
+                    onTravelModeIdx={setTravelModeIdx}
+                    pinImages={pinImages}
+                    onUploadPinImage={uploadPinImage}
+                    onRemovePinImage={(path) =>
+                      savePinLib(pinImages.filter((p) => p.path !== path))
+                    }
+                  />
+                </div>
+              )}
             </>
           )}
         </div>
@@ -4041,34 +4104,6 @@ export default function MapView({
             </div>
           </div>
         )}
-        <div className="panel-resize" onMouseDown={startResize} />
-        <div className="tool-panel" style={{ width: panelW, minWidth: panelW }}>
-          <ToolPanel
-            active={tool}
-            settings={drawSettings}
-            onTool={activateTool}
-            onSettings={updateDrawSettings}
-            scale={mapScale}
-            mapWidthPx={worldMap?.width ?? null}
-            measuring={measure?.kind === 'dist' || measure?.kind === 'area' ? measure.kind : null}
-            onCalibrate={() => startMeasure('calib')}
-            onMeasure={startMeasure}
-            onScaleSave={(perUnit, unit) => persistScale({ perUnit, unit })}
-            onScaleClear={() => (persistScale(null), endMeasure())}
-            navStep={nav?.step ?? null}
-            navResult={nav?.step === 'result' ? nav : null}
-            navBlocked={activeMode !== null}
-            travelModes={travelModes}
-            travelModeIdx={travelModeIdx}
-            onNavStart={startNav}
-            onNavEnd={endNav}
-            onTravelModes={saveTravelModes}
-            onTravelModeIdx={setTravelModeIdx}
-            pinImages={pinImages}
-            onUploadPinImage={uploadPinImage}
-            onRemovePinImage={(path) => savePinLib(pinImages.filter((p) => p.path !== path))}
-          />
-        </div>
       </div>
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
     </div>

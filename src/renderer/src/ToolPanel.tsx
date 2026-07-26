@@ -103,7 +103,9 @@ const fmtNav = (v: number): string =>
 // Label fonts (bundled via @fontsource, OFL-licensed)
 export const FONTS = ['Cinzel', 'IM Fell English', 'MedievalSharp', 'Uncial Antiqua', 'system-ui']
 
-const TOOLS: { key: Tool; icon: string; name: string; hint?: string }[] = [
+// Exported so MapToolbar can show the same icon and name for the subset it displays — one source
+// for tool labels, whichever container renders the buttons.
+export const TOOLS: { key: Tool; icon: string; name: string; hint?: string }[] = [
   { key: 'polygon', icon: '⬠', name: 'Polygon' },
   { key: 'line', icon: '〰', name: 'Path', hint: 'Draw roads, routes, borders as lines.' },
   { key: 'marker', icon: '📍', name: 'Location' },
@@ -167,6 +169,9 @@ interface Props {
   pinImages: PinImage[]
   onUploadPinImage: (onPicked: (path: string, ar: number) => void) => void
   onRemovePinImage: (path: string) => void
+  // Render the tool button grid. False when the buttons live in a separate floating toolbar and
+  // this component is only the settings surface.
+  buttons?: boolean
 }
 
 export default function ToolPanel({
@@ -192,7 +197,8 @@ export default function ToolPanel({
   onTravelModeIdx,
   pinImages,
   onUploadPinImage,
-  onRemovePinImage
+  onRemovePinImage,
+  buttons = true
 }: Props): React.JSX.Element {
   const t = useT()
   const activeDef = TOOLS.find((tool) => tool.key === active)
@@ -209,19 +215,21 @@ export default function ToolPanel({
 
   return (
     <div className="tool-panel-inner">
-      <div className="tool-btns">
-        {TOOLS.map((tool) => (
-          <button
-            key={tool.key}
-            className={`tool-btn ${active === tool.key ? 'active' : ''}`}
-            title={t(tool.name)}
-            onClick={() => onTool(tool.key)}
-          >
-            <span className="tool-icon">{tool.icon}</span>
-            <span>{t(tool.name)}</span>
-          </button>
-        ))}
-      </div>
+      {buttons && (
+        <div className="tool-btns">
+          {TOOLS.map((tool) => (
+            <button
+              key={tool.key}
+              className={`tool-btn ${active === tool.key ? 'active' : ''}`}
+              title={t(tool.name)}
+              onClick={() => onTool(tool.key)}
+            >
+              <span className="tool-icon">{tool.icon}</span>
+              <span>{t(tool.name)}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="tool-settings">
         {active === 'polygon' && (

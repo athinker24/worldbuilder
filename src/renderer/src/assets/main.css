@@ -2070,6 +2070,77 @@ a {
   white-space: nowrap;
 }
 
+/* --- floating map toolbar + its settings popover (replaces the always-open right tool panel) ---
+   Same recipe as .hier-panel / .timeline-strip: absolute inside .map-host-wrap, so opening the
+   380px inspector shrinks that box and both slide left with it. z-index 1600 = one above the other
+   floats, so the popover wins if it ever meets the expanded timeline strip on a narrow window. */
+.map-toolbar-float {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  z-index: 1600;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  padding: 4px;
+  box-shadow: var(--shadow-2);
+}
+
+.map-toolbar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.map-toolbar-sep {
+  height: 1px;
+  margin: 2px 2px 4px;
+  background: var(--border);
+}
+
+/* Icon-only square button; the name is the tooltip. Active state matches .tool-btn.active. */
+.tool-fbtn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  font-size: 17px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border-color: transparent;
+}
+
+.tool-fbtn:hover {
+  background: var(--bg3);
+  border-color: var(--border);
+}
+
+.tool-fbtn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.map-tool-popover {
+  position: absolute;
+  right: 62px; /* clears the toolbar (34 + 2×4 padding + 2 border + 12 right + gap) */
+  top: 12px;
+  z-index: 1600;
+  width: 252px;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  box-shadow: var(--shadow-2);
+}
+
 .hier-panel {
   position: absolute;
   right: 12px;
