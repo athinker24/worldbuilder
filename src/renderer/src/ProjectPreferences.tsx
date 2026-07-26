@@ -7,32 +7,19 @@ import {
   getMapModes,
   getTemplates,
   HierConfig,
-  Lang,
   MapModes,
   mergeHierConfig,
   saveHierConfig,
-  saveLanguage,
   saveMapModes,
-  saveTemplates,
-  saveTheme,
-  Theme
+  saveTemplates
 } from './api'
 import { confirmDialog } from './dialog'
 import { useT } from './i18n'
 
-interface Props {
-  lang: Lang
-  onLangChange: (l: Lang) => void
-  theme: Theme
-  onThemeChange: (th: Theme) => void
-}
-
-export default function Settings({
-  lang,
-  onLangChange,
-  theme,
-  onThemeChange
-}: Props): React.JSX.Element {
+// PROJECT configuration: the systems that define the open world's own structure. All three live
+// in the settings table, so they travel inside the .dunya — that is exactly what separates them
+// from Preferences (language/theme), which belong to the application and stay per-machine.
+export default function ProjectPreferences(): React.JSX.Element {
   const t = useT()
   const [hierCfg, setHierCfg] = useState<HierConfig>({ govs: [] })
   const [allTags, setAllTags] = useState<string[]>([])
@@ -41,8 +28,6 @@ export default function Settings({
   const [govInput, setGovInput] = useState('')
   const [modes, setModes] = useState<MapModes>({ dims: [], colors: {} })
   const [dimInput, setDimInput] = useState('')
-  const [backupMsg, setBackupMsg] = useState('')
-  const [notesMsg, setNotesMsg] = useState('')
   const [tpls, setTpls] = useState<EntityTemplate[]>([])
   const [activeTpl, setActiveTpl] = useState<string | null>(null)
   const [tplInput, setTplInput] = useState('')
@@ -108,72 +93,8 @@ export default function Settings({
 
   return (
     <div className="page">
-      <h2>{t('Language')}</h2>
-      <div className="field-row">
-        <span className="field-key">{t('Interface language')}</span>
-        <select
-          value={lang}
-          onChange={(e) => {
-            const next = e.target.value as Lang
-            onLangChange(next)
-            saveLanguage(next)
-          }}
-        >
-          <option value="en">English</option>
-          <option value="tr">Turkish</option>
-        </select>
-      </div>
-      <div className="field-row">
-        <span className="field-key">{t('Theme')}</span>
-        <select
-          value={theme}
-          onChange={(e) => {
-            const next = e.target.value as Theme
-            onThemeChange(next)
-            saveTheme(next)
-          }}
-        >
-          <option value="dark">{t('Dark')}</option>
-          <option value="light">{t('Light')}</option>
-        </select>
-      </div>
-
-      <h2>{t('Backup')}</h2>
-      <p className="hint">
-        {t(
-          'A dated copy of world.db is made automatically once a day (last 30 days kept). Restoring is manual: with the app closed, copy a file from the backups folder over world.db.'
-        )}
-      </p>
-      <div className="field-row">
-        <button
-          className="mini"
-          onClick={async () => {
-            const path = await api.backupNow()
-            setBackupMsg(t('Backed up to {path}', { path }))
-          }}
-        >
-          {t('Back up now')}
-        </button>
-        {backupMsg && <span className="hint">{backupMsg}</span>}
-      </div>
-
-      <h2>{t('Export notes')}</h2>
-      <p className="hint">
-        {t(
-          'Write every entity’s notes to a readable .txt tree: notes/<map>/<folder…>/<entity>/<note>.txt, mirroring the sidebar folders. Entities appear under each map they’re drawn on; ones on no map go under “(no map)”, ones in no folder under “(no folder)”. One-way export; the tree is rebuilt each time.'
-        )}
-      </p>
-      <div className="field-row">
-        <button
-          className="mini"
-          onClick={async () => {
-            const { files } = await api.exportNotes()
-            setNotesMsg(t('Exported {n} note file(s); opening the folder…', { n: files }))
-          }}
-        >
-          {t('Export notes to .txt')}
-        </button>
-        {notesMsg && <span className="hint">{notesMsg}</span>}
+      <div className="page-head">
+        <h2>{t('Project Preferences')}</h2>
       </div>
 
       <h2>{t('Hierarchy Ranks')}</h2>

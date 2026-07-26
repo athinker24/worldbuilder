@@ -76,9 +76,7 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
 
   return (
     <div className="page">
-      <div className="page-head">
-        <h2>{t('🕸 Diplomacy Web')}</h2>
-      </div>
+      {/* No <h2> — Overview's tab bar already names this view ("Relations"). */}
       {web.nodes.length === 0 && (
         <p className="hint">
           {t(

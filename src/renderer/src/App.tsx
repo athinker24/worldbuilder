@@ -12,28 +12,28 @@ import {
   saveEntityFolders,
   Theme
 } from './api'
-import Atlas from './Atlas'
 import ContextMenu, { MenuState } from './ContextMenu'
 import { alertDialog, confirmDialog, DialogHost } from './dialog'
-import Diplomacy from './Diplomacy'
 import EntityPage from './EntityPage'
 import { deleteEntitiesWithUndo, deleteEntityWithUndo } from './entityOps'
 import { LangContext, translate } from './i18n'
-import Chronology from './Chronology'
 import MapView from './MapView'
+import Overview, { OverviewTab } from './Overview'
 import Palette from './Palette'
-import Settings from './Settings'
+import Preferences from './Preferences'
+import ProjectPreferences from './ProjectPreferences'
 import Shortcuts from './Shortcuts'
 import { pushUndo, redo, undo } from './undo'
 
+// Workspaces (places you go) vs commands (things you do): the commands all live in the
+// application menu now, so every kind here is somewhere the main area can show.
 type View =
   | { kind: 'empty' }
   | { kind: 'entity'; id: number }
   | { kind: 'map'; id: number }
-  | { kind: 'settings' }
-  | { kind: 'chronology' }
-  | { kind: 'diplomacy' }
-  | { kind: 'atlas' }
+  | { kind: 'preferences' } // application preferences (language, theme)
+  | { kind: 'projectPrefs' } // the open project's structure (ranks, map modes, templates)
+  | { kind: 'overview'; tab: OverviewTab } // Atlas / Chronology / Relations
   | { kind: 'shortcuts' }
 
 export default function App(): React.JSX.Element {
@@ -231,8 +231,78 @@ export default function App(): React.JSX.Element {
   const newWorld = useCallback(async (): Promise<void> => {
     if (await discardOk()) await api.newWorld() // main resets + reloads
   }, [discardOk])
+  const closeWorld = useCallback(async (): Promise<void> => {
+    if (await discardOk()) await api.closeWorld() // main resets + reloads → start screen
+  }, [discardOk])
 
-  // Global shortcuts: Ctrl+K palette, Ctrl+S save, Ctrl+O open, Ctrl+Z undo, Alt+←/→ history
+  // The live map's PNG exporter, handed up by MapView while it is mounted (see onExportReady).
+  // A plain () => void: no Leaflet type crosses the boundary, so the containment rule holds.
+  const exportMapRef = useRef<(() => void) | null>(null)
+  const handleExportReady = useCallback((fn: (() => void) | null): void => {
+    exportMapRef.current = fn
+  }, [])
+
+  // Application-menu commands. Each one runs the SAME function the UI already calls — main only
+  // forwards the click, so no command grows a second implementation.
+  useEffect(() => {
+    return window.api.onMenu((cmd) => {
+      const recent = cmd.startsWith('file.recent:') ? cmd.slice('file.recent:'.length) : null
+      if (recent) return void openRecent(recent)
+      const tab = cmd.startsWith('view.overview:') ? cmd.slice('view.overview:'.length) : null
+      if (tab) return setView({ kind: 'overview', tab: tab as OverviewTab })
+      switch (cmd) {
+        case 'file.new':
+          return void newWorld()
+        case 'file.open':
+          return void openWorld()
+        case 'file.save':
+          return void saveWorld(false)
+        case 'file.saveAs':
+          return void saveWorld(true)
+        case 'file.close':
+          return void closeWorld()
+        case 'file.exportMap':
+          // ponytail: enabled even off a map view — greying it out would mean rebuilding the
+          // native menu on every view change. Swap to a menu rebuild if that ever grates.
+          return exportMapRef.current
+            ? exportMapRef.current()
+            : showToast(translate(lang, 'Open a map first.'))
+        case 'file.exportNotes':
+          return void api
+            .exportNotes()
+            .then(({ files }) =>
+              showToast(
+                translate(lang, 'Exported {n} note file(s); opening the folder…', { n: files })
+              )
+            )
+        case 'file.backup':
+          return void api
+            .backupNow()
+            .then((path) => showToast(translate(lang, 'Backed up to {path}', { path })))
+        case 'edit.undo':
+        case 'edit.redo':
+          return void (cmd === 'edit.redo' ? redo() : undo()).then((did) => {
+            if (did) {
+              refresh()
+              setBump((b) => b + 1)
+            }
+          })
+        case 'edit.prefs':
+          return setView({ kind: 'preferences' })
+        case 'view.maps':
+          return void openMaps()
+        case 'view.projectPrefs':
+          return setView({ kind: 'projectPrefs' })
+        case 'help.shortcuts':
+          return setView({ kind: 'shortcuts' })
+      }
+    })
+  }, [newWorld, openWorld, openRecent, closeWorld, saveWorld, openMaps, refresh, showToast, lang])
+
+  // Global shortcuts: Ctrl+K palette, Ctrl+Z undo, Del, Alt+←/→ history.
+  // Ctrl+N/O/S/Shift+S and F1 are NOT here — the menu owns those accelerators, and handling them
+  // in both places would fire every command twice. Undo/redo stay here on purpose: the menu
+  // advertises Ctrl+Z without registering it, so this typing guard keeps textarea undo working.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const t = e.target as HTMLElement
@@ -240,15 +310,6 @@ export default function App(): React.JSX.Element {
       if (e.ctrlKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPalette((p) => !p)
-      } else if (e.ctrlKey && e.key.toLowerCase() === 's') {
-        e.preventDefault()
-        saveWorld(e.shiftKey)
-      } else if (e.ctrlKey && e.key.toLowerCase() === 'o') {
-        e.preventDefault()
-        openWorld()
-      } else if (e.key === 'F1') {
-        e.preventDefault()
-        setView({ kind: 'shortcuts' })
       } else if (e.key === 'Escape') {
         setPalette(false)
       } else if (
@@ -288,7 +349,7 @@ export default function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [refresh, deleteSelected, saveWorld, openWorld])
+  }, [refresh, deleteSelected])
 
   // Sidebar file tree: articles are grouped under user-made folders (fields['folder']); a folder
   // id that no longer exists resolves to root (like map boards' resolveBoard).
@@ -632,44 +693,26 @@ export default function App(): React.JSX.Element {
             </div>
           </div>
 
+          {/* Workspaces only. Project commands (save/open/export/backup) live in the File menu,
+              application preferences in Edit, and Shortcuts in Help — the sidebar is for places
+              you go, not things you do. */}
           <div
             className={`side-item kron-btn ${view.kind === 'map' ? 'active' : ''}`}
             onClick={openMaps}
           >
             🗺 {t('Maps')}
           </div>
-          <div className="side-item settings-btn" onClick={() => saveWorld()}>
-            💾 {t('Save World')}
-          </div>
-          <div className="side-item settings-btn" onClick={openWorld}>
-            📂 {t('Open World')}
+          <div
+            className={`side-item settings-btn ${view.kind === 'overview' ? 'active' : ''}`}
+            onClick={() => setView({ kind: 'overview', tab: 'atlas' })}
+          >
+            {t('📊 Overview')}
           </div>
           <div
-            className={`side-item settings-btn ${view.kind === 'chronology' ? 'active' : ''}`}
-            onClick={() => setView({ kind: 'chronology' })}
+            className={`side-item settings-btn ${view.kind === 'projectPrefs' ? 'active' : ''}`}
+            onClick={() => setView({ kind: 'projectPrefs' })}
           >
-            {t('📜 Chronology')}
-          </div>
-          <div
-            className={`side-item settings-btn ${view.kind === 'diplomacy' ? 'active' : ''}`}
-            onClick={() => setView({ kind: 'diplomacy' })}
-          >
-            {t('🕸 Diplomacy')}
-          </div>
-          <div
-            className={`side-item settings-btn ${view.kind === 'atlas' ? 'active' : ''}`}
-            onClick={() => setView({ kind: 'atlas' })}
-          >
-            {t('📊 Atlas')}
-          </div>
-          <div
-            className={`side-item settings-btn ${view.kind === 'shortcuts' ? 'active' : ''}`}
-            onClick={() => setView({ kind: 'shortcuts' })}
-          >
-            {t('⌨ Shortcuts')}
-          </div>
-          <div className="side-item settings-btn" onClick={() => setView({ kind: 'settings' })}>
-            {t('⚙ Settings')}
+            {t('⚙ Project Preferences')}
           </div>
         </div>
 
@@ -741,13 +784,23 @@ export default function App(): React.JSX.Element {
               onNavigate={openMap}
               onOpenEntity={openEntity}
               onChanged={refresh}
+              onExportReady={handleExportReady}
             />
           )}
-          {view.kind === 'settings' && (
-            <Settings lang={lang} onLangChange={setLang} theme={theme} onThemeChange={setTheme} />
+          {view.kind === 'preferences' && (
+            <Preferences
+              lang={lang}
+              onLangChange={setLang}
+              theme={theme}
+              onThemeChange={setTheme}
+            />
           )}
-          {view.kind === 'chronology' && (
-            <Chronology
+          {view.kind === 'projectPrefs' && <ProjectPreferences />}
+          {view.kind === 'overview' && (
+            <Overview
+              tab={view.tab}
+              onTab={(tab) => setView({ kind: 'overview', tab })}
+              folders={folders}
               onOpenEntity={openEntity}
               onLocateFeature={(mapId, featureId) => {
                 setFocus({ featureId, token: Date.now() })
@@ -755,8 +808,6 @@ export default function App(): React.JSX.Element {
               }}
             />
           )}
-          {view.kind === 'diplomacy' && <Diplomacy folders={folders} onOpenEntity={openEntity} />}
-          {view.kind === 'atlas' && <Atlas onOpenEntity={openEntity} />}
           {view.kind === 'shortcuts' && <Shortcuts />}
         </div>
 

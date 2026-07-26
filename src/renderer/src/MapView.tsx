@@ -154,6 +154,10 @@ interface Props {
   onNavigate: (mapId: number) => void
   onOpenEntity: (id: number) => void
   onChanged: () => void
+  // Hands the PNG exporter up to App so File > Export can fire it, and null on unmount.
+  // Deliberately an opaque () => void — capturePage needs the live .leaflet-host element, which
+  // only exists here, and no Leaflet type may leave this file.
+  onExportReady?: (fn: (() => void) | null) => void
 }
 
 interface FeatureLayer extends L.Layer {
@@ -555,7 +559,8 @@ export default function MapView({
   folders,
   onNavigate,
   onOpenEntity,
-  onChanged
+  onChanged,
+  onExportReady
 }: Props): React.JSX.Element {
   const t = useT()
   const divRef = useRef<HTMLDivElement>(null)
@@ -951,6 +956,17 @@ export default function MapView({
     setExporting(false)
     if (path) alertDialog(t('Exported to {path}', { path }))
   }
+  // Publish the exporter to App (File > Export > Current Map as Image). exportMap is a fresh
+  // closure every render because it reads worldMap, so hand up a STABLE wrapper over a useLatest
+  // ref — the same pattern wheelAdjustRef uses — instead of re-registering on every render.
+  const exportLatest = useRef(exportMap)
+  useEffect(() => {
+    exportLatest.current = exportMap
+  })
+  useEffect(() => {
+    onExportReady?.(() => void exportLatest.current())
+    return () => onExportReady?.(null)
+  }, [onExportReady])
 
   // Show the zoom HUD and hide it after 3s of inactivity.
   // The slider range is the map's current min/max zoom (minZoom is dynamic with a base image)

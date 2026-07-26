@@ -184,8 +184,8 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
 
   return (
     <div className="page">
+      {/* No <h2> — Overview's tab bar already names this view. */}
       <div className="page-head">
-        <h2>{t('📊 Atlas')}</h2>
         {tl && year !== null && (
           <label className="atlas-year">
             {t('Year')}

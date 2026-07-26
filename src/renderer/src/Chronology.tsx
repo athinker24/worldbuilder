@@ -78,9 +78,7 @@ export default function Kronoloji({ onOpenEntity, onLocateFeature }: Props): Rea
 
   return (
     <div className="page kron-page">
-      <div className="page-head">
-        <h2>{t('📜 Chronology')}</h2>
-      </div>
+      {/* No <h2> — Overview's tab bar already names this view. */}
       {moments.length === 0 && (
         <p className="hint">
           {t(

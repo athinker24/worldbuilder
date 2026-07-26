@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, protocol, net, Menu } from 'electron'
 import { basename, join, normalize, sep } from 'path'
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { writeFile } from 'fs/promises'
@@ -104,8 +104,43 @@ const writeRecent = (l: string[]): void => {
     /* if the disk cannot be written the list is expendable — never block launch over it */
   }
 }
-const addRecent = (path: string): void =>
+const addRecent = (path: string): void => {
   writeRecent([path, ...readRecent().filter((p) => p !== path)])
+  buildMenu() // File > Open Recent is built from this list
+}
+
+// Application preferences (language, theme). Deliberately NOT in the settings table: rows there
+// live inside world.db, so they travel inside a shared .dunya (opening someone else's file would
+// change your language) and resetWorld() wipes them on any launch that had content (your own
+// choice would not survive a restart). Per-machine, next to recent.json.
+const PREFS = join(app.getPath('userData'), 'prefs.json')
+type Prefs = { language?: string; theme?: string }
+const readPrefs = (): Prefs => {
+  try {
+    const p: unknown = JSON.parse(readFileSync(PREFS, 'utf8'))
+    return p && typeof p === 'object' ? (p as Prefs) : {}
+  } catch {
+    return {} // first launch / corrupt file: fall back to the renderer's defaults
+  }
+}
+const writePrefs = (p: Prefs): void => {
+  try {
+    writeFileSync(PREFS, JSON.stringify(p))
+  } catch {
+    /* expendable like recent.json — never block launch over it */
+  }
+}
+// One-time adoption of the language/theme the user already picked, which until now lived in the
+// settings table. MUST run before resetWorld() empties world.db — see app.whenReady below.
+function adoptLegacyPrefs(): void {
+  if (existsSync(PREFS)) return
+  const p: Prefs = {}
+  const lang = dbApi.getSetting('language')
+  const theme = dbApi.getSetting('theme')
+  if (lang) p.language = lang
+  if (theme) p.theme = theme
+  writePrefs(p)
+}
 
 // Open a .dunya file over the working copy (safety backup first)
 function openWorldFile(path: string): void {
@@ -115,6 +150,152 @@ function openWorldFile(path: string): void {
   dirty = false
   addRecent(path)
   updateTitle()
+}
+
+// "New": same path as the blank launch — the current working copy is packed into backups/ as a
+// .dunya, then the schema is emptied. The unsaved-changes confirm lives in the renderer.
+// File > Close Project runs this too: in this app there is no third state where a project is
+// closed but the working copy still holds it, so "close" and "new" land in the same place.
+function newProject(): void {
+  if (hasContent()) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.dunya`))
+  }
+  resetWorld()
+  currentFile = null
+  dirty = false
+  updateTitle()
+  mainWindow?.webContents.reload()
+}
+
+// --- Application menu ---------------------------------------------------------------------
+// Menu clicks are FORWARDED to the renderer over one 'menu' channel instead of being executed
+// here, so every command keeps a single implementation — the function the UI already calls,
+// including its unsaved-changes confirm. The mirror image of the single 'api' channel.
+const send = (cmd: string): void => mainWindow?.webContents.send('menu', cmd)
+
+// Main cannot import the renderer's i18n.tsx (a React module), so menu labels carry their own
+// small dictionary. English text is the key here too, same convention as i18n.tsx.
+const MENU_TR: Record<string, string> = {
+  File: 'Dosya',
+  Edit: 'Düzen',
+  View: 'Görünüm',
+  Help: 'Yardım',
+  'New Project': 'Yeni Proje',
+  'Open Project…': 'Proje Aç…',
+  'Open Recent': 'Son Kullanılanlar',
+  '(empty)': '(boş)',
+  Save: 'Kaydet',
+  'Save As…': 'Farklı Kaydet…',
+  Export: 'Dışa Aktar',
+  'Current Map as Image…': 'Geçerli Haritayı Görsel Olarak…',
+  'Notes…': 'Notlar…',
+  'Back Up Now': 'Şimdi Yedekle',
+  'Close Project': 'Projeyi Kapat',
+  Exit: 'Çıkış',
+  Undo: 'Geri Al',
+  Redo: 'Yinele',
+  Preferences: 'Tercihler',
+  Maps: 'Haritalar',
+  Overview: 'Genel Bakış',
+  Atlas: 'Atlas',
+  Chronology: 'Kronoloji',
+  Relations: 'İlişkiler',
+  'Project Preferences': 'Proje Tercihleri',
+  'Keyboard Shortcuts': 'Klavye Kısayolları'
+}
+const ml = (s: string): string => (readPrefs().language === 'tr' ? (MENU_TR[s] ?? s) : s)
+
+function buildMenu(): void {
+  const recent = readRecent()
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: ml('File'),
+        submenu: [
+          { label: ml('New Project'), accelerator: 'CmdOrCtrl+N', click: () => send('file.new') },
+          {
+            label: ml('Open Project…'),
+            accelerator: 'CmdOrCtrl+O',
+            click: () => send('file.open')
+          },
+          {
+            label: ml('Open Recent'),
+            submenu: recent.length
+              ? recent.map((p) => ({ label: basename(p), click: () => send(`file.recent:${p}`) }))
+              : [{ label: ml('(empty)'), enabled: false }]
+          },
+          { type: 'separator' },
+          { label: ml('Save'), accelerator: 'CmdOrCtrl+S', click: () => send('file.save') },
+          {
+            label: ml('Save As…'),
+            accelerator: 'CmdOrCtrl+Shift+S',
+            click: () => send('file.saveAs')
+          },
+          { type: 'separator' },
+          {
+            label: ml('Export'),
+            submenu: [
+              { label: ml('Current Map as Image…'), click: () => send('file.exportMap') },
+              { label: ml('Notes…'), click: () => send('file.exportNotes') }
+            ]
+          },
+          { label: ml('Back Up Now'), click: () => send('file.backup') },
+          { type: 'separator' },
+          { label: ml('Close Project'), click: () => send('file.close') },
+          { role: 'quit', label: ml('Exit') }
+        ]
+      },
+      {
+        label: ml('Edit'),
+        // registerAccelerator:false — the label advertises the key but the binding stays with the
+        // renderer's typing-guarded handler. Registered here, Ctrl+Z inside a note textarea would
+        // undo the WORLD instead of the text.
+        submenu: [
+          {
+            label: ml('Undo'),
+            accelerator: 'CmdOrCtrl+Z',
+            registerAccelerator: false,
+            click: () => send('edit.undo')
+          },
+          {
+            label: ml('Redo'),
+            accelerator: 'CmdOrCtrl+Shift+Z',
+            registerAccelerator: false,
+            click: () => send('edit.redo')
+          },
+          { type: 'separator' },
+          { label: ml('Preferences'), click: () => send('edit.prefs') }
+        ]
+      },
+      {
+        label: ml('View'),
+        submenu: [
+          { label: ml('Maps'), click: () => send('view.maps') },
+          {
+            label: ml('Overview'),
+            submenu: [
+              { label: ml('Atlas'), click: () => send('view.overview:atlas') },
+              { label: ml('Chronology'), click: () => send('view.overview:chronology') },
+              { label: ml('Relations'), click: () => send('view.overview:relations') }
+            ]
+          },
+          { type: 'separator' },
+          { label: ml('Project Preferences'), click: () => send('view.projectPrefs') }
+        ]
+      },
+      {
+        label: ml('Help'),
+        submenu: [
+          {
+            label: ml('Keyboard Shortcuts'),
+            accelerator: 'F1',
+            click: () => send('help.shortcuts')
+          }
+        ]
+      }
+    ])
+  )
 }
 
 const mainApi = {
@@ -157,18 +338,16 @@ const mainApi = {
     mainWindow?.webContents.reload()
     return true
   },
-  // "New": same path as the blank launch — the current working copy is packed into backups/
-  // as a .dunya, then the schema is emptied. The unsaved-changes confirm lives in the renderer.
-  newWorld(): void {
-    if (hasContent()) {
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-      packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.dunya`))
-    }
-    resetWorld()
-    currentFile = null
-    dirty = false
-    updateTitle()
-    mainWindow?.webContents.reload()
+  newWorld: newProject,
+  // Same function on purpose (see newProject) — a separate command because that is where users
+  // look for it, not because the behaviour differs.
+  closeWorld: newProject,
+  // Application preferences, per-machine. The 'save' prefix is deliberate: 'set*' would match the
+  // dirty-flag regex in the IPC dispatch below, so switching theme would mark the world unsaved.
+  getPrefs: (): Prefs => readPrefs(),
+  savePrefs(patch: Prefs): void {
+    writePrefs({ ...readPrefs(), ...patch })
+    buildMenu() // menu labels follow the language
   },
   async pickImage(): Promise<string | null> {
     const r = await dialog.showOpenDialog({
@@ -201,7 +380,7 @@ function createWindow(): void {
     width: 1400,
     height: 900,
     show: false,
-    autoHideMenuBar: true,
+    autoHideMenuBar: false, // the File/Edit/View/Help menu is the app's command surface
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -303,6 +482,7 @@ app.whenReady().then(() => {
 
   adoptLegacyDataDir() // adopt the old Documents\D\u00fcnya folder (BEFORE initDb)
   initDb(DATA_DIR)
+  adoptLegacyPrefs() // language/theme out of the settings table — BEFORE the resetWorld() below
   backupIfNeeded() // daily dated copy of world.db — restore is manual (the backups/ folder)
   const arg = dunyaArg(process.argv)
   if (arg) {
@@ -365,6 +545,7 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+  buildMenu()
   updateTitle()
 
   app.on('activate', function () {

@@ -665,6 +665,14 @@ kbd {
   margin-bottom: 12px;
 }
 
+/* Overview: title + tab bar sit ABOVE the active page as a sibling, so the page keeps its own
+   .page scrolling and no .page ends up nested inside another. Padding matches .page's. */
+.overview-head {
+  flex: 0 0 auto;
+  max-width: 900px;
+  padding: 16px 24px 0;
+}
+
 .title-input {
   font-size: 22px;
   font-weight: 700;

@@ -23,7 +23,14 @@ const TR: Record<string, string> = {
   'Search on map…': 'Haritada ara…',
   'Pin types': 'Pin tipleri',
   '(no entity)': '(maddesiz)',
-  '⚙ Settings': '⚙ Ayarlar',
+  // Kenar çubuğu çalışma alanları + Overview sekmeleri (proje komutları artık File menüsünde)
+  '📊 Overview': '📊 Genel Bakış',
+  Overview: 'Genel Bakış',
+  '🕸 Relations': '🕸 İlişkiler',
+  '⚙ Project Preferences': '⚙ Proje Tercihleri',
+  'Project Preferences': 'Proje Tercihleri',
+  Preferences: 'Tercihler',
+  'Open a map first.': 'Önce bir harita aç.',
   // Hata sınırı (bozuk .dunya render'ı patlatırsa çıkış yolu)
   'This world could not be opened': 'Bu dünya açılamadı',
   'The file may be corrupt or created by a newer version.':
@@ -44,6 +51,7 @@ const TR: Record<string, string> = {
     'Madde adı öner — ↑↓ ile seç, Enter/Tab ile ekle',
   'Close the suggestion list': 'Öneri listesini kapat',
   'Search everything (palette)': 'Her şeyde ara (palet)',
+  'New world': 'Yeni dünya',
   'Save world / Save as': 'Dünyayı kaydet / Farklı kaydet',
   'Open world': 'Dünya aç',
   'Undo / Redo': 'Geri al / Yinele',
@@ -98,11 +106,7 @@ const TR: Record<string, string> = {
     'Soldan bir madde ya da 🗺 Haritalar seç, ya da Ctrl+K ile ara.',
   'This entity is not marked on any map yet.': 'Bu madde henüz hiçbir haritada işaretli değil.',
 
-  // Settings.tsx
-  'Export notes': 'Notları dışa aktar',
-  'Write every entity’s notes to a readable .txt tree: notes/<map>/<type>/<entity>/<note>.txt. Entities appear under each map they’re drawn on; ones on no map go under “(no map)”. One-way export; the tree is rebuilt each time.':
-    'Her maddenin notlarını okunabilir bir .txt ağacına yazar: notes/<harita>/<tip>/<madde>/<not>.txt. Maddeler çizildikleri her haritanın altında görünür; hiçbir haritada olmayanlar “(no map)” altında. Tek yönlü; ağaç her seferinde yeniden üretilir.',
-  'Export notes to .txt': 'Notları .txt olarak aktar',
+  // ProjectPreferences.tsx (eski Settings.tsx). Not dışa aktarma artık File ▸ Export ▸ Notes.
   'Exported {n} note file(s); opening the folder…': '{n} not dosyası yazıldı; klasör açılıyor…',
   'Entity Types': 'Madde Tipleri',
   'Types are completely free: add, rename, delete. Renaming a type updates all entities of that type.':
@@ -232,7 +236,7 @@ const TR: Record<string, string> = {
   Backup: 'Yedekleme',
   'A dated copy of world.db is made automatically once a day (last 30 days kept). Restoring is manual: with the app closed, copy a file from the backups folder over world.db.':
     "world.db'nin tarihli bir kopyası günde bir kez otomatik alınır (son 30 gün saklanır). Geri yükleme elle yapılır: uygulama kapalıyken backups klasöründeki bir dosyayı world.db üzerine kopyala.",
-  'Back up now': 'Şimdi yedekle',
+  'Take an extra backup with File ▸ Back Up Now.': 'Fazladan bir yedek için File ▸ Şimdi Yedekle.',
   'Backed up to {path}': '{path} konumuna yedeklendi',
   'Size: ×{val}': 'Boyut: ×{val}',
   'Select a tool; its settings appear here.': 'Bir araç seç; ayarları burada görünür.',
@@ -361,8 +365,6 @@ const TR: Record<string, string> = {
     'Henüz ölçülebilir bölge yok. Bir haritaya taban kademe poligonları çiz (gerçek alanlar için 📏 aracıyla harita ölçeği ata).',
 
   // Diplomacy.tsx
-  '🕸 Diplomacy': '🕸 Diplomasi',
-  '🕸 Diplomacy Web': '🕸 Diplomasi Ağı',
   'No relations between entities yet. Add links from the Relations tab of an entity page.':
     'Maddeler arasında henüz ilişki yok. Madde sayfasının İlişkiler sekmesinden bağ ekleyebilirsin.',
 

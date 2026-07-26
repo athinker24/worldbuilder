@@ -164,6 +164,12 @@ export const api = {
   openRecent: (path: string) => inv<boolean>('openRecent', path),
   forgetRecent: (path: string) => inv<void>('forgetRecent', path),
   newWorld: () => inv<void>('newWorld'),
+  // Same behaviour as newWorld in this app — a separate command because that is where users
+  // look for it (see newProject in main/index.ts).
+  closeWorld: () => inv<void>('closeWorld'),
+  // Application preferences (userData/prefs.json) — per machine, NOT part of the .dunya
+  getPrefs: () => inv<{ language?: string; theme?: string }>('getPrefs'),
+  savePrefs: (patch: { language?: string; theme?: string }) => inv<void>('savePrefs', patch),
   exportMapImage: (
     rect: { x: number; y: number; width: number; height: number },
     defaultName: string
@@ -504,25 +510,28 @@ export const saveTimeline = (t: TimelineConfig): Promise<void> =>
 export const formatYear = (y: number, cfg: TimelineConfig): string =>
   y < 0 ? `${-y} ${cfg.before}` : `${y} ${cfg.after}`
 
-// Interface language — default English; changeable from Settings.
+// Language and theme are APPLICATION preferences, so they live in userData/prefs.json rather than
+// the settings table: a row there would ride inside a shared .dunya (opening someone else's world
+// would change your language) and resetWorld() would wipe it on the next launch.
+// Interface language — default English; changeable from Preferences.
 export type Lang = 'en' | 'tr'
 
 export async function getLanguage(): Promise<Lang> {
-  const raw = await api.getSetting('language')
-  return raw === 'tr' ? 'tr' : 'en'
+  const { language } = await api.getPrefs()
+  return language === 'tr' ? 'tr' : 'en'
 }
 
-export const saveLanguage = (lang: Lang): Promise<void> => api.setSetting('language', lang)
+export const saveLanguage = (lang: Lang): Promise<void> => api.savePrefs({ language: lang })
 
 // Theme — dark (teal) is the default; App.tsx writes <html data-theme>, all colors come from CSS tokens.
 export type Theme = 'dark' | 'light'
 
 export async function getTheme(): Promise<Theme> {
-  const raw = await api.getSetting('theme')
-  return raw === 'light' ? 'light' : 'dark'
+  const { theme } = await api.getPrefs()
+  return theme === 'light' ? 'light' : 'dark'
 }
 
-export const saveTheme = (theme: Theme): Promise<void> => api.setSetting('theme', theme)
+export const saveTheme = (theme: Theme): Promise<void> => api.savePrefs({ theme })
 
 // The color picker's "recent" strip (settings 'recentColors'; newest first, 12 entries).
 // Cached in memory — no DB round trip per open; a page can hold many pickers.
