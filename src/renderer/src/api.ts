@@ -2,6 +2,15 @@
 const inv = <T>(method: string, ...args: unknown[]): Promise<T> =>
   window.api.invoke(method, ...args) as Promise<T>
 
+// userData/prefs.json — application preferences, per machine, never inside a .dunya.
+export interface UiPrefs {
+  language?: string
+  theme?: string
+  sidebarOpen?: boolean
+  sidebarWidth?: number
+  mapPanelWidth?: number
+}
+
 export interface EntityRow {
   id: number
   name: string
@@ -167,9 +176,11 @@ export const api = {
   // Same behaviour as newWorld in this app — a separate command because that is where users
   // look for it (see newProject in main/index.ts).
   closeWorld: () => inv<void>('closeWorld'),
-  // Application preferences (userData/prefs.json) — per machine, NOT part of the .dunya
-  getPrefs: () => inv<{ language?: string; theme?: string }>('getPrefs'),
-  savePrefs: (patch: { language?: string; theme?: string }) => inv<void>('savePrefs', patch),
+  // Application preferences (userData/prefs.json) — per machine, NOT part of the .dunya.
+  // Layout (panel widths, sidebar open) belongs here for the same reason as language/theme:
+  // it describes how you like the app, not what the world contains.
+  getPrefs: () => inv<UiPrefs>('getPrefs'),
+  savePrefs: (patch: UiPrefs) => inv<void>('savePrefs', patch),
   exportMapImage: (
     rect: { x: number; y: number; width: number; height: number },
     defaultName: string

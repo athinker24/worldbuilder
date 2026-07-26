@@ -114,7 +114,15 @@ const addRecent = (path: string): void => {
 // change your language) and resetWorld() wipes them on any launch that had content (your own
 // choice would not survive a restart). Per-machine, next to recent.json.
 const PREFS = join(app.getPath('userData'), 'prefs.json')
-type Prefs = { language?: string; theme?: string }
+// Panel widths and the sidebar's open state live here too: they describe how YOU like the app
+// laid out, not what the world contains, so they must not ride inside a shared .dunya.
+type Prefs = {
+  language?: string
+  theme?: string
+  sidebarOpen?: boolean
+  sidebarWidth?: number
+  mapPanelWidth?: number
+}
 const readPrefs = (): Prefs => {
   try {
     const p: unknown = JSON.parse(readFileSync(PREFS, 'utf8'))
@@ -198,6 +206,7 @@ const MENU_TR: Record<string, string> = {
   Preferences: 'Tercihler',
   Maps: 'Haritalar',
   Overview: 'Genel Bakış',
+  'Toggle Sidebar': 'Kenar Çubuğunu Aç/Kapat',
   Atlas: 'Atlas',
   Chronology: 'Kronoloji',
   Relations: 'İlişkiler',
@@ -271,6 +280,12 @@ function buildMenu(): void {
       {
         label: ml('View'),
         submenu: [
+          {
+            label: ml('Toggle Sidebar'),
+            accelerator: 'CmdOrCtrl+B',
+            click: () => send('view.toggleSidebar')
+          },
+          { type: 'separator' },
           { label: ml('Maps'), click: () => send('view.maps') },
           {
             label: ml('Overview'),

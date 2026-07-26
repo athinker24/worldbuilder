@@ -20,6 +20,7 @@ import { LangContext, translate } from './i18n'
 import MapView from './MapView'
 import Overview, { OverviewTab } from './Overview'
 import Palette from './Palette'
+import { startPaneResize } from './paneResize'
 import Preferences from './Preferences'
 import ProjectPreferences from './ProjectPreferences'
 import Shortcuts from './Shortcuts'
@@ -66,9 +67,25 @@ export default function App(): React.JSX.Element {
   const t = (s: string, params?: Record<string, string | number>): string =>
     translate(lang, s, params)
 
+  // Sidebar layout: collapsible and drag-resizable, both remembered in userData/prefs.json.
+  // Defaults match the old fixed 260px, so a fresh install looks unchanged.
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarW, setSidebarW] = useState(260)
+
   useEffect(() => {
     getLanguage().then(setLang)
     getTheme().then(setTheme)
+    api.getPrefs().then((p) => {
+      if (p.sidebarOpen === false) setSidebarOpen(false)
+      if (p.sidebarWidth) setSidebarW(p.sidebarWidth)
+    })
+  }, [])
+
+  const toggleSidebar = useCallback((): void => {
+    setSidebarOpen((open) => {
+      api.savePrefs({ sidebarOpen: !open })
+      return !open
+    })
   }, [])
 
   // The theme is applied via <html data-theme> — the CSS tokens (main.css) branch on it
@@ -291,13 +308,26 @@ export default function App(): React.JSX.Element {
           return setView({ kind: 'preferences' })
         case 'view.maps':
           return void openMaps()
+        case 'view.toggleSidebar':
+          return toggleSidebar()
         case 'view.projectPrefs':
           return setView({ kind: 'projectPrefs' })
         case 'help.shortcuts':
           return setView({ kind: 'shortcuts' })
       }
     })
-  }, [newWorld, openWorld, openRecent, closeWorld, saveWorld, openMaps, refresh, showToast, lang])
+  }, [
+    newWorld,
+    openWorld,
+    openRecent,
+    closeWorld,
+    saveWorld,
+    openMaps,
+    refresh,
+    showToast,
+    toggleSidebar,
+    lang
+  ])
 
   // Global shortcuts: Ctrl+K palette, Ctrl+Z undo, Del, Alt+←/→ history.
   // Ctrl+N/O/S/Shift+S and F1 are NOT here — the menu owns those accelerators, and handling them
@@ -632,7 +662,28 @@ export default function App(): React.JSX.Element {
   return (
     <LangContext.Provider value={lang}>
       <div className="app">
-        <div className="sidebar">
+        {/* Collapsed: a thin rail with a ▸ button, so closing the sidebar is never a one-way
+            door even if the user forgets Ctrl+B / View ▸ Toggle Sidebar. */}
+        {!sidebarOpen && (
+          <button
+            className="sidebar-rail"
+            title={t('Show sidebar (Ctrl+B)')}
+            aria-label={t('Show sidebar (Ctrl+B)')}
+            onClick={toggleSidebar}
+          >
+            ▸
+          </button>
+        )}
+        {/* Hidden rather than unmounted: collapsing must not throw away the tree's collapsed
+            folders, scroll position or current search. */}
+        <div
+          className="sidebar"
+          style={{
+            width: sidebarW,
+            minWidth: sidebarW,
+            display: sidebarOpen ? undefined : 'none'
+          }}
+        >
           <input
             className="search"
             placeholder={t('Search…  (Ctrl+K)')}
@@ -715,6 +766,22 @@ export default function App(): React.JSX.Element {
             {t('⚙ Project Preferences')}
           </div>
         </div>
+        {sidebarOpen && (
+          <div
+            className="pane-resize"
+            title={t('Drag to resize')}
+            onMouseDown={(e) =>
+              startPaneResize(e, {
+                from: sidebarW,
+                edge: 'right', // handle on the panel's right: dragging right widens it
+                min: 180,
+                max: 520,
+                onMove: setSidebarW,
+                onDone: (w) => api.savePrefs({ sidebarWidth: w }) // persist once, not per pixel
+              })
+            }
+          />
+        )}
 
         <div className="main">
           {view.kind === 'empty' && (

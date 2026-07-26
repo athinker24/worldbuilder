@@ -124,10 +124,54 @@ h4 {
   height: 100%;
 }
 
+/* Shared drag handle for the docked panels (left sidebar, map inspector). Deliberately wider
+   than it looks: 5px is fiddly to grab, so the hit area is 7px and only the middle lights up. */
+.pane-resize {
+  width: 7px;
+  flex-shrink: 0;
+  cursor: ew-resize;
+  background: transparent;
+  position: relative;
+}
+
+.pane-resize::after {
+  content: '';
+  position: absolute;
+  inset: 0 3px;
+  background: transparent;
+  transition: background-color 0.1s;
+}
+
+.pane-resize:hover::after {
+  background: var(--accent);
+}
+
+/* Shown in place of the sidebar when it is collapsed — the way back in without the menu. */
+.sidebar-rail {
+  flex: 0 0 auto;
+  width: 18px;
+  padding: 0;
+  border: none;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg2);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sidebar-rail:hover {
+  background: var(--bg3);
+  color: var(--accent);
+}
+
 /* --- sidebar --- */
+/* Width comes from App's inline style (drag-resizable, remembered in prefs.json); these are the
+   fallback for the split second before prefs load. */
 .sidebar {
   width: 260px;
   min-width: 260px;
+  flex-shrink: 0;
   background: var(--bg2);
   border-right: 1px solid var(--border);
   display: flex;
@@ -1334,9 +1378,11 @@ kbd {
   filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 5px #000);
 }
 
+/* Width is set inline by MapView (drag-resizable, remembered in prefs.json). */
 .map-panel {
   width: 380px;
   min-width: 380px;
+  flex-shrink: 0;
   background: var(--bg2);
   border-left: 1px solid var(--border);
   overflow-y: auto;

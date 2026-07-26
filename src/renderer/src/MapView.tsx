@@ -45,6 +45,7 @@ import { alertDialog, confirmDialog } from './dialog'
 import { useT } from './i18n'
 import Timeline from './Timeline'
 import MapToolbar from './MapToolbar'
+import { startPaneResize } from './paneResize'
 import ToolPanel, {
   ARROW_LABELS,
   DASH_LABELS,
@@ -592,17 +593,33 @@ export default function MapView({
     setSelected(null)
     setExtraSel([])
   }
-  // The inspector is the only thing that still changes the map's width (380px flex sibling), and
-  // Leaflet reads its size once at creation — without this its _size stays stale and hit-testing
-  // drifts from what is drawn. rAF so the DOM has already reflowed; pan:false keeps the top-left
-  // anchored, so the extra width is revealed instead of the view jumping.
-  const inspectorOpen = selected !== null
+  // Inspector width: drag-resizable, remembered in userData/prefs.json like the sidebar.
+  const [panelW, setPanelW] = useState(380)
   useEffect(() => {
-    const id = requestAnimationFrame(() =>
-      mapRef.current?.invalidateSize({ animate: false, pan: false })
-    )
-    return () => cancelAnimationFrame(id)
-  }, [inspectorOpen])
+    api.getPrefs().then((p) => p.mapPanelWidth && setPanelW(p.mapPanelWidth))
+  }, [])
+
+  // Leaflet measures its container once at creation and is never told about anything that resizes
+  // it afterwards — the inspector opening, either panel being dragged, the sidebar collapsing.
+  // A ResizeObserver on the host covers all of them at once instead of an effect per cause.
+  // rAF because the observer fires mid-layout; pan:false keeps the top-left anchored so extra
+  // width is revealed rather than the view jumping.
+  useEffect(() => {
+    const host = divRef.current
+    if (!host) return
+    let frame = 0
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() =>
+        mapRef.current?.invalidateSize({ animate: false, pan: false })
+      )
+    })
+    ro.observe(host)
+    return () => {
+      cancelAnimationFrame(frame)
+      ro.disconnect()
+    }
+  }, [])
   const [allEntities, setAllEntities] = useState<EntityRow[]>([])
   // Person entities cannot be bound to the map (see EntityPage — they exist for family/dynasty fields)
   const personFolders = personFolderIds(folders) // people cannot be bound to the map
@@ -3695,7 +3712,23 @@ export default function MapView({
           )}
         </div>
         {selected && (
-          <div className="map-panel">
+          <div
+            className="pane-resize"
+            title={t('Drag to resize')}
+            onMouseDown={(e) =>
+              startPaneResize(e, {
+                from: panelW,
+                edge: 'left', // handle on the panel's left: dragging left widens it
+                min: 280,
+                max: 640,
+                onMove: setPanelW,
+                onDone: (w) => api.savePrefs({ mapPanelWidth: w })
+              })
+            }
+          />
+        )}
+        {selected && (
+          <div className="map-panel" style={{ width: panelW, minWidth: panelW }}>
             <div className="map-panel-head">
               <b>
                 {selIds.length > 1
