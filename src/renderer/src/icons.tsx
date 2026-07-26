@@ -54,6 +54,11 @@ export type IconName =
   | 'eye'
   | 'ruler'
   | 'palette'
+  | 'play'
+  | 'pause'
+  | 'rewind'
+  | 'forward'
+  | 'settings'
 
 // One `d` per icon. Circles are arc pairs: M{cx+r} {cy} a{r} {r} 0 1 1 {-2r} 0 …
 const PATHS: Record<IconName, string> = {
@@ -111,6 +116,14 @@ const PATHS: Record<IconName, string> = {
   eye: 'M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0M15 12a3 3 0 1 1-6 0 3 3 0 1 1 6 0',
   ruler:
     'M21.3 8.7L8.7 21.3a1 1 0 0 1-1.4 0l-4.6-4.6a1 1 0 0 1 0-1.4L15.3 2.7a1 1 0 0 1 1.4 0l4.6 4.6a1 1 0 0 1 0 1.4zM7.5 10.5l2 2M10.5 7.5l2 2M13.5 4.5l2 2M4.5 13.5l2 2',
+  // Playback: solid-looking triangles built from strokes so they keep the family's
+  // weight instead of reading as filled shapes among outlines.
+  play: 'M7 4.5v15l13-7.5z',
+  pause: 'M9 4v16M15 4v16',
+  rewind: 'M20 5v14l-9-7zM11 5v14l-9-7z',
+  forward: 'M4 5v14l9-7zM13 5v14l9-7z',
+  settings:
+    'M15 12a3 3 0 1 1-6 0 3 3 0 1 1 6 0M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.08A1.65 1.65 0 0 0 10 3.09V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
   palette:
     'M12 22a10 10 0 1 1 10-10 4 4 0 0 1-4 4h-1.5a2 2 0 0 0-1.5 3.3 2 2 0 0 1-1.5 3.3zM8 8.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M12 6.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M16.5 9.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0'
 }
@@ -122,16 +135,25 @@ interface Props {
   className?: string
   /** Decorative by default: the accessible name belongs on the button, not here. */
   title?: string
+  /** Playback transport glyphs read as hollow arrowheads at 13px; filling them
+      is a deliberate exception, not a property of how their path is written. */
+  filled?: boolean
 }
 
-export default function Icon({ name, size = 16, className, title }: Props): React.JSX.Element {
+export default function Icon({
+  name,
+  size = 16,
+  className,
+  title,
+  filled
+}: Props): React.JSX.Element {
   return (
     <svg
       className={className ? `icon ${className}` : 'icon'}
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
+      fill={filled ? 'currentColor' : 'none'}
       stroke="currentColor"
       // Scaled so a 20px icon does not look heavier than a 16px one.
       strokeWidth={(1.75 * 16) / size}

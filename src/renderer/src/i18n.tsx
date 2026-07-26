@@ -380,6 +380,7 @@ const TR: Record<string, string> = {
   'event name (no location)': 'olay adı (konumsuz)',
   year: 'yıl',
   '🕰 Time': '🕰 Zaman',
+  Time: 'Zaman',
 
   // Atlas.tsx ('📊 Atlas' iki dilde aynı)
   Year: 'Yıl',

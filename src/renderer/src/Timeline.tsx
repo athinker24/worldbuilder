@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { autoColor, formatYear, getTimeline, saveTimeline, TimelineConfig } from './api'
+import Icon from './icons'
 import { useT } from './i18n'
 
 interface Props {
@@ -145,7 +146,9 @@ export default function Timeline({
   if (!open)
     return (
       <button className="timeline-toggle" onClick={() => setOpen(true)}>
-        {t('🕰 Time')}
+        <>
+          <Icon name="clock" size={13} /> {t('Time')}
+        </>
       </button>
     )
 
@@ -175,7 +178,7 @@ export default function Timeline({
             title={playing ? t('Pause') : t('Play')}
             onClick={() => (playing ? stopPlay() : startPlay())}
           >
-            {playing ? '⏸' : '▶'}
+            <Icon name={playing ? 'pause' : 'play'} size={13} filled={!playing} />
           </button>
           <button
             className="mini"
@@ -214,7 +217,7 @@ export default function Timeline({
             onMouseUp={endHold}
             onMouseLeave={endHold}
           >
-            ⏪
+            <Icon name="rewind" size={13} filled />
           </button>
           {editingYear ? (
             <input
@@ -245,7 +248,7 @@ export default function Timeline({
             onMouseUp={endHold}
             onMouseLeave={endHold}
           >
-            ⏩
+            <Icon name="forward" size={13} filled />
           </button>
           <button
             className="mini step-jump"
@@ -272,7 +275,7 @@ export default function Timeline({
             title={t('Calendar settings')}
             onClick={() => setCfgOpen(!cfgOpen)}
           >
-            ⚙
+            <Icon name="settings" size={13} />
           </button>
           <button
             className="mini"
@@ -340,7 +343,7 @@ export default function Timeline({
         <div className="timeline-today">
           {todayEvents.map((e, i) => (
             <button className="tag-chip clickable" key={i} onClick={() => jumpEvent(e)}>
-              📅 {e.name}
+              <Icon name="calendar" size={12} /> {e.name}
             </button>
           ))}
         </div>
@@ -436,7 +439,8 @@ export default function Timeline({
           {cfg.events.map((e, i) => (
             <div className="field-row" key={`ev-${i}`}>
               <span className="side-label">
-                📅 {e.name} ({formatYear(e.year, cfg)}){e.fid !== undefined ? ' 📍' : ''}
+                <Icon name="calendar" size={12} /> {e.name} ({formatYear(e.year, cfg)})
+                {e.fid !== undefined && <Icon name="map-pin" size={11} />}
               </span>
               {e.fid !== undefined && (
                 <button className="mini" title={t('Show on map')} onClick={() => jumpEvent(e)}>
