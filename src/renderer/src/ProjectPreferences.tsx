@@ -94,7 +94,7 @@ export default function ProjectPreferences(): React.JSX.Element {
   return (
     <div className="page">
       <div className="page-head">
-        <h2>{t('Project Preferences')}</h2>
+        <h2 className="page-title">{t('Project Preferences')}</h2>
       </div>
 
       <h2>{t('Hierarchy Ranks')}</h2>

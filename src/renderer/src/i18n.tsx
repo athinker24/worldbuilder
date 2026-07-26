@@ -43,6 +43,7 @@ const TR: Record<string, string> = {
   'Auto-saved': 'Otomatik kaydedildi',
   // Kısayol yardımı (Shortcuts.tsx)
   '⌨ Shortcuts': '⌨ Kısayollar',
+  Shortcuts: 'Kısayollar',
   General: 'Genel',
   'Map — selection': 'Harita — seçim',
   'Map — copy': 'Harita — kopyalama',

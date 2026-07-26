@@ -65,7 +65,7 @@ export default function Shortcuts(): React.JSX.Element {
   const t = useT()
   return (
     <div className="page">
-      <h2>{t('⌨ Shortcuts')}</h2>
+      <h2 className="page-title">{t('Shortcuts')}</h2>
       {GROUPS.map((g) => (
         <div key={g.title}>
           <h4>{t(g.title)}</h4>

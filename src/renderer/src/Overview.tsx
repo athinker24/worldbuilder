@@ -41,7 +41,7 @@ export default function Overview({
     <>
       <div className="overview-head">
         <div className="page-head">
-          <h2>{t('Overview')}</h2>
+          <h2 className="page-title">{t('Overview')}</h2>
         </div>
         {/* Real tabs, not chips. A chip is DATA; these are navigation, and rendering
             them identically was the main reason nothing in the app distinguished a
