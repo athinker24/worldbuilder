@@ -261,6 +261,12 @@ export default function EntityPage({
     return saveFields(f)
   }
 
+  // A new tab opens in edit mode — you added it to write in it.
+  const addNoteTab = (): void => {
+    setNoteEdit((prev) => new Set(prev).add(notes.length))
+    saveNoteTabs([...notes, { title: t('New note'), content: '', collapsed: false }])
+  }
+
   const toggleNoteEdit = (i: number): void =>
     setNoteEdit((prev) => {
       const next = new Set(prev)
@@ -1292,24 +1298,29 @@ export default function EntityPage({
       <div
         className="notes-region"
         onContextMenu={(e) => {
+          // Not while the pointer is in an editor or a rendered note: a textarea's own
+          // menu (copy, paste, spelling) is worth more there than a shortcut that now
+          // has a visible button.
+          if ((e.target as HTMLElement).closest('.note-body, .note-body-edit')) return
           e.preventDefault()
           e.stopPropagation()
           setMenu({
             x: e.clientX,
             y: e.clientY,
-            items: [
-              {
-                label: t('New tab'),
-                onClick: () => {
-                  setNoteEdit((prev) => new Set(prev).add(notes.length)) // a new tab opens in edit mode
-                  saveNoteTabs([...notes, { title: t('New note'), content: '', collapsed: false }])
-                }
-              }
-            ]
+            items: [{ icon: 'file-text', label: t('New tab'), onClick: addNoteTab }]
           })
         }}
       >
-        {notes.length === 0 && <p className="hint">{t('Right click → new tab for long notes.')}</p>}
+        {/* Right-click was the ONLY way to add a note, on a target that shrinks to a
+            sliver once a long note is open — so the action was effectively hidden.
+            The header states it; right-click stays as the shortcut. */}
+        <div className="notes-head">
+          <h4>{t('Notes')}</h4>
+          <IconButton icon="plus" label={t('New note tab')} small onClick={addNoteTab} />
+        </div>
+        {notes.length === 0 && (
+          <p className="hint">{t('Long notes live in their own tabs — add one with ＋.')}</p>
+        )}
         {notes.map((n, i) => (
           <div className="note-tab" key={i}>
             <div className="note-head">

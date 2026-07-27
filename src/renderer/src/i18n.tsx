@@ -4,6 +4,9 @@ import { Lang } from './api'
 // English is the canonical text used directly in JSX (t('Some Text')); this dictionary
 // only needs to hold the Turkish alternative. Missing keys fall back to the English text.
 const TR: Record<string, string> = {
+  'New note tab': 'Yeni not sekmesi',
+  'Long notes live in their own tabs — add one with ＋.':
+    'Uzun notlar kendi sekmelerinde yaşar — ＋ ile ekle.',
   // "Fields" named the storage; these are the user's own structured properties.
   Attributes: 'Özellikler',
   'new attribute': 'yeni özellik',

@@ -1005,6 +1005,19 @@ kbd {
 /* --- sancak (banner) --- */
 /* Visible, clickable placeholder when no banner exists — discoverability. */
 /* --- note tabs --- */
+.notes-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-1);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.notes-head h4 {
+  flex: 1;
+  margin: 0;
+}
+
 .notes-region {
   margin-top: 12px;
   min-height: 28px; /* keep an area that can be right-clicked when there are no notes */
