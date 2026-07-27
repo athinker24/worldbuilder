@@ -122,30 +122,47 @@
 
 /* Light theme: the SAME role ordering, re-derived — not hand-tuned per token.
    That is what fixes the old inversion, where --bg0 (the map void) was darker
-   than --bg2 and so became the darkest thing on a light screen. */
+   than --bg2 and so became the darkest thing on a light screen.
+
+   The ramp was re-derived a second time because it was too bright, and the
+   measurement says why: every surface used to sit between L* 85 and 100, four
+   of the five above 93, with pure white on top and so no headroom left. The
+   steps collapsed to +2.9 and +1.9 where the dark theme has +3.8 and +5.0, so
+   panel, raised panel and popover were nearly the same tone and only shadows
+   told them apart. Lowering the floor to L* 78 and spacing the steps at ~4
+   both dims the screen and gives elevation somewhere to go; float stays white.
+   Scaled in LINEAR light so each token keeps its own teal tint rather than
+   drifting grey. Dark text loses contrast against lower surfaces, so the text,
+   danger and accent tokens below are re-derived with it — see their notes. */
 [data-theme='light'] {
   color-scheme: light;
   --gold: #a8761c;
-  --surface-canvas: #ccd7d8;
-  --surface-sunken: #e7edee;
-  --surface: #eef2f2;
-  --surface-raised: #f8fafa;
+  --surface-canvas: #b8c3c3;
+  --surface-sunken: #d5dbdc;
+  --surface: #e2e6e6;
+  --surface-raised: #f1f3f3;
   --surface-float: #ffffff;
   --surface-hover: rgba(15, 40, 40, 0.055);
   --surface-active: rgba(15, 40, 40, 0.09);
   --control: rgba(15, 40, 40, 0.045);
   --control-hover: rgba(15, 40, 40, 0.085);
 
+  /* Contrast against the new --surface (#e2e6e6): text 13.1:1, muted 5.6:1.
+     faint was 4.41 after the surfaces dropped — under the 4.5 floor — so it is
+     darkened just enough to clear it at 4.6:1. */
   --text: #16211f;
   --text-muted: #495c5a;
-  --text-faint: #5a6c6a;
+  --text-faint: #576967;
 
-  --accent: #0d9488;
-  --accent-soft: rgba(13, 148, 136, 0.13);
-  --accent-strong: #0d9488;
+  /* Also re-derived against #e2e6e6: accent had fallen to 2.98:1, below the 3.0
+     non-text floor it needs as an icon and selection colour, and danger to 3.99.
+     Now 3.33:1 and 4.51:1 — where they were before the ramp moved. */
+  --accent: #0c8b80;
+  --accent-soft: rgba(12, 139, 128, 0.13);
+  --accent-strong: #0c8b80;
   --accent-contrast: #ffffff;
-  --danger: #c4404b;
-  --danger-soft: rgba(196, 64, 75, 0.13);
+  --danger: #b63b45;
+  --danger-soft: rgba(182, 59, 69, 0.13);
   --male: #3c6cb4;
   --female: #b85583;
 
