@@ -9,6 +9,7 @@ import {
   inferGenders,
   TimelineConfig
 } from './api'
+import Icon from './icons'
 import { useT } from './i18n'
 
 // Dynasty tree (CK3 house-tree style): no separate data structure — derived from the
@@ -160,26 +161,30 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
           className={`tree-portrait placeholder ${g === 'M' ? 'male' : g === 'F' ? 'female' : ''}`}
           hidden={!!info?.banner}
         >
-          👤
+          <Icon name="user" size={22} />
         </span>
         <span className="tree-card-text">
           <span className="tree-card-name">
             {g && <span className="gender-badge">{g === 'M' ? '♂' : '♀'}</span>}
-            {ruled && <span className="ruler-badge">👑</span>}
+            {ruled && (
+              <span className="ruler-badge">
+                <Icon name="crown" size={11} />
+              </span>
+            )}
             {names.get(pid) ?? `#${pid}`}
           </span>
           {sub && <span className="tree-card-sub">{sub}</span>}
         </span>
         <button
           className="mini"
-          title={t('📖 Open entity')}
+          title={t('Open entity')}
           onClick={(e) => {
             e.stopPropagation()
             onClose()
             onOpenEntity(pid)
           }}
         >
-          📖
+          <Icon name="file-text" size={13} />
         </button>
       </span>
     )
@@ -221,7 +226,7 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
       <div className="tree-panel" onMouseDown={(e) => e.stopPropagation()}>
         <div className="tree-head">
           <b>
-            🌳 {t('Family tree')} — {names.get(centerId) ?? ''}
+            <Icon name="family-tree" size={15} /> {t('Family tree')} — {names.get(centerId) ?? ''}
           </b>
           <button className="mini" onClick={onClose}>
             ×

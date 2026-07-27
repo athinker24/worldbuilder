@@ -529,7 +529,9 @@ export default function App(): React.JSX.Element {
         {
           // People live in folders now (the old "Person" entity type): family/dynasty pickers
           // only suggest articles from these, and they cannot be bound to the map.
-          label: folder.isPerson ? t('👤 Person folder ✓') : t('👤 Person folder'),
+          // The icon carries the on/off state, so the label stays one stable key.
+          icon: folder.isPerson ? 'check' : 'user',
+          label: t('Person folder'),
           onClick: () =>
             writeFolders(
               folders.map((f) => (f.id === folder.id ? { ...f, isPerson: !f.isPerson } : f))
@@ -726,7 +728,7 @@ export default function App(): React.JSX.Element {
             {selected.size > 0 && (
               <div className="bulk-bar">
                 <button className="mini danger" onClick={deleteSelected}>
-                  🗑 {t('Delete selected ({n})', { n: selected.size })}
+                  <Icon name="trash" size={12} /> {t('Delete selected ({n})', { n: selected.size })}
                 </button>
                 <button className="mini" onClick={() => setSelected(new Set())}>
                   {t('Clear')}
@@ -829,7 +831,9 @@ export default function App(): React.JSX.Element {
                 <>
                   <div className="start-actions">
                     <button onClick={newWorld}>{t('＋ New world')}</button>
-                    <button onClick={openWorld}>{t('📂 Open…')}</button>
+                    <button onClick={openWorld}>
+                      <Icon name="folder" size={14} /> {t('Open…')}
+                    </button>
                   </div>
                   <h4>{t('Recent')}</h4>
                   {recent.length === 0 ? (
@@ -861,7 +865,7 @@ export default function App(): React.JSX.Element {
                   )}
                 </>
               )}
-              <p>{t('Pick an entity or 🗺 Maps from the left, or search with Ctrl+K.')}</p>
+              <p>{t('Pick an entity or a map from the left, or search with Ctrl+K.')}</p>
             </div>
           )}
           {view.kind === 'entity' && (

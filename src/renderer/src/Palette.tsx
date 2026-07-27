@@ -55,7 +55,7 @@ export default function Palette({
       .map((m) => ({
         key: `m${m.id}`,
         label: m.name,
-        badge: t('🗺 map'),
+        badge: t('map'),
         color: 'var(--muted)',
         open: () => onOpenMap(m.id)
       }))
@@ -84,7 +84,7 @@ export default function Palette({
     if (query.trim() && !exact) {
       list.push({
         key: 'new',
-        label: `➕ ${t('Create new entity named "{query}"', { query: query.trim() })}`,
+        label: t('Create new entity named "{query}"', { query: query.trim() }),
         badge: '',
         color: 'transparent',
         open: async () => {

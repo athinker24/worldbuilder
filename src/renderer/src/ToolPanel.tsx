@@ -3,6 +3,7 @@ import { PinImage } from './api'
 import ColorPicker from './ColorPicker'
 import { IconName } from './icons'
 import { ImageStrip } from './pinIcons'
+import Icon from './icons'
 import { useT } from './i18n'
 
 export type Tool =
@@ -565,7 +566,7 @@ export default function ToolPanel({
             )}
             {/* Method B: measure a known distance on the map */}
             <button className="mini" onClick={onCalibrate}>
-              📏 {t('Measure known distance…')}
+              <Icon name="ruler" size={12} /> {t('Measure known distance…')}
             </button>
             {scale && (
               <p className="hint">
@@ -581,13 +582,13 @@ export default function ToolPanel({
                 className={`mini ${measuring === 'dist' ? 'active' : ''}`}
                 onClick={() => onMeasure('dist')}
               >
-                📏 {t('Distance')}
+                <Icon name="ruler" size={12} /> {t('Distance')}
               </button>
               <button
                 className={`mini ${measuring === 'area' ? 'active' : ''}`}
                 onClick={() => onMeasure('area')}
               >
-                📐 {t('Area')}
+                <Icon name="polygon" size={12} /> {t('Area')}
               </button>
             </div>
             <p className="hint">
@@ -646,7 +647,7 @@ export default function ToolPanel({
                 className={`mini ${navStep && navStep !== 'result' ? 'active' : ''}`}
                 onClick={navStep ? onNavEnd : onNavStart}
               >
-                🧭 {navStep ? t('Clear') : t('Pick two pins')}
+                <Icon name="map" size={12} /> {navStep ? t('Clear') : t('Pick two pins')}
               </button>
               {navResult &&
                 (() => {

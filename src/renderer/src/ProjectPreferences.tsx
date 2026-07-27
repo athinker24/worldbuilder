@@ -14,6 +14,7 @@ import {
   saveTemplates
 } from './api'
 import { confirmDialog } from './dialog'
+import Icon from './icons'
 import { useT } from './i18n'
 import { IconButton, Section } from './ui'
 
@@ -246,7 +247,7 @@ export default function ProjectPreferences(): React.JSX.Element {
         <div className="hier-tags">
           {modes.dims.map((d) => (
             <span className="tag-chip" key={d}>
-              🎨 {d}
+              <Icon name="palette" size={12} /> {d}
               <button
                 className="tag-x"
                 onClick={() => updateModes({ ...modes, dims: modes.dims.filter((x) => x !== d) })}
@@ -289,7 +290,7 @@ export default function ProjectPreferences(): React.JSX.Element {
               key={x.name}
               onClick={() => setActiveTpl(x.name)}
             >
-              📋 {x.name}
+              <Icon name="template" size={12} /> {x.name}
               <button
                 className="tag-x"
                 title={t('Delete')}

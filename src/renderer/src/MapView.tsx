@@ -1852,7 +1852,8 @@ export default function MapView({
               onClick: () => onOpenEntity(f.entity_id!)
             })
           items.push({
-            label: f.entity_id ? t('🔍 Show in panel') : t('🔗 Link to entity…'),
+            icon: f.entity_id ? 'search' : 'link',
+            label: f.entity_id ? t('Show in panel') : t('Link to entity…'),
             onClick: () => setSelected(f)
           })
           // Edit and Move are MODIFYING actions on an existing drawing, so they live here rather
@@ -3133,7 +3134,19 @@ export default function MapView({
                   }}
                 >
                   <span className="layers-icon">
-                    {{ polygon: '⬟', line: '〰', pin: '📍', label: '🏷' }[kind]}
+                    <Icon
+                      name={
+                        (
+                          {
+                            polygon: 'polygon',
+                            line: 'path',
+                            pin: 'map-pin',
+                            label: 'label'
+                          } as const
+                        )[kind]
+                      }
+                      size={14}
+                    />
                   </span>
                   <span className="layers-text">
                     <span className="layers-name">{name}</span>
@@ -3191,7 +3204,9 @@ export default function MapView({
                       style={{ paddingLeft: m.parent_map_id ? 26 : undefined }}
                       onClick={() => m.id !== id && onNavigate(m.id)}
                     >
-                      <span className="layers-icon">🗺</span>
+                      <span className="layers-icon">
+                        <Icon name="map" size={14} />
+                      </span>
                       <span
                         className="layers-name"
                         style={
@@ -3205,7 +3220,7 @@ export default function MapView({
                         title={t('Rename')}
                         onClick={(e) => (e.stopPropagation(), setEditMapId(m.id))}
                       >
-                        ✎
+                        <Icon name="pencil" size={12} />
                       </button>
                       {m.id !== id && (
                         <button
@@ -3233,7 +3248,7 @@ export default function MapView({
                       onKeyDown={(e) => e.key === 'Escape' && setNewMapName(null)}
                     />
                     <button className="mini" type="submit">
-                      ✓
+                      <Icon name="check" size={12} />
                     </button>
                   </form>
                 ) : (
@@ -3334,7 +3349,7 @@ export default function MapView({
                         title={t('Rename')}
                         onClick={(e) => (e.stopPropagation(), setEditBoardId(b.id))}
                       >
-                        ✎
+                        <Icon name="pencil" size={12} />
                       </button>
                       <button
                         className="mini danger map-row-btn"
@@ -3360,7 +3375,7 @@ export default function MapView({
                       onKeyDown={(e) => e.key === 'Escape' && setNewBoardName(null)}
                     />
                     <button className="mini" type="submit">
-                      ✓
+                      <Icon name="check" size={12} />
                     </button>
                   </form>
                 ) : (
@@ -3388,15 +3403,17 @@ export default function MapView({
                 <div className="layers-panel-head">{t('Show on map')}</div>
                 {(
                   [
-                    ['polygon', '⬟', t('Polygons'), t('State / region borders')],
-                    ['line', '〰', t('Paths'), t('Roads, routes, rivers')],
-                    ['pin', '📍', t('Pins'), t('Markers on the map')],
-                    ['label', '🏷', t('Labels'), t('Names on polygons and free text')]
+                    ['polygon', 'polygon', t('Polygons'), t('State / region borders')],
+                    ['line', 'path', t('Paths'), t('Roads, routes, rivers')],
+                    ['pin', 'map-pin', t('Pins'), t('Markers on the map')],
+                    ['label', 'label', t('Labels'), t('Names on polygons and free text')]
                   ] as const
                 ).map(([k, icon, label, desc]) => (
                   <label key={k} className="layers-row">
                     <input type="checkbox" checked={layersOn[k]} onChange={() => toggleLayer(k)} />
-                    <span className="layers-icon">{icon}</span>
+                    <span className="layers-icon">
+                      <Icon name={icon} size={14} />
+                    </span>
                     <span className="layers-text">
                       <span className="layers-name">{label}</span>
                       <span className="layers-desc">{desc}</span>

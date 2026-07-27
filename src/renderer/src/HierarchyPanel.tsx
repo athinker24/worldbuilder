@@ -11,6 +11,7 @@ import {
   saveMapModes
 } from './api'
 import ColorPicker from './ColorPicker'
+import Icon from './icons'
 import { useT } from './i18n'
 
 // The map's active mode: rank (paint base polygons by their ancestor at that rank — the CK3
@@ -58,7 +59,7 @@ export default function HierarchyPanel({
   if (!open)
     return (
       <button className="hier-toggle" onClick={() => setOpen(true)}>
-        🏛 {t('Hierarchy')}
+        <Icon name="landmark" size={14} /> {t('Hierarchy')}
       </button>
     )
 
@@ -157,7 +158,7 @@ export default function HierarchyPanel({
               className={`tag-chip clickable ${paintDim === d ? 'active' : ''}`}
               onClick={() => onMode(d === paintDim ? null : { kind: 'paint', key: d })}
             >
-              🎨 {d}
+              <Icon name="palette" size={12} /> {d}
             </button>
           ))}
         </div>
@@ -165,7 +166,7 @@ export default function HierarchyPanel({
       {rungTag && (
         <>
           <button className="tag-chip clickable" onClick={onConquest}>
-            ⚔ {t('Conquest')}
+            <Icon name="conquest" size={12} /> {t('Conquest')}
           </button>
           <div className="hier-list">
             {list.map((e) => (
@@ -185,7 +186,7 @@ export default function HierarchyPanel({
                     onLocate(e.id)
                   }}
                 >
-                  📍
+                  <Icon name="map-pin" size={13} />
                 </button>
               </div>
             ))}

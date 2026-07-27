@@ -38,6 +38,7 @@ export type IconName =
   | 'map-pin'
   | 'crown'
   | 'users'
+  | 'user'
   | 'family-tree'
   | 'link'
   | 'unlink'
@@ -60,6 +61,7 @@ export type IconName =
   | 'forward'
   | 'settings'
   | 'conquest'
+  | 'check'
 
 // One `d` per icon. Circles are arc pairs: M{cx+r} {cy} a{r} {r} 0 1 1 {-2r} 0 …
 const PATHS: Record<IconName, string> = {
@@ -89,6 +91,7 @@ const PATHS: Record<IconName, string> = {
   'map-pin':
     'M20 10c0 5-6.4 10.7-7.4 11.5a1 1 0 0 1-1.2 0C10.4 20.7 4 15 4 10a8 8 0 0 1 16 0M15 10a3 3 0 1 1-6 0 3 3 0 1 1 6 0',
   crown: 'M2.5 6.5L7 10l5-6.5L17 10l4.5-3.5L19 18H5zM5 21h14',
+  user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 1 1 8 0',
   users:
     'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M13 7a4 4 0 1 1-8 0 4 4 0 1 1 8 0M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
   // Custom: a lineage, not a generic org chart — one root branching to two heirs.
@@ -128,6 +131,7 @@ const PATHS: Record<IconName, string> = {
   // Custom: crossed blades — conquest is this app's own concept.
   conquest:
     'M14.5 17.5L3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2M14.5 6.5L18 3h3v3l-3.5 3.5M9 11L5 15M8 16l-4 4M5 21l-2-2',
+  check: 'M20 6L9 17l-5-5',
   palette:
     'M12 22a10 10 0 1 1 10-10 4 4 0 0 1-4 4h-1.5a2 2 0 0 0-1.5 3.3 2 2 0 0 1-1.5 3.3zM8 8.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M12 6.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M16.5 9.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0'
 }
