@@ -3395,6 +3395,24 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
+/* The warm accent needs a home where it colours a WHOLE category rather than a
+   few members of one — that is what made the tinted section headings read as
+   arbitrary. Map history is exactly that: every chip in it is world content
+   (where this thing sat, and when), so all of them take it, together. */
+.tag-chip.chip-warm {
+  border-color: color-mix(in srgb, var(--accent-warm) 45%, transparent);
+  background: var(--accent-warm-soft);
+  color: var(--accent-warm);
+}
+
+.tag-chip.chip-warm:hover {
+  border-color: var(--accent-warm);
+}
+
+.tag-chip.chip-warm .rail-year {
+  color: color-mix(in srgb, var(--accent-warm) 70%, transparent);
+}
+
 /* A relation is a DIRECTED statement, so each item leads with its direction, names
    the relation quietly and gives the entity the weight. Outgoing points away in the
    accent; incoming and mentions point back, muted — one shape, three meanings. */
@@ -3452,10 +3470,6 @@ a {
 /* Teal is the application talking; the warm accent is the WORLD's own content —
    reigns, eras, year marks, templates. Applied here so the split is visible rather
    than merely declared in the token block. */
-.section.warm .section-head .icon {
-  color: var(--accent-warm);
-}
-
 .timeline-year {
   color: var(--accent-warm);
 }

@@ -787,7 +787,7 @@ export default function EntityPage({
       )}
 
       {!isPerson && (
-        <Section title={t('Rulers')} icon="crown" tone="warm">
+        <Section title={t('Rulers')} icon="crown">
           {rulers.map((r, i) => (
             <Row
               key={i}
@@ -849,7 +849,7 @@ export default function EntityPage({
       )}
 
       {!isPerson && (
-        <Section title={t('Ruling house')} icon="users" tone="warm" defaultOpen={houses.length > 0}>
+        <Section title={t('Ruling house')} icon="users" defaultOpen={houses.length > 0}>
           {houses.map((r, i) => (
             <Row
               key={i}
@@ -912,7 +912,7 @@ export default function EntityPage({
       {/* On a person the ruler relation is DERIVED (entered on the realm), so it
           is read-only here — the inverse of fields.ruler. */}
       {isPerson && rules.length > 0 && (
-        <Section title={t('Rules')} icon="crown" tone="warm">
+        <Section title={t('Rules')} icon="crown">
           {rules.map((r, i) => (
             <Row key={i} label={r.from === null ? t('start') : String(r.from)}>
               <a
@@ -1129,7 +1129,7 @@ export default function EntityPage({
       {/* The OHM chronology pattern: where this entity is drawn, and when.
           Needs a host that can actually navigate to a map. */}
       {onLocateFeature && feats.length > 0 && (
-        <Section title={t('Map history')} icon="map-pin" tone="warm">
+        <Section title={t('Map history')} icon="map-pin">
           <div className="chrono-list">
             {feats.map((f) => {
               const s = JSON.parse(f.style || '{}') as { from?: number; to?: number }
@@ -1139,7 +1139,7 @@ export default function EntityPage({
                   : `${s.from ?? '…'} – ${s.to ?? '…'}`
               return (
                 <button
-                  className="tag-chip clickable"
+                  className="tag-chip clickable chip-warm"
                   key={f.id}
                   title={t('Show on map')}
                   onClick={() => onLocateFeature(f.map_id, f.id)}

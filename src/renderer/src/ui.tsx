@@ -12,9 +12,6 @@ interface SectionProps {
       reading preference for right now, not a property of the world. */
   defaultOpen?: boolean
   action?: React.ReactNode
-  /** 'warm' marks a section about the WORLD's own content — reigns, eras, where
-      a thing sat on the map — as opposed to the application talking. */
-  tone?: 'warm'
   children: React.ReactNode
 }
 
@@ -25,12 +22,11 @@ export function Section({
   icon,
   defaultOpen = true,
   action,
-  tone,
   children
 }: SectionProps): React.JSX.Element {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className={`section ${open ? 'open' : ''} ${tone ?? ''}`}>
+    <div className={`section ${open ? 'open' : ''}`}>
       <button className="section-head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <Icon name="chevron-right" size={12} className="section-caret" />
         {icon && <Icon name={icon} size={13} />}
