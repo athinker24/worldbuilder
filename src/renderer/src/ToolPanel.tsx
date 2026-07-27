@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { PinImage } from './api'
 import ColorPicker from './ColorPicker'
 import Icon, { IconName } from './icons'
-import { ImageStrip } from './pinIcons'
+import { ImageStrip, PinShape, PinShapePicker } from './pinIcons'
 import Select from './Select'
 import { useT } from './i18n'
 
@@ -43,6 +43,7 @@ export interface DrawSettings {
   marker: {
     size: number
     color: string
+    shape?: PinShape
     img?: string
     imgFree?: boolean
     imgAR?: number
@@ -377,6 +378,19 @@ export default function ToolPanel({
                   value={settings.marker.color}
                   onChange={(color) =>
                     onSettings({ ...settings, marker: { ...settings.marker, color } })
+                  }
+                />
+              </>
+            )}
+            {/* A custom image replaces the mark entirely, so the shape row is pointless then */}
+            {!settings.marker.img && (
+              <>
+                <label>{t('Shape')}</label>
+                <PinShapePicker
+                  shape={settings.marker.shape}
+                  color={settings.marker.color}
+                  onPick={(shape) =>
+                    onSettings({ ...settings, marker: { ...settings.marker, shape } })
                   }
                 />
               </>

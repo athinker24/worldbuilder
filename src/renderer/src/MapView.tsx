@@ -38,7 +38,7 @@ import {
 } from './api'
 import ColorPicker from './ColorPicker'
 import ContextMenu, { MenuItem, MenuState } from './ContextMenu'
-import { ImageStrip } from './pinIcons'
+import { ImageStrip, PinShape, PinShapePicker, pinShapeBody } from './pinIcons'
 import EntityPage from './EntityPage'
 import HierarchyPanel, { ActiveMode } from './HierarchyPanel'
 import { alertDialog, confirmDialog } from './dialog'
@@ -186,6 +186,7 @@ interface FeatureStyle {
   fillOpacity?: number
   weight?: number
   size?: number
+  shape?: PinShape // pin mark from the abstract set; absent = disc (pinIcons)
   font?: string
   childMapId?: number
   from?: number // year range the feature exists in (timeline); empty = always
@@ -266,6 +267,7 @@ const PIN_DEFAULT_COLOR = '#c0603a'
 const pinDivIcon = (m: {
   size?: number
   color?: string
+  shape?: PinShape
   img?: string
   imgFree?: boolean
   imgAR?: number
@@ -284,11 +286,17 @@ const pinDivIcon = (m: {
       iconAnchor: [0, 0]
     })
   }
-  // With an image it is clipped to a circle inside the badge; else a plain colored badge (the glyph set was removed)
-  const inner = m.img ? `<img class="pin-badge-img" src="${escapeHtml(assetUrl(m.img))}">` : ''
+  // With an image it is clipped to a circle inside the badge; without one it is a shape from
+  // the abstract set (see pinIcons). The svg is 100%×100% of the icon box, which the zoom hot
+  // path already resizes — so shapes scale with zoom for free, no branch added there.
+  // Only `color` is interpolated, and it is escaped: the shape bodies are static markup.
+  const html = m.img
+    ? `<div class="pin-badge" style="background:${escapeHtml(color)}">` +
+      `<img class="pin-badge-img" src="${escapeHtml(assetUrl(m.img))}"></div>`
+    : `<svg class="pin-shape" viewBox="0 0 24 24" style="color:${escapeHtml(color)}">${pinShapeBody(m.shape)}</svg>`
   return L.divIcon({
     className: 'pin-marker',
-    html: `<div class="pin-badge" style="background:${escapeHtml(color)}">${inner}</div>`,
+    html,
     iconSize: [w, w],
     iconAnchor: [w / 2, w / 2],
     tooltipAnchor: [0, -w / 2]
@@ -4084,6 +4092,17 @@ export default function MapView({
                         <ColorPicker
                           value={selStyle.color ?? '#c0603a'}
                           onChange={(color) => editSelectedStyle({ color })}
+                        />
+                      </>
+                    )}
+                    {/* A custom image replaces the mark entirely, so the shape row is pointless then */}
+                    {!selStyle.img && (
+                      <>
+                        <label>{t('Shape')}</label>
+                        <PinShapePicker
+                          shape={selStyle.shape}
+                          color={selStyle.color ?? '#c0603a'}
+                          onPick={(shape) => editSelectedStyle({ shape })}
                         />
                       </>
                     )}
