@@ -143,23 +143,6 @@ const stockSimplify = (L.Polyline.prototype as unknown as Simplifiable)._simplif
   this.options.smoothFactor = tol
 }
 
-// 3. Stroke width. Leaflet strokes are screen-fixed, so a road drawn to look right up close
-//    became a continent-wide band when zoomed out — while labels and pins, which this app
-//    deliberately scales with the map, shrank away beside it. A road has a real width in the
-//    world, so weight is treated as map units: the pane carries the zoom scale in --mz (ONE
-//    property write per frame, the same trick the free labels use for --lz) and each path
-//    publishes its own base weight as --w, so the CSS multiplies them. Writing --w here rather
-//    than at each call site covers polygons, lines, curve overlays and highlights alike.
-type Styleable = { _path?: SVGElement; options: { weight?: number } }
-const stockUpdateStyle = (L.Path.prototype as unknown as { _updateStyle(): void })._updateStyle
-;(L.Path.prototype as unknown as { _updateStyle(): void })._updateStyle = function (
-  this: Styleable & { _updateStyle(): void }
-): void {
-  stockUpdateStyle.call(this)
-  if (this._path && this.options.weight !== undefined)
-    this._path.style.setProperty('--w', String(this.options.weight))
-}
-
 // Shape of the Feature.style JSON (all optional — old records fall back to defaults)
 interface FeatureStyle {
   color?: string
@@ -1281,15 +1264,6 @@ export default function MapView({
       const el = (m as unknown as { _icon?: HTMLElement })._icon
       if (el) el.style.setProperty('--lz', String(scale)) // base is baked; see labelDivIcon
     }
-    // Stroke widths (see patch 3): one property on the pane, inherited by every path, instead
-    // of a setStyle per feature per frame. Relative to the fit view, so a weight of 3 means
-    // 3px at 100%.
-    const pane = map.getPane('overlayPane')
-    if (pane)
-      pane.style.setProperty(
-        '--mz',
-        String(2 ** (map.getZoom() - (Number.isFinite(mapFitZoom) ? mapFitZoom : 0)))
-      )
     // the open label preview (the hint marker is outside the featureGroup too) — scale it on zoom
     if (toolRef.current === 'label') styleHintLabel(scale)
   }
@@ -2974,7 +2948,7 @@ export default function MapView({
       map.fitBounds(bounds)
       const fit = map.getBoundsZoom(bounds)
       setFitZoom(fit)
-      mapFitZoom = fit // read by the LOD fade and the stroke scale (both module scope)
+      mapFitZoom = fit // read by the LOD fade (module scope)
       // Prevent escaping into ugly grey space beyond the image: pan bounded, no zooming out past fit
       map.options.maxBoundsViscosity = 1
       map.setMaxBounds(L.latLngBounds(bounds).pad(0.5))
