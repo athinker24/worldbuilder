@@ -3496,6 +3496,9 @@ a {
    becoming a band when you zoom out. Same reasoning that already scales labels and pins.
    The floor keeps a hairline visible at the smallest zooms.
 
+   Polygons opt out by setting --mz: 1 on their own path (see the patch), because a border
+   is a pen stroke, not a thing on the ground — it stays screen-fixed like on a paper map.
+
    non-scaling-stroke matters here too: Leaflet transforms the whole container while a
    zoom animates (Renderer._updateTransform), which would otherwise scale the stroke a
    SECOND time on top of --mz. */

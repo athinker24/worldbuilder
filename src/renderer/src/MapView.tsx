@@ -154,14 +154,22 @@ const stockSimplify = (L.Polyline.prototype as unknown as Simplifiable)._simplif
 //    The anchor is zoom 0 (1 map pixel = 1 screen pixel), NOT the fit view. Anchoring at fit was
 //    tried and reverted: fit is a negative zoom for any image larger than the viewport, so it
 //    inflated every stroke by 1/2**fit — two to three times too thick on a normal map.
+//    POLYGONS ARE EXEMPT, and the distinction is cartographic rather than technical: a road has
+//    a real width on the ground, so it belongs to the terrain and scales with it. A border has
+//    none — it is a pen stroke describing where one thing stops, and on paper maps it is drawn
+//    at a constant width whatever the scale. Scaling it just made outlines swallow the land they
+//    were describing. Setting --mz on the polygon's own path shadows the pane's value (custom
+//    properties inherit), so the exemption costs one line and no second code path.
 type Styleable = { _path?: SVGElement; options: { weight?: number } }
 const stockUpdateStyle = (L.Path.prototype as unknown as { _updateStyle(): void })._updateStyle
 ;(L.Path.prototype as unknown as { _updateStyle(): void })._updateStyle = function (
   this: Styleable & { _updateStyle(): void }
 ): void {
   stockUpdateStyle.call(this)
-  if (this._path && this.options.weight !== undefined)
+  if (this._path && this.options.weight !== undefined) {
     this._path.style.setProperty('--w', String(this.options.weight))
+    if (this instanceof L.Polygon) this._path.style.setProperty('--mz', '1')
+  }
 }
 
 // Shape of the Feature.style JSON (all optional — old records fall back to defaults)
