@@ -403,7 +403,9 @@ h4 {
   font-size: 10px;
 }
 /* the folder's color swatch (replaces the old entity-type color) */
-.folder-color {
+/* Both classes are on the same button, so this must out-specify .cp-trigger's --h-md
+   sizing — that rule sits later in the file and would otherwise win the tie. */
+.cp-trigger.folder-color {
   width: 12px;
   height: 12px;
 }
