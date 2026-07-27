@@ -1668,6 +1668,11 @@ input[type='color'],
   min-height: 0;
 }
 
+option {
+  background-color: var(--surface-float);
+  color: var(--text);
+}
+
 button {
   cursor: pointer;
   display: inline-flex;
@@ -2022,23 +2027,34 @@ a {
 }
 
 /* --- hierarchy (CK3-style bottom-right panel) --- */
-.hier-toggle {
+.hier-toggle,
+.timeline-toggle {
   position: absolute;
-  right: 12px;
-  bottom: 16px;
   z-index: 1500;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+  background: var(--surface-float);
+  border-color: transparent;
   border-radius: 16px;
   box-shadow: var(--shadow-2);
 }
 
+.hier-toggle:hover,
+.timeline-toggle:hover {
+  background: var(--surface-float);
+  border-color: transparent;
+  color: var(--accent);
+}
+
+.hier-toggle {
+  right: 12px;
+  bottom: 16px;
+}
+
 .timeline-toggle {
-  position: absolute;
   left: 50%;
   transform: translateX(-50%);
   top: 12px;
-  z-index: 1500;
-  border-radius: 16px;
-  box-shadow: var(--shadow-2);
 }
 
 /* width, not max-width: content width would shrink to the buttons and leave no room for the rail.
