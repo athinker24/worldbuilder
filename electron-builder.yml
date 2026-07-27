@@ -11,7 +11,7 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   # Dev notes never ship to users: a detailed map of the internals + every security
   # mitigation, i.e. a ready-made roadmap for an attacker. (README.md is excluded above.)
-  - '!{CLAUDE.md,DURUM.md}'
+  - '!{CLAUDE.md,DURUM.md,HANDOFF.md,AGENTS.md,TANITIM.md}'
 asarUnpack:
   - resources/**
 win:
