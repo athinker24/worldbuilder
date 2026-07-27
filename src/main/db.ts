@@ -205,11 +205,59 @@ function probeWorldFile(sourcePath: string): void {
     probe.prepare(`SELECT 1 FROM entities LIMIT 1`).get()
     probe.prepare(`SELECT 1 FROM maps LIMIT 1`).get()
     probe.prepare(`SELECT 1 FROM features LIMIT 1`).get()
+    // …and they must be real TABLES. A file can name a VIEW `entities`, which reads like a table
+    // and passes the queries above, then refuses every write later — an open that half-succeeds
+    // and leaves the app wedged. packWorld never produces one, so this only rejects files that
+    // lie about their shape.
+    const real = probe
+      .prepare(
+        `SELECT COUNT(*) AS n FROM sqlite_master
+         WHERE type = 'table' AND name IN ('entities', 'maps', 'features')`
+      )
+      .get() as { n: number }
+    if (real.n !== 3) throw new Error(NOT_A_WORLD)
   } catch {
     throw new Error(NOT_A_WORLD)
   } finally {
     probe?.close()
   }
+}
+
+/** Our five tables. Anything else a .dunya carries is not part of the format. */
+const OUR_TABLES = new Set(['entities', 'links', 'maps', 'features', 'settings'])
+
+/** Drop everything a .dunya carries that is not our schema.
+ *
+ *  A database file holds more than rows. A TRIGGER on entities rides along with the data and
+ *  then fires against the USER's own edits from that point on — "after every insert, delete
+ *  something else" is sabotage of the world they are building, and it survives every save
+ *  because packWorld copies the whole database. Triggers cannot execute code, they are SQL
+ *  only, so this is integrity rather than escape; but the file model treats a shared .dunya as
+ *  hostile input, and none of this belongs to the format. packWorld only ever emits our tables
+ *  plus `assets`, so nothing legitimate is lost.
+ *
+ *  sqlite_% is skipped: those are SQLite's own internal objects (autoindexes) and cannot be
+ *  dropped. Names are quoted and doubled — a table can be called `"; DROP …`. */
+function dropForeignSchema(): void {
+  const q = (name: string): string => `"${name.replaceAll('"', '""')}"`
+  for (const r of db
+    .prepare(
+      `SELECT type, name FROM sqlite_master
+       WHERE type IN ('trigger', 'view', 'index') AND name NOT LIKE 'sqlite_%'`
+    )
+    .all() as { type: string; name: string }[])
+    db.exec(
+      `DROP ${r.type === 'trigger' ? 'TRIGGER' : r.type === 'view' ? 'VIEW' : 'INDEX'} ${q(r.name)}`
+    )
+}
+
+/** Stray TABLES, dropped after the assets table has been consumed (it is a real part of the
+ *  file format while unpacking, and only becomes stray once its images are on disk). */
+function dropForeignTables(): void {
+  for (const r of db
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
+    .all() as { name: string }[])
+    if (!OUR_TABLES.has(r.name)) db.exec(`DROP TABLE "${r.name.replaceAll('"', '""')}"`)
 }
 
 /** Open a .dunya file OVER the working copy (the current working copy is overwritten —
@@ -225,6 +273,7 @@ export function unpackWorld(sourcePath: string): void {
   try {
     copyFileSync(sourcePath, dbFile)
     db = new DatabaseSync(dbFile)
+    dropForeignSchema() // BEFORE the schema exec, so a dropped view leaves room for the real table
     db.exec(SCHEMA)
   } catch (err) {
     copyFileSync(rescue, dbFile)
@@ -250,6 +299,7 @@ export function unpackWorld(sourcePath: string): void {
     }
     db.exec(`DROP TABLE assets`) // keep the working copy lean (the images live on disk)
   }
+  dropForeignTables() // assets is consumed by here, so anything left over is not ours
   repairImportedJson() // reset malformed JSON columns to defaults (rationale below)
   migrateLegacyKeys() // so old .dunya files (with Turkish keys) still open
   api.setSetting('worldFile', sourcePath)
@@ -1246,6 +1296,43 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     sd.close()
     assert.throws(() => unpackWorld(stray), /NOT_A_WORLD/, 'a foreign database must be refused')
     assert.equal((api.listEntities() as unknown[]).length, before, 'the open world must survive')
+    // A file that names a VIEW `entities` reads like a world and passes every SELECT, then
+    // refuses writes — it must be caught at the gate, not half-opened.
+    const viewy = join(dir, 'viewy.dunya')
+    copyFileSync(dunya, viewy)
+    const vd = new DatabaseSync(viewy)
+    vd.exec(`ALTER TABLE entities RENAME TO real_ents`)
+    vd.exec(`CREATE VIEW entities AS SELECT * FROM real_ents`)
+    vd.close()
+    assert.throws(() => unpackWorld(viewy), /NOT_A_WORLD/, 'a view standing in for a table')
+  }
+  // A .dunya carries more than rows. A TRIGGER rides along and then fires against the USER's own
+  // edits from then on — 'after every insert, rename everything' is sabotage that survives every
+  // save. None of this is part of the format, so it must not reach the working copy.
+  {
+    const rigged = join(dir, 'rigged.dunya')
+    copyFileSync(dunya, rigged)
+    const rg = new DatabaseSync(rigged)
+    rg.exec(
+      `CREATE TRIGGER sabotage AFTER INSERT ON entities BEGIN UPDATE entities SET name = 'OWNED'; END`
+    )
+    rg.exec(`CREATE VIEW sneak AS SELECT * FROM entities`)
+    rg.exec(`CREATE INDEX foreign_idx ON entities(name)`)
+    rg.exec(`CREATE TABLE backdoor (x TEXT)`)
+    rg.close()
+    unpackWorld(rigged)
+    const left = db
+      .prepare(`SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`)
+      .all() as { type: string; name: string }[]
+    assert.ok(
+      left.every((r) => r.type === 'table' && OUR_TABLES.has(r.name)),
+      'only our tables may survive an open: ' + JSON.stringify(left)
+    )
+    api.createEntity({ name: 'After The Trigger' })
+    assert.ok(
+      !(api.listEntities() as { name: string }[]).some((e) => e.name === 'OWNED'),
+      'a planted trigger must not fire on the user later'
+    )
   }
   // Blank launch: content is detected; after reset both db and assets are empty
   assert.ok(hasContent())
