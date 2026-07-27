@@ -3475,3 +3475,18 @@ a {
   flex-direction: column;
   padding: 0 var(--sp-3) var(--sp-2);
 }
+
+/* Stroke width as a MAP measurement, not a screen one. --w is each path's own weight
+   (written by the _updateStyle patch in MapView) and --mz is the zoom scale carried by
+   the pane; multiplying them keeps a road's width relative to the terrain instead of
+   letting it become a continent-wide band when you zoom out — the same reasoning that
+   already scales labels and pins with the map. The floor keeps a hairline visible at
+   the smallest zooms.
+
+   non-scaling-stroke matters here too: Leaflet transforms the whole container while a
+   zoom animates (Renderer._updateTransform), which would otherwise scale the stroke a
+   SECOND time on top of --mz. */
+.leaflet-overlay-pane path {
+  stroke-width: max(0.75px, calc(var(--w, 3) * var(--mz, 1) * 1px));
+  vector-effect: non-scaling-stroke;
+}
