@@ -3489,14 +3489,17 @@ a {
   padding: 0 var(--sp-3) var(--sp-2);
 }
 
-/* Stroke width stays a SCREEN measurement: a weight of 3 is 3px at every zoom, which is
-   what the drawing tools promise and what Leaflet already does. Scaling it with the map
-   was tried and reverted — a border tuned at working zoom turned into a band.
+/* Stroke width as a MAP measurement, not a screen one. --w is each path's own weight
+   (written by the _updateStyle patch in MapView) and --mz is the zoom scale carried by
+   the pane, anchored at zoom 0 — so a weight of 3 is 3 MAP pixels, the same unit the
+   geometry is stored in, and a road keeps its width relative to the terrain instead of
+   becoming a band when you zoom out. Same reasoning that already scales labels and pins.
+   The floor keeps a hairline visible at the smallest zooms.
 
-   non-scaling-stroke is the actual fix for the wobble: Leaflet scales the whole container
-   while a zoom animates (Renderer._updateTransform), which drags the stroke with it.
-   Opting the stroke out of that transform holds the width steady through the animation.
-   Width itself comes from Leaflet's own stroke-width attribute — do not set it here. */
+   non-scaling-stroke matters here too: Leaflet transforms the whole container while a
+   zoom animates (Renderer._updateTransform), which would otherwise scale the stroke a
+   SECOND time on top of --mz. */
 .leaflet-overlay-pane path {
+  stroke-width: max(0.75px, calc(var(--w, 3) * var(--mz, 1) * 1px));
   vector-effect: non-scaling-stroke;
 }

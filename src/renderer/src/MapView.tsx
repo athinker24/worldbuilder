@@ -143,6 +143,27 @@ const stockSimplify = (L.Polyline.prototype as unknown as Simplifiable)._simplif
   this.options.smoothFactor = tol
 }
 
+// 3. Stroke width. Leaflet strokes are screen-fixed, so a road held its pixel width while the
+//    terrain under it grew and shrank — a thread when zoomed in, a continent-wide band when
+//    zoomed out, while the labels and pins beside it scale with the map by design. A road has a
+//    real width in the world, so weight is read as MAP PIXELS, the same unit the geometry is in:
+//    the pane carries the zoom scale in --mz (ONE property write per frame, the trick the free
+//    labels use for --lz) and each path publishes its own weight as --w, so the CSS multiplies
+//    them. Writing --w here rather than at each call site covers polygons, lines, curve overlays
+//    and highlights alike.
+//    The anchor is zoom 0 (1 map pixel = 1 screen pixel), NOT the fit view. Anchoring at fit was
+//    tried and reverted: fit is a negative zoom for any image larger than the viewport, so it
+//    inflated every stroke by 1/2**fit — two to three times too thick on a normal map.
+type Styleable = { _path?: SVGElement; options: { weight?: number } }
+const stockUpdateStyle = (L.Path.prototype as unknown as { _updateStyle(): void })._updateStyle
+;(L.Path.prototype as unknown as { _updateStyle(): void })._updateStyle = function (
+  this: Styleable & { _updateStyle(): void }
+): void {
+  stockUpdateStyle.call(this)
+  if (this._path && this.options.weight !== undefined)
+    this._path.style.setProperty('--w', String(this.options.weight))
+}
+
 // Shape of the Feature.style JSON (all optional — old records fall back to defaults)
 interface FeatureStyle {
   color?: string
@@ -1264,6 +1285,11 @@ export default function MapView({
       const el = (m as unknown as { _icon?: HTMLElement })._icon
       if (el) el.style.setProperty('--lz', String(scale)) // base is baked; see labelDivIcon
     }
+    // Stroke widths (see patch 3): one property on the pane, inherited by every path, instead
+    // of a setStyle per feature per frame. Anchored at zoom 0, so a weight of 3 means 3 MAP
+    // pixels — the unit the geometry itself is in.
+    const pane = map.getPane('overlayPane')
+    if (pane) pane.style.setProperty('--mz', String(2 ** map.getZoom()))
     // the open label preview (the hint marker is outside the featureGroup too) — scale it on zoom
     if (toolRef.current === 'label') styleHintLabel(scale)
   }
