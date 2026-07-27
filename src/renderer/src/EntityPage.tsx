@@ -1139,7 +1139,7 @@ export default function EntityPage({
                   : `${s.from ?? '…'} – ${s.to ?? '…'}`
               return (
                 <button
-                  className="tag-chip clickable chip-warm"
+                  className="tag-chip clickable"
                   key={f.id}
                   title={t('Show on map')}
                   onClick={() => onLocateFeature(f.map_id, f.id)}

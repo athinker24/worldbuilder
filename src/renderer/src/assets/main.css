@@ -43,8 +43,8 @@
 
   /* --- text --- */
   --text: #dde5e5;
-  --text-muted: #93a3a2; /* secondary text, labels */
-  --text-faint: #6d7c7b; /* section headings, disabled */
+  --text-muted: #a6b4b3; /* secondary text, labels */
+  --text-faint: #879695; /* section headings, disabled */
 
   /* --- accents ---
      Teal = the APPLICATION talking (selection, active, focus, interaction).
@@ -55,8 +55,6 @@
   --accent-soft: rgba(62, 196, 173, 0.14); /* active/selected backgrounds */
   --accent-strong: #3ec4ad; /* the one high-emphasis fill per view */
   --accent-contrast: #08201c; /* text ON --accent-strong */
-  --accent-warm: #c2a468;
-  --accent-warm-soft: rgba(194, 164, 104, 0.15);
   --danger: #e06c75;
   --danger-soft: rgba(224, 108, 117, 0.14);
   --male: #5b8fd6;
@@ -117,7 +115,7 @@
   --bg3: var(--control);
   --muted: var(--text-muted);
   --border: var(--border-strong);
-  --gold: var(--accent-warm);
+  --gold: #d9a441; /* ruler mark + active measurement — predates the redesign */
   --tint-1: rgba(255, 255, 255, 0.03);
   --tint-2: rgba(255, 255, 255, 0.07);
 }
@@ -127,6 +125,7 @@
    than --bg2 and so became the darkest thing on a light screen. */
 [data-theme='light'] {
   color-scheme: light;
+  --gold: #a8761c;
   --surface-canvas: #ccd7d8;
   --surface-sunken: #e7edee;
   --surface: #eef2f2;
@@ -138,15 +137,13 @@
   --control-hover: rgba(15, 40, 40, 0.085);
 
   --text: #16211f;
-  --text-muted: #536664;
-  --text-faint: #778886;
+  --text-muted: #495c5a;
+  --text-faint: #5a6c6a;
 
   --accent: #0d9488;
   --accent-soft: rgba(13, 148, 136, 0.13);
   --accent-strong: #0d9488;
   --accent-contrast: #ffffff;
-  --accent-warm: #8a6c35;
-  --accent-warm-soft: rgba(138, 108, 53, 0.14);
   --danger: #c4404b;
   --danger-soft: rgba(196, 64, 75, 0.13);
   --male: #3c6cb4;
@@ -215,7 +212,7 @@ h3 {
 h4 {
   font-size: var(--fs-1);
   font-weight: 600;
-  color: var(--text-faint);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -1728,6 +1725,7 @@ button {
   align-items: center;
   justify-content: center;
   gap: var(--sp-1);
+  white-space: nowrap;
 }
 
 button:hover {
@@ -2226,13 +2224,11 @@ a {
   margin: 0;
 }
 
-/* The year rail is the map's primary control — give it a slightly larger thumb
-   and the warm accent, since the year belongs to the world, not the application. */
+/* The year rail is the map's primary control, so its thumb is a size up. */
 .timeline-rail input[type='range']::-webkit-slider-thumb {
   width: 16px;
   height: 16px;
   margin-top: -6px;
-  background: var(--accent-warm);
   border-color: var(--surface-float);
 }
 
@@ -3033,7 +3029,7 @@ a {
   border: none;
   border-radius: 0;
   min-height: 0;
-  color: var(--text-faint);
+  color: var(--text-muted);
   font-size: var(--fs-1);
   font-weight: 600;
   text-transform: uppercase;
@@ -3395,24 +3391,6 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
-/* The warm accent needs a home where it colours a WHOLE category rather than a
-   few members of one — that is what made the tinted section headings read as
-   arbitrary. Map history is exactly that: every chip in it is world content
-   (where this thing sat, and when), so all of them take it, together. */
-.tag-chip.chip-warm {
-  border-color: color-mix(in srgb, var(--accent-warm) 45%, transparent);
-  background: var(--accent-warm-soft);
-  color: var(--accent-warm);
-}
-
-.tag-chip.chip-warm:hover {
-  border-color: var(--accent-warm);
-}
-
-.tag-chip.chip-warm .rail-year {
-  color: color-mix(in srgb, var(--accent-warm) 70%, transparent);
-}
-
 /* A relation is a DIRECTED statement, so each item leads with its direction, names
    the relation quietly and gives the entity the weight. Outgoing points away in the
    accent; incoming and mentions point back, muted — one shape, three meanings. */
@@ -3470,23 +3448,6 @@ a {
 /* Teal is the application talking; the warm accent is the WORLD's own content —
    reigns, eras, year marks, templates. Applied here so the split is visible rather
    than merely declared in the token block. */
-.timeline-year {
-  color: var(--accent-warm);
-}
-
-.timeline-period {
-  color: var(--accent-warm);
-  opacity: 0.9;
-}
-
-.tree-chip.ruler {
-  border-color: var(--accent-warm);
-}
-
-.ruler-badge {
-  color: var(--accent-warm);
-}
-
 /* --- inspector header: identity + the continuity gesture back to the page --- */
 .inspector-head {
   position: sticky;
