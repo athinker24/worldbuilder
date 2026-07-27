@@ -194,7 +194,8 @@ export default function ColorPicker({ value, onChange }: Props): React.JSX.Eleme
                 spellCheck={false}
               />
             </div>
-            {/* The two strips must be tellable apart: presets = squares + label, recent = circles */}
+            {/* The two strips are told apart by their labels; they used to differ in shape too,
+                which was one distinction too many once every chip took the control radius. */}
             <div className="cp-strip-label">{t('Presets')}</div>
             <div className="cp-recent">
               {PRESETS.map((c) => (
@@ -216,7 +217,7 @@ export default function ColorPicker({ value, onChange }: Props): React.JSX.Eleme
                     <button
                       key={c}
                       type="button"
-                      className="cp-recent-sw round"
+                      className="cp-recent-sw"
                       style={{ background: c }}
                       title={c}
                       onClick={() => applyHex(c)}

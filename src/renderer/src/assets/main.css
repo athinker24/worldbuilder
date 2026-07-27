@@ -404,14 +404,19 @@ h4 {
 }
 /* the folder's color swatch (replaces the old entity-type color) */
 .folder-color {
-  flex: 0 0 auto;
   width: 12px;
   height: 12px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 3px;
   background: none;
   cursor: pointer;
+}
+/* Chromium pads the swatch inside a colour input and draws its own grey border, which at
+   this size left a speck of colour in a box. Strip both and let the fill reach our frame. */
+.folder-color::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.folder-color::-webkit-color-swatch {
+  border: none;
+  border-radius: calc(var(--r-s) - 1px);
 }
 .folder-rename {
   flex: 1;
@@ -1954,13 +1959,39 @@ a {
 }
 
 /* --- color picker --- */
-.cp-trigger {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
+/* Colour chips — one treatment for every swatch in the app. They were three different
+   shapes before (round trigger, round popup swatch, square presets, a 3px folder chip),
+   which made the same control read as four unrelated things. They are controls, so they
+   take the control radius and the control border like every input and button; only the
+   size varies with where they sit. The fill is user data, so the border must hold against
+   both white and black — hence --border rather than the subtle hairline. */
+.cp-trigger,
+.cp-swatch,
+.cp-recent-sw,
+.folder-color {
   padding: 0;
   flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+}
+
+.cp-trigger:hover,
+.cp-recent-sw:hover,
+.folder-color:hover {
+  border-color: var(--text-faint);
+}
+
+.cp-trigger:focus-visible,
+.cp-recent-sw:focus-visible,
+.folder-color:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Sits in rows beside inputs and selects, so it matches their height. */
+.cp-trigger {
+  width: var(--h-md);
+  height: var(--h-md);
 }
 
 .color-popup-overlay {
@@ -2036,12 +2067,10 @@ a {
   gap: 8px;
 }
 
+/* Popup head: pairs with the hex field beside it. */
 .cp-swatch {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  flex-shrink: 0;
+  width: var(--h-md);
+  height: var(--h-md);
 }
 
 .cp-hex {
@@ -2064,19 +2093,12 @@ a {
 .cp-recent-sw {
   width: 18px;
   height: 18px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
   cursor: pointer;
 }
 /* Selected preset color: outer ring that does not cover the swatch color. */
 .cp-recent-sw.active {
   border-color: var(--text);
   box-shadow: 0 0 0 2px var(--accent-soft);
-}
-/* Recent colors are CIRCLES, visually distinct from square preset colors. */
-.cp-recent-sw.round {
-  border-radius: 50%;
 }
 .cp-strip-label {
   font-size: 10px;
