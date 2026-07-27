@@ -738,14 +738,35 @@ export const api = {
     }[]
     const maps = db.prepare(`SELECT id, name FROM maps`).all() as { id: number; name: string }[]
     const feats = db
-      .prepare(`SELECT DISTINCT map_id, entity_id FROM features WHERE entity_id IS NOT NULL`)
-      .all() as { map_id: number; entity_id: number }[]
+      .prepare(`SELECT map_id, entity_id, style FROM features WHERE entity_id IS NOT NULL`)
+      .all() as { map_id: number; entity_id: number; style: string }[]
 
     const mapName = new Map(maps.map((m) => [m.id, m.name]))
-    const entMaps = new Map<number, Set<number>>() // entity id → ids of maps it is drawn on
+    // entity id → map id → the board ids it is drawn on within that map (null = untagged).
+    // Mirrors the sidebar's two grouping tiers, so the .txt tree reads like the panel.
+    const entMaps = new Map<number, Map<number, Set<string | null>>>()
     for (const f of feats) {
-      if (!entMaps.has(f.entity_id)) entMaps.set(f.entity_id, new Set())
-      entMaps.get(f.entity_id)!.add(f.map_id)
+      let byMap = entMaps.get(f.entity_id)
+      if (!byMap) entMaps.set(f.entity_id, (byMap = new Map()))
+      let boards = byMap.get(f.map_id)
+      if (!boards) byMap.set(f.map_id, (boards = new Set()))
+      try {
+        boards.add((JSON.parse(f.style || '{}') as { board?: string }).board ?? null)
+      } catch {
+        boards.add(null)
+      }
+    }
+    // Board definitions per map (settings 'mapBoards'), for the level between map and folders.
+    const boardsOf = new Map<number, { id: string; name: string }[]>()
+    try {
+      const parsed = JSON.parse(api.getSetting('mapBoards') || '{}') as Record<
+        string,
+        { list?: { id: string; name: string }[] }
+      >
+      for (const [mid, v] of Object.entries(parsed))
+        if (Array.isArray(v?.list) && v.list.length) boardsOf.set(Number(mid), v.list)
+    } catch {
+      /* malformed setting → no board level, the tree just skips it */
     }
     const parseNotes = (fields: string): { title: string; content: string }[] => {
       try {
@@ -807,15 +828,31 @@ export const api = {
     for (const ent of ents) {
       const notes = parseNotes(ent.fields)
       if (!notes.length) continue
-      const mids = entMaps.get(ent.id)
-      const mapFolders =
-        mids && mids.size
-          ? [...mids].map((mid) => safe(mapName.get(mid) ?? '', `map-${mid}`))
-          : ['(no map)']
+      // The levels above the folder tree: <map>, plus <board> when that map has boards at all.
+      // A map without boards gets no board level, exactly as the sidebar shows no board tier
+      // for it; an orphan or missing board id falls to the first board (MapView's resolveBoard).
+      const byMap = entMaps.get(ent.id)
+      const placeDirs: string[][] = []
+      for (const [mid, boardIds] of byMap ?? []) {
+        const mSeg = safe(mapName.get(mid) ?? '', `map-${mid}`)
+        const list = boardsOf.get(mid)
+        if (!list) {
+          placeDirs.push([mSeg])
+          continue
+        }
+        const done = new Set<string>()
+        for (const b of boardIds) {
+          const def = list.find((x) => x.id === b) ?? list[0]
+          if (done.has(def.id)) continue
+          done.add(def.id)
+          placeDirs.push([mSeg, safe(def.name, 'board')])
+        }
+      }
+      if (!placeDirs.length) placeDirs.push(['(no map)'])
       const fPath = folderPath(folderOf(ent.fields))
-      for (const mf of mapFolders) {
+      for (const place of placeDirs) {
         // On a name clash in the same folder, disambiguate with the entity id
-        let entDir = join(notesDir, mf, ...fPath, safe(ent.name, `entity-${ent.id}`))
+        let entDir = join(notesDir, ...place, ...fPath, safe(ent.name, `entity-${ent.id}`))
         if (existsSync(entDir)) entDir += ` (#${ent.id})`
         mkdirSync(entDir, { recursive: true })
         const used = new Set<string>()
@@ -930,6 +967,28 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     existsSync(join(dir, 'notes', '(no map)', '(no folder)', 'Test Dynasty', 'Wars.txt')),
     'a mapless, folderless entity must land under (no map)/(no folder)'
   )
+  // Boards become a level between map and folders — but ONLY for maps that have boards, which
+  // is why the assertions above (a boardless map) keep passing unchanged.
+  {
+    api.setSetting(
+      'mapBoards',
+      JSON.stringify({ [m.id]: { list: [{ id: 'b1', name: 'Borders' }], active: 'b1' } })
+    )
+    const e2 = api.exportNotes()
+    assert.equal(e2.files, 2) // same notes, deeper tree
+    assert.ok(
+      existsSync(
+        join(dir, 'notes', 'World', 'Borders', 'Realms', 'States', 'Test State', 'Founding.txt')
+      ),
+      'a board must sit between the map and the folder tree'
+    )
+    // The feature carries no board id, so it resolved to the first board rather than vanishing
+    assert.ok(
+      !existsSync(join(dir, 'notes', 'World', 'Realms')),
+      'the board level must not be skipped'
+    )
+    api.setSetting('mapBoards', '{}') // restore: later checks share this fixture
+  }
   // safe(): the Windows device name CON cannot be a folder → _CON; control chars become _.
   // Without these, exportNotes would blow up on Windows with EPERM or a wrong target.
   {
