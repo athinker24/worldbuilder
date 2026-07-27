@@ -107,10 +107,22 @@ markerProto.update = function (this: Positionable): L.Marker {
 //    re-runs on every re-projection, so the surviving vertex set kept changing: the outline
 //    morphed on 174 of 199 swept frames, each change moving the border by up to `smoothFactor`
 //    pixels. Invisible inside one realm (neighbours share a colour), glaring in rank/paint view
-//    where every boundary is a colour edge. Scaling the tolerance by 2^(z - round(z)) makes it
-//    constant in MAP units within a zoom level, so the shape is frozen while zooming and only
-//    re-simplifies when crossing a whole zoom: 2 of 199 frames, with BORDER_SMOOTH's LOD intact.
+//    where every boundary is a colour edge. Quantising the zoom before scaling the tolerance makes
+//    it constant in MAP units inside each step, so the shape is frozen while zooming and only
+//    re-simplifies when crossing a step boundary — with BORDER_SMOOTH's LOD intact.
 //    Only works together with (1) — alone, the rounding noise flips borderline vertices anyway.
+//
+//    LOD_STEPS is the whole trade, measured over the same 199-frame sweep:
+//      1 (whole zooms)   4/199 frames, tolerance jumps x2.00 at each boundary
+//      2 (half)          8/199         x1.41
+//      4 (quarter)      16/199         x1.19   <- here
+//      8 (eighth)       32/199         x1.09
+//    Whole zooms re-simplify least, but halving the detail level in a single frame IS the visible
+//    stepping. Quarter steps cut each jump to about 19% for four times the re-simplifications,
+//    still an order of magnitude below the 174 that made borders shimmer. Frequent small
+//    corrections read as smooth; rare large ones read as a glitch. Go to 8 if any step still
+//    shows — it costs 32/199, which is a long way from where this started.
+const LOD_STEPS = 4
 type Simplifiable = { _simplifyPoints(): void; _map?: L.Map; options: { smoothFactor?: number } }
 const stockSimplify = (L.Polyline.prototype as unknown as Simplifiable)._simplifyPoints
 ;(L.Polyline.prototype as unknown as Simplifiable)._simplifyPoints = function (
@@ -119,7 +131,8 @@ const stockSimplify = (L.Polyline.prototype as unknown as Simplifiable)._simplif
   const zoom = this._map?.getZoom()
   const tol = this.options.smoothFactor
   if (zoom === undefined || !tol) return stockSimplify.call(this)
-  this.options.smoothFactor = tol * 2 ** (zoom - Math.round(zoom))
+  const step = Math.round(zoom * LOD_STEPS) / LOD_STEPS
+  this.options.smoothFactor = tol * 2 ** (zoom - step)
   stockSimplify.call(this)
   this.options.smoothFactor = tol
 }
@@ -200,7 +213,10 @@ const PIN_BASE = 28
 // pixel-space Douglas–Peucker) drops vertices when zoomed out and restores full detail when zoomed
 // in — cutting the SVG path-string rebuilt every wheel-zoom frame. Display-only: geoman editing and
 // the weld read the real latlngs, not this render simplification. Raise to trade fidelity for speed.
-const BORDER_SMOOTH = 2.5
+// Lowered from 2.5: with LOD_STEPS quantising the zoom, what remains visible at a step boundary is
+// the tolerance itself, since that is how far a dropped vertex can pull the outline. 1.6px keeps
+// most of the vertex saving while putting the largest possible jump under two pixels.
+const BORDER_SMOOTH = 1.6
 const PIN_DEFAULT_COLOR = '#c0603a'
 // Three looks: (1) free custom image — no badge, aspect kept (transparent PNG symbols);
 // (2) custom image inside the badge — clipped to a circle (crest/portrait); (3) plain badge.
