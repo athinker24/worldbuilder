@@ -185,7 +185,7 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
   )
 
   return (
-    <div className="page">
+    <div className="page wide">
       {/* No <h2> — Overview's tab bar already names this view. */}
       <div className="page-head">
         {tl && year !== null && (
@@ -224,14 +224,21 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
               {!unit && ` (${t('no scale set — use the Scale tool on the map')})`}
             </span>
           </h3>
-          <h4>{t('Realms')}</h4>
-          {barList(realms, total, unit)}
-          {dims.map(({ dim, rows }) => (
-            <div key={dim}>
-              <h4>{dim}</h4>
-              {barList(rows, total, unit)}
-            </div>
-          ))}
+          {/* Realms and each map-mode dimension side by side rather than stacked: the extra
+              width buys comparisons you can make at a glance, which is what an atlas is for.
+              Columns reflow to one when the window is narrow. */}
+          <div className="atlas-cols">
+            <section className="atlas-col">
+              <h4>{t('Realms')}</h4>
+              {barList(realms, total, unit)}
+            </section>
+            {dims.map(({ dim, rows }) => (
+              <section className="atlas-col" key={dim}>
+                <h4>{dim}</h4>
+                {barList(rows, total, unit)}
+              </section>
+            ))}
+          </div>
         </div>
       ))}
     </div>

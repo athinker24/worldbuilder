@@ -76,7 +76,7 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
   const relColor = (rel: string): string => autoColor(rel || '—')
 
   return (
-    <div className="page">
+    <div className="page wide">
       {/* No <h2> — Overview's tab bar already names this view ("Relations"). */}
       {web.nodes.length === 0 && (
         <EmptyState

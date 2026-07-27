@@ -652,12 +652,27 @@ h4 {
   flex-direction: column;
 }
 
+/* A chronology reads down, so width must not become line length: the text keeps a
+   readable measure and the era moves out into a right-hand column of its own. What the
+   page gains from the width is a scannable table — year, event, era — instead of one
+   long ragged line. */
 .kron-row {
   display: grid;
-  grid-template-columns: 90px 12px 1fr;
+  grid-template-columns: 110px 12px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 6px 4px;
+}
+
+.kron-text {
+  max-width: 90ch;
+}
+
+/* Right-hand column now, not a tail on the sentence. */
+.kron-period {
+  color: var(--text-faint);
+  white-space: nowrap;
+  text-align: right;
 }
 
 .kron-row + .kron-row {
@@ -687,9 +702,7 @@ h4 {
 }
 
 .kron-period {
-  margin-left: 8px;
   font-size: 11px;
-  color: var(--muted);
 }
 
 /* --- Atlas --- */
@@ -724,9 +737,26 @@ h4 {
   letter-spacing: 0.5px;
 }
 
+/* Each map's breakdowns as columns. auto-fit collapses to one column below ~340px of
+   available width, so the page still works narrow. align-items:start keeps a short list
+   from stretching to a tall neighbour's height. */
+.atlas-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 4px 28px;
+  align-items: start;
+}
+
+.atlas-col {
+  min-width: 0; /* grid items default to min-content: without this long names force overflow */
+}
+
+/* Fluid, because the row now lives inside a column of unknown width rather than a fixed
+   900px page. The name gets a share that can shrink, the bar takes the rest, the number
+   sizes to its own content. */
 .atlas-row {
   display: grid;
-  grid-template-columns: 180px 1fr 170px;
+  grid-template-columns: minmax(0, 8fr) minmax(40px, 9fr) auto;
   align-items: center;
   gap: 10px;
   padding: 2px 0;
@@ -793,9 +823,13 @@ h4 {
   opacity: 0.35;
 }
 
+/* The web is a circle, so it wants the largest SQUARE that fits — growing it wider than
+   tall would only add empty margins left and right. Bounded by the viewport height so the
+   diagram never runs off the bottom, and centred in whatever width is left over. */
 .diplo-svg {
   width: 100%;
-  max-width: 760px;
+  max-width: min(100%, calc(100vh - 210px));
+  margin-inline: auto;
   display: block;
 }
 
@@ -1003,6 +1037,14 @@ kbd {
   max-width: none;
 }
 
+/* Data views, not prose. The 900px cap above is a MEASURE cap — right for reading pages
+   like Preferences and Shortcuts, wrong for charts, tables and diagrams, which were being
+   squeezed into half the window. Each of the three Overview pages carries this and then
+   lays its own content out for the width it gets. */
+.page.wide {
+  max-width: none;
+}
+
 .page-head {
   display: flex;
   gap: 8px;
@@ -1015,7 +1057,6 @@ kbd {
    .page scrolling and no .page ends up nested inside another. Padding matches .page's. */
 .overview-head {
   flex: 0 0 auto;
-  max-width: 900px;
   padding: 16px 24px 0;
 }
 
