@@ -28,9 +28,9 @@
 
   /* --- surfaces --- */
   --surface-canvas: #0b1012;
-  --surface-sunken: #12191b;
+  --surface-sunken: #161e21;
   --surface: #1a2225;
-  --surface-raised: #222b2f;
+  --surface-raised: #212a2e;
   --surface-float: #2a353a;
   /* Interaction states are TRANSLUCENT so they compose over whichever surface
      they land on — a hover in the sidebar and a hover in a popover both read. */
@@ -128,7 +128,7 @@
 [data-theme='light'] {
   color-scheme: light;
   --surface-canvas: #ccd7d8;
-  --surface-sunken: #e2e9e9;
+  --surface-sunken: #e7edee;
   --surface: #eef2f2;
   --surface-raised: #f8fafa;
   --surface-float: #ffffff;
@@ -1646,10 +1646,64 @@ textarea::placeholder {
 }
 
 input[type='checkbox'],
-input[type='radio'],
-input[type='range'] {
+input[type='radio'] {
   accent-color: var(--accent);
   min-height: 0;
+}
+
+input[type='range'] {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 0;
+  height: 18px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+
+input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px; /* centre the thumb on a 4px track */
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  box-shadow: var(--shadow-1);
+  transition:
+    transform var(--dur-fast),
+    background-color var(--dur-fast);
+}
+
+input[type='range']:hover::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+
+input[type='range']:active::-webkit-slider-thumb {
+  transform: scale(1.2);
+}
+
+input[type='range']:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--focus-ring);
+}
+
+input[type='range']:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 /* Controls that are a fixed glyph-sized square, not a text control: the shared
@@ -2084,10 +2138,6 @@ a {
 
 .zoom-hud input[type='range'] {
   width: 160px;
-  padding: 0;
-  accent-color: var(--accent);
-  background: transparent;
-  border: none;
 }
 
 .zoom-pct {
@@ -2174,6 +2224,16 @@ a {
 .timeline-rail input[type='range'] {
   width: 100%;
   margin: 0;
+}
+
+/* The year rail is the map's primary control — give it a slightly larger thumb
+   and the warm accent, since the year belongs to the world, not the application. */
+.timeline-rail input[type='range']::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  background: var(--accent-warm);
+  border-color: var(--surface-float);
 }
 
 .timeline-bands {
@@ -3242,9 +3302,8 @@ a {
   top: 0;
   display: flex;
   flex-direction: column;
-  background: var(--surface-raised);
-  border-radius: var(--r-m);
-  padding: 0 var(--sp-3) var(--sp-2);
+  padding: 0 0 var(--sp-2) var(--sp-5);
+  border-left: 1px solid var(--border-subtle);
 }
 
 /* Below this the rail cannot hold its measure beside the document, so it flows
@@ -3261,6 +3320,9 @@ a {
   .entity-rail {
     position: static;
     order: -1;
+    padding: 0 0 var(--sp-3);
+    border-left: none;
+    border-bottom: 1px solid var(--border-subtle);
   }
 }
 
@@ -3268,8 +3330,9 @@ a {
    no card inside a card, because the panel already is the surface. */
 .map-panel .entity-rail {
   position: static;
-  background: none;
-  border-radius: 0;
+  /* The panel edge is already the boundary here; the page's column rule would be
+     a second line saying the same thing. */
+  border-left: none;
   padding: 0 var(--sp-3);
 }
 
