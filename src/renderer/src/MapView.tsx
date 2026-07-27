@@ -3737,7 +3737,12 @@ export default function MapView({
                     max={hudRange[1]}
                     step="any"
                     value={hudZoom}
-                    onChange={(e) => mapRef.current?.setZoom(Number(e.target.value))}
+                    // animate:false to match the wheel path: an animated setZoom per
+                    // drag frame queues transitions that fight each other, and each one
+                    // transforms the renderer instead of redrawing it.
+                    onChange={(e) =>
+                      mapRef.current?.setZoom(Number(e.target.value), { animate: false })
+                    }
                   />
                   <span className="zoom-pct">{zoomPct(hudZoom)}</span>
                 </div>
