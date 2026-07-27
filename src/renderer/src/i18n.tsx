@@ -335,7 +335,7 @@ const TR: Record<string, string> = {
   'This region has no owner at that rank in this year.':
     'Bu bölgenin o yıl o kademede bir sahibi yok.',
   '(no folder)': '(klasörsüz)',
-  '＋ Note': '＋ Not',
+  '＋ Entity': '＋ Madde',
   '＋ Folder': '＋ Klasör',
   'Delete folder "{name}"? (articles are kept)': '"{name}" klasörü silinsin mi? (maddeler korunur)',
   'Add banner': 'Sancak ekle',

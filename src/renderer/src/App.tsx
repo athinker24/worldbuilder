@@ -512,7 +512,7 @@ export default function App(): React.JSX.Element {
       await setEntityFolder(e.id, parent)
     refresh()
   }
-  const createNote = async (folderId: string | null = null): Promise<void> => {
+  const addEntity = async (folderId: string | null = null): Promise<void> => {
     const { id } = await api.createEntity({ name: t('New Entity') })
     if (folderId) await setEntityFolder(id, folderId)
     await refresh()
@@ -532,7 +532,7 @@ export default function App(): React.JSX.Element {
       x: ev.clientX,
       y: ev.clientY,
       items: [
-        { icon: 'file-text', label: t('New note'), onClick: () => createNote(folder.id) },
+        { icon: 'file-text', label: t('New Entity'), onClick: () => addEntity(folder.id) },
         { icon: 'folder', label: t('New folder'), onClick: () => addFolder(folder.id) },
         { icon: 'pencil', label: t('Rename'), onClick: () => setRenamingFolder(folder.id) },
         {
@@ -761,8 +761,8 @@ export default function App(): React.JSX.Element {
             </div>
             {/* Create + sort at the bottom of the column (Obsidian) */}
             <div className="side-foot">
-              <button className="mini" title={t('New note')} onClick={() => createNote()}>
-                {t('＋ Note')}
+              <button className="mini" title={t('New Entity')} onClick={() => addEntity()}>
+                {t('＋ Entity')}
               </button>
               <button className="mini" title={t('New folder')} onClick={() => addFolder()}>
                 {t('＋ Folder')}
