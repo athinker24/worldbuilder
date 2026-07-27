@@ -517,6 +517,27 @@ export const api = {
   entityFeatureIds(entityId: number): number[] {
     return (api.featuresByEntity(entityId) as { id: number }[]).map((r) => r.id)
   },
+  // Which article is drawn on which map, and on which board inside it. The sidebar groups
+  // articles by map from this. The relation is DERIVED from drawings rather than stored on
+  // the entity: an article gains a map by being drawn there and loses it when the drawing
+  // goes, with no field to keep in sync and nothing added to the schema — the same reasoning
+  // that keeps the de-jure chain in fields rather than in columns.
+  // Style carries the board id; it is small next to geom, which is why geom is not selected.
+  entityPlacements(): { entity_id: number; map_id: number; board: string | null }[] {
+    const rows = db
+      .prepare(`SELECT entity_id, map_id, style FROM features WHERE entity_id IS NOT NULL`)
+      .all() as { entity_id: number; map_id: number; style: string }[]
+    return rows.map((r) => {
+      let board: string | null = null
+      // repairImportedJson resets malformed style at the entry gate; this is belt and braces
+      try {
+        board = (JSON.parse(r.style || '{}') as { board?: string }).board ?? null
+      } catch {
+        board = null
+      }
+      return { entity_id: r.entity_id, map_id: r.map_id, board }
+    })
+  },
   // Hierarchy tags: the "hierarchy" key in the fields JSON, a comma-separated "#tag" list.
   // gov: "government" in fields (government form — parallel rank ladders).
   // fields is also returned as raw JSON: map modes (religion/language dimensions) and datalist
@@ -870,12 +891,20 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.equal(he.gov, 'feudal')
   assert.equal((JSON.parse(he.fields) as { religion: string }).religion, 'Islam')
   const m = api.createMap({ name: 'World' }) as { id: number }
-  api.createFeature({
+  const feat = api.createFeature({
     map_id: m.id,
     entity_id: a.id,
     geometry: '{"type":"Point","coordinates":[1,2]}'
-  })
+  }) as { id: number }
   assert.equal((api.getMap(m.id) as { features: unknown[] }).features.length, 1)
+  // entityPlacements: the sidebar's map grouping is derived from drawings, not from a field on
+  // the entity, so a drawn article must report its map and an undrawn one must not appear at all.
+  assert.deepEqual(api.entityPlacements(), [{ entity_id: a.id, map_id: m.id, board: null }])
+  api.updateFeature(feat.id, { style: JSON.stringify({ board: 'b1' }) })
+  assert.equal(api.entityPlacements()[0].board, 'b1') // board read out of the style JSON
+  api.updateFeature(feat.id, { style: 'not json' })
+  assert.equal(api.entityPlacements()[0].board, null) // malformed style must not throw
+  api.updateFeature(feat.id, { style: '{}' }) // restore: later checks share this fixture
   // exportNotes mirrors the SIDEBAR FOLDER TREE: a sits in the nested folder Realms/States and is
   // on the World map → notes/World/Realms/States/Test State/…; b is in no folder and on no map →
   // notes/(no map)/(no folder)/…
