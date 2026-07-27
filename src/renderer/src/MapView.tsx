@@ -160,15 +160,23 @@ const stockSimplify = (L.Polyline.prototype as unknown as Simplifiable)._simplif
 //    at a constant width whatever the scale. Scaling it just made outlines swallow the land they
 //    were describing. Setting --mz on the polygon's own path shadows the pane's value (custom
 //    properties inherit), so the exemption costs one line and no second code path.
-type Styleable = { _path?: SVGElement; options: { weight?: number } }
-const stockUpdateStyle = (L.Path.prototype as unknown as { _updateStyle(): void })._updateStyle
-;(L.Path.prototype as unknown as { _updateStyle(): void })._updateStyle = function (
-  this: Styleable & { _updateStyle(): void }
+//    The hook is the RENDERER's _updateStyle(layer), not Path's — Path has no such method, it
+//    delegates via this._renderer._updateStyle(this). Patching Path.prototype defined a method
+//    nobody calls, so --w was never written and every stroke fell back to the CSS default of 3:
+//    the thickness sliders did nothing and weight-2 outlines drew at 3. Hence the hop through
+//    _renderer here.
+type Styled = { _path?: SVGElement; options: { weight?: number } }
+type SvgRenderer = { _updateStyle(layer: Styled): void }
+const stockUpdateStyle = (L.SVG.prototype as unknown as SvgRenderer)._updateStyle
+;(L.SVG.prototype as unknown as SvgRenderer)._updateStyle = function (
+  this: SvgRenderer,
+  layer: Styled
 ): void {
-  stockUpdateStyle.call(this)
-  if (this._path && this.options.weight !== undefined) {
-    this._path.style.setProperty('--w', String(this.options.weight))
-    if (this instanceof L.Polygon) this._path.style.setProperty('--mz', '1')
+  stockUpdateStyle.call(this, layer)
+  const path = layer._path
+  if (path && layer.options.weight !== undefined) {
+    path.style.setProperty('--w', String(layer.options.weight))
+    if (layer instanceof L.Polygon) path.style.setProperty('--mz', '1')
   }
 }
 
