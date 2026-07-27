@@ -75,6 +75,13 @@ export default function App(): React.JSX.Element {
   // whichever one hid it — that is how Photoshop behaves.
   // Deliberately NOT persisted (widths are): launching into a chrome-less window would read as a
   // broken app. This is a temporary view mode, not a layout preference.
+  // The last map opened stays MOUNTED behind the other workspaces. Unmounting it
+  // rebuilt Leaflet, refetched every feature and re-fitted the view on each return,
+  // so coming back from an article threw away where you were on the map.
+  const [mapId, setMapId] = useState<number | null>(null)
+  useEffect(() => {
+    if (view.kind === 'map') setMapId(view.id)
+  }, [view])
   const [hidden, setHidden] = useState<null | 'panels' | 'all'>(null)
   const [sidebarW, setSidebarW] = useState(260)
 
@@ -284,7 +291,7 @@ export default function App(): React.JSX.Element {
         case 'file.exportMap':
           // ponytail: enabled even off a map view — greying it out would mean rebuilding the
           // native menu on every view change. Swap to a menu rebuild if that ever grates.
-          return exportMapRef.current
+          return exportMapRef.current && viewRef.current.kind === 'map'
             ? exportMapRef.current()
             : showToast(translate(lang, 'Open a map first.'))
         case 'file.exportNotes':
@@ -884,21 +891,26 @@ export default function App(): React.JSX.Element {
               }}
             />
           )}
-          {view.kind === 'map' && (
-            <MapView
-              key={`m-${view.id}`}
-              focus={focus}
-              reloadToken={bump}
-              id={view.id}
-              maps={maps}
-              folders={folders}
-              onNavigate={openMap}
-              onOpenEntity={openEntity}
-              onChanged={refresh}
-              onExportReady={handleExportReady}
-              hidePanels={hidden !== null}
-              hideTools={hidden === 'all'}
-            />
+          {/* display:none, not unmounted — see mapId above. `contents` while visible so
+              the wrapper never becomes a layout box of its own. */}
+          {mapId !== null && (
+            <div style={{ display: view.kind === 'map' ? 'contents' : 'none' }}>
+              <MapView
+                key={`m-${mapId}`}
+                active={view.kind === 'map'}
+                focus={focus}
+                reloadToken={bump}
+                id={mapId}
+                maps={maps}
+                folders={folders}
+                onNavigate={openMap}
+                onOpenEntity={openEntity}
+                onChanged={refresh}
+                onExportReady={handleExportReady}
+                hidePanels={hidden !== null}
+                hideTools={hidden === 'all'}
+              />
+            </div>
           )}
           {view.kind === 'preferences' && (
             <Preferences

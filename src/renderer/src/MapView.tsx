@@ -165,6 +165,12 @@ interface Props {
   onExportReady?: (fn: (() => void) | null) => void
   // Photoshop's Tab / Shift+Tab, driven from App: hidePanels covers the inspector and the tool
   // settings popover, hideTools additionally hides the floating tool palette.
+  /** False while another workspace is on screen. The map stays MOUNTED so returning
+      to it does not rebuild Leaflet and throw away your zoom and position — but its
+      window-level shortcuts must stand down, or Del on the entity list would also
+      delete the selected drawing (that handler runs in the capture phase and stops
+      propagation, so it would swallow App's Del outright). */
+  active?: boolean
   hidePanels?: boolean
   hideTools?: boolean
 }
@@ -570,6 +576,7 @@ export default function MapView({
   onOpenEntity,
   onChanged,
   onExportReady,
+  active = true,
   hidePanels,
   hideTools
 }: Props): React.JSX.Element {
@@ -629,6 +636,14 @@ export default function MapView({
       ro.disconnect()
     }
   }, [])
+  // Zoom at which the whole map fits the window — the origin for the % readout.
+  // State, not a ref: it is read while rendering the HUD and changes only when a
+  // base image loads, so it is nowhere near the zoom hot path.
+  const [fitZoom, setFitZoom] = useState(0)
+  const activeRef = useRef(active)
+  useEffect(() => {
+    activeRef.current = active
+  }, [active])
   const [allEntities, setAllEntities] = useState<EntityRow[]>([])
   // Person entities cannot be bound to the map (see EntityPage — they exist for family/dynasty fields)
   const personFolders = personFolderIds(folders) // people cannot be bound to the map
@@ -739,6 +754,7 @@ export default function MapView({
   const geomSaveChain = useRef<Promise<void>>(Promise.resolve())
   useEffect(() => {
     const down = (e: KeyboardEvent): void => {
+      if (!activeRef.current) return
       if (e.key === 'Control') ctrlRef.current = true
     }
     const up = (e: KeyboardEvent): void => {
@@ -1154,6 +1170,7 @@ export default function MapView({
   // stands down whenever a session is live.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      if (!activeRef.current) return
       if (e.key !== 'Escape' || !toolRef.current) return
       if (conquest || measure || nav) return
       const el = e.target as HTMLElement
@@ -2430,6 +2447,10 @@ export default function MapView({
   // Bare effect (dep dizisi yok): handler'lar her render tazelenir, bayat closure olmaz.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      // The most important guard of the six: this one runs in the CAPTURE phase and
+      // calls stopImmediatePropagation, so left live it would eat App's Del on the
+      // entity list and delete a drawing instead.
+      if (!activeRef.current) return
       const target = e.target as HTMLElement
       const typing =
         target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
@@ -2460,6 +2481,7 @@ export default function MapView({
   useEffect(() => {
     if (!conquest) return
     const onKey = (e: KeyboardEvent): void => {
+      if (!activeRef.current) return
       if (e.key === 'Escape') {
         setConquest(null)
         applyYear(yearRef.current)
@@ -2474,6 +2496,7 @@ export default function MapView({
   useEffect(() => {
     if (!measure) return
     const onKey = (e: KeyboardEvent): void => {
+      if (!activeRef.current) return
       if (e.key === 'Escape') endMeasure()
     }
     window.addEventListener('keydown', onKey)
@@ -2485,6 +2508,7 @@ export default function MapView({
   useEffect(() => {
     if (!nav) return
     const onKey = (e: KeyboardEvent): void => {
+      if (!activeRef.current) return
       if (e.key === 'Escape') endNav()
     }
     window.addEventListener('keydown', onKey)
@@ -2900,6 +2924,7 @@ export default function MapView({
       ]
       imageLayerRef.current = L.imageOverlay(assetUrl(worldMap.image_path), bounds).addTo(map)
       map.fitBounds(bounds)
+      setFitZoom(map.getBoundsZoom(bounds))
       // Prevent escaping into ugly grey space beyond the image: pan bounded, no zooming out past fit
       map.options.maxBoundsViscosity = 1
       map.setMaxBounds(L.latLngBounds(bounds).pad(0.5))
@@ -2971,7 +2996,7 @@ export default function MapView({
   // Zoom visibility (pin + label): the user PICKS the threshold with a slider (shown as a
   // percentage). Ticking the box starts at the current zoom, then fine-tune; minZoom = "hide
   // below this (further out)", maxZoom = "hide above this (closer in)".
-  const zoomPct = (z: number): string => `%${Math.round(2 ** z * 100)}`
+  const zoomPct = (z: number): string => `%${Math.round(2 ** (z - fitZoom) * 100)}`
   const zoomVisRow = (key: 'minZoom' | 'maxZoom', label: string): React.JSX.Element => {
     const val = selStyle[key]
     return (
@@ -3690,7 +3715,7 @@ export default function MapView({
                     value={hudZoom}
                     onChange={(e) => mapRef.current?.setZoom(Number(e.target.value))}
                   />
-                  <span className="zoom-pct">%{Math.round(2 ** hudZoom * 100)}</span>
+                  <span className="zoom-pct">{zoomPct(hudZoom)}</span>
                 </div>
               )}
               <HierarchyPanel
