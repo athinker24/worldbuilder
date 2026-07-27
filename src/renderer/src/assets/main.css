@@ -24,6 +24,8 @@
    which runs every zoom frame and must never look a token up.
    ============================================================================ */
 :root {
+  color-scheme: dark;
+
   /* --- surfaces --- */
   --surface-canvas: #0b1012;
   --surface-sunken: #12191b;
@@ -124,6 +126,7 @@
    That is what fixes the old inversion, where --bg0 (the map void) was darker
    than --bg2 and so became the darkest thing on a light screen. */
 [data-theme='light'] {
+  color-scheme: light;
   --surface-canvas: #ccd7d8;
   --surface-sunken: #e2e9e9;
   --surface: #eef2f2;
@@ -3240,6 +3243,60 @@ a {
 .rail-year {
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
+}
+
+/* A relation is a DIRECTED statement, so each item leads with its direction, names
+   the relation quietly and gives the entity the weight. Outgoing points away in the
+   accent; incoming and mentions point back, muted — one shape, three meanings. */
+.rel-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-1) 0;
+}
+
+.rel-item + .rel-item {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.rel-dir {
+  margin-top: 3px;
+  color: var(--text-faint);
+}
+
+.rel-dir.out {
+  color: var(--accent);
+}
+
+.rel-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+.rel-verb {
+  font-size: var(--fs-1);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.rel-text a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rel-action {
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+}
+
+.rel-item:hover .rel-action,
+.rel-item:focus-within .rel-action {
+  opacity: 1;
 }
 
 /* --- inspector header: identity + the continuity gesture back to the page --- */

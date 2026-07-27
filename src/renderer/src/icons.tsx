@@ -22,6 +22,8 @@ export type IconName =
   | 'chevron-down'
   | 'chevron-up'
   | 'arrow-up-right'
+  | 'arrow-right'
+  | 'arrow-left'
   | 'search'
   | 'folder'
   | 'file-text'
@@ -69,6 +71,8 @@ const PATHS: Record<IconName, string> = {
   'chevron-down': 'M6 9l6 6 6-6',
   'chevron-up': 'M18 15l-6-6-6 6',
   'arrow-up-right': 'M7 7h10v10M7 17L17 7',
+  'arrow-right': 'M5 12h14M13 6l6 6-6 6',
+  'arrow-left': 'M19 12H5M11 18l-6-6 6-6',
   search: 'M19 11a8 8 0 1 1-16 0 8 8 0 1 1 16 0M21 21l-4.3-4.3',
   folder:
     'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z',

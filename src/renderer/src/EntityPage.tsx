@@ -1038,6 +1038,91 @@ export default function EntityPage({
         </Section>
       )}
 
+      {/* Relations. The old chain-of-rows read as a list of unrelated links; a
+          relation is a DIRECTED statement, so each item leads with the direction,
+          names the relation quietly and gives the entity the weight. Incoming and
+          mentions are the same shape pointing the other way. */}
+      <Section
+        title={t('Relations')}
+        icon="link"
+        defaultOpen={entity.outLinks.length + entity.inLinks.length > 0}
+      >
+        {entity.outLinks.map((l) => (
+          <div className="rel-item" key={l.id}>
+            <Icon name="arrow-right" size={13} className="rel-dir out" />
+            <span className="rel-text">
+              <span className="rel-verb">{l.relation}</span>
+              <a href="#" onClick={(e) => (e.preventDefault(), onOpen(l.to_id))}>
+                {l.to_name}
+              </a>
+            </span>
+            <span className="rel-action">
+              <IconButton
+                icon="unlink"
+                label={t('Remove')}
+                small
+                danger
+                onClick={async () => {
+                  const ref = { id: l.id }
+                  pushUndo({
+                    undo: async () => {
+                      ref.id = (await api.addLink(id, l.to_id, l.relation)).id
+                    },
+                    redo: () => api.deleteLink(ref.id)
+                  })
+                  await api.deleteLink(l.id)
+                  reload()
+                }}
+              />
+            </span>
+          </div>
+        ))}
+        {entity.inLinks.map((l) => (
+          <div className="rel-item" key={`in-${l.id}`}>
+            <Icon name="arrow-left" size={13} className="rel-dir" />
+            <span className="rel-text">
+              <span className="rel-verb">{l.relation}</span>
+              <a href="#" onClick={(e) => (e.preventDefault(), onOpen(l.from_id))}>
+                {l.from_name}
+              </a>
+            </span>
+          </div>
+        ))}
+        {entity.mentions.map((m) => (
+          <div className="rel-item" key={`m-${m.id}`}>
+            <Icon name="file-text" size={13} className="rel-dir" />
+            <span className="rel-text">
+              <span className="rel-verb">{t('mentions in content')}</span>
+              <a href="#" onClick={(e) => (e.preventDefault(), onOpen(m.id))}>
+                {m.name}
+              </a>
+            </span>
+          </div>
+        ))}
+        <form
+          className="tag-add"
+          onSubmit={(e) => {
+            e.preventDefault()
+            addLink()
+          }}
+        >
+          <input
+            placeholder={t('relation (rules, member of…)')}
+            value={linkRelation}
+            onChange={(e) => setLinkRelation(e.target.value)}
+          />
+          <input
+            list="entity-list"
+            placeholder={t('target entity')}
+            value={linkTarget}
+            onChange={(e) => setLinkTarget(e.target.value)}
+          />
+          <button className="mini" type="submit" title={t('Add')}>
+            <Icon name="plus" size={12} />
+          </button>
+        </form>
+      </Section>
+
       {/* The OHM chronology pattern: where this entity is drawn, and when.
           Needs a host that can actually navigate to a map. */}
       {onLocateFeature && feats.length > 0 && (
@@ -1065,10 +1150,10 @@ export default function EntityPage({
         </Section>
       )}
 
-      {/* Free metadata, visually SEPARATED from the system fields above: anything
-          the user invented, with no meaning to the app. */}
+      {/* The user's OWN structured properties — height, skin colour, real-world
+          parallel. "Fields" described the storage, not what the user puts there. */}
       <Section
-        title={t('Fields')}
+        title={t('Attributes')}
         icon="file-text"
         defaultOpen={Object.keys(fields).some(
           (k) => !RESERVED_FIELDS.includes(k) && !dims.includes(k)
@@ -1083,7 +1168,7 @@ export default function EntityPage({
               action={
                 <IconButton
                   icon="x"
-                  label={t('Delete field')}
+                  label={t('Delete attribute')}
                   small
                   danger
                   onClick={() => {
@@ -1114,7 +1199,7 @@ export default function EntityPage({
             }
           }}
         >
-          <input name="key" placeholder={t('new field')} />
+          <input name="key" placeholder={t('new attribute')} />
           <input name="value" placeholder={t('value')} />
           <button className="mini" type="submit" title={t('Add')}>
             <Icon name="plus" size={12} />
@@ -1317,80 +1402,6 @@ export default function EntityPage({
           </div>
         ))}
       </div>
-
-      {/* Relations stays in the document column: it is a list that grows, and the
-          rail must not turn into a scrolling column of its own. */}
-      <Section title={t('Relations')} icon="link">
-        {entity.outLinks.map((l) => (
-          <Row
-            key={l.id}
-            label={l.relation}
-            action={
-              <IconButton
-                icon="unlink"
-                label={t('Remove')}
-                small
-                danger
-                onClick={async () => {
-                  const ref = { id: l.id }
-                  pushUndo({
-                    undo: async () => {
-                      ref.id = (await api.addLink(id, l.to_id, l.relation)).id
-                    },
-                    redo: () => api.deleteLink(ref.id)
-                  })
-                  await api.deleteLink(l.id)
-                  reload()
-                }}
-              />
-            }
-          >
-            <a href="#" onClick={(e) => (e.preventDefault(), onOpen(l.to_id))}>
-              {l.to_name}
-            </a>
-          </Row>
-        ))}
-        <form
-          className="tag-add"
-          onSubmit={(e) => {
-            e.preventDefault()
-            addLink()
-          }}
-        >
-          <input
-            placeholder={t('relation (rules, member of…)')}
-            value={linkRelation}
-            onChange={(e) => setLinkRelation(e.target.value)}
-          />
-          <input
-            list="entity-list"
-            placeholder={t('target entity')}
-            value={linkTarget}
-            onChange={(e) => setLinkTarget(e.target.value)}
-          />
-          <button className="mini" type="submit" title={t('Add')}>
-            <Icon name="plus" size={12} />
-          </button>
-        </form>
-
-        {(entity.inLinks.length > 0 || entity.mentions.length > 0) && (
-          <h4>{t('Linked from here')}</h4>
-        )}
-        {entity.inLinks.map((l) => (
-          <Row key={l.id} label={l.relation}>
-            <a href="#" onClick={(e) => (e.preventDefault(), onOpen(l.from_id))}>
-              {l.from_name}
-            </a>
-          </Row>
-        ))}
-        {entity.mentions.map((m) => (
-          <Row key={`m-${m.id}`} label={t('mentions in content')}>
-            <a href="#" onClick={(e) => (e.preventDefault(), onOpen(m.id))}>
-              {m.name}
-            </a>
-          </Row>
-        ))}
-      </Section>
     </div>
   )
 

@@ -4,6 +4,10 @@ import { Lang } from './api'
 // English is the canonical text used directly in JSX (t('Some Text')); this dictionary
 // only needs to hold the Turkish alternative. Missing keys fall back to the English text.
 const TR: Record<string, string> = {
+  // "Fields" named the storage; these are the user's own structured properties.
+  Attributes: 'Özellikler',
+  'new attribute': 'yeni özellik',
+  'Delete attribute': 'Özelliği sil',
   // Labels that lost a leading glyph to the icon set, plus the split empty states.
   'Open…': 'Aç…',
   'Person folder': 'Kişi klasörü',
