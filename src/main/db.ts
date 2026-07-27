@@ -182,13 +182,58 @@ export function packWorld(targetPath: string): void {
   renameSync(tmp, targetPath) // write to tmp then rename — a half-written file can never remain
 }
 
+/** Thrown when the chosen file is not one of our worlds. The renderer shows it as a message
+ *  rather than a crash, so the code is a stable string and not prose. */
+export const NOT_A_WORLD = 'NOT_A_WORLD'
+
+/** Is this file a world we can open? Checked BEFORE anything is overwritten.
+ *
+ *  Opening used to copy the file straight over world.db and only then try to open it. A file
+ *  that was not a database — a renamed .txt, a truncated download, a hostile file — threw at
+ *  that point with the working copy ALREADY destroyed and the live handle dead. Worse, the
+ *  garbage stayed at world.db, so the next launch threw in initDb before a window existed:
+ *  the app could not be started again at all, and ErrorBoundary (a renderer thing) could not
+ *  help. Verified in the db self-check.
+ *
+ *  Read-only so probing can never modify the candidate, and the missing-table case is what
+ *  separates one of our worlds from someone's unrelated SQLite file. */
+function probeWorldFile(sourcePath: string): void {
+  let probe: DatabaseSync | null = null
+  try {
+    probe = new DatabaseSync(sourcePath, { readOnly: true })
+    // An empty world is legitimate — these return no row. Only a MISSING table throws.
+    probe.prepare(`SELECT 1 FROM entities LIMIT 1`).get()
+    probe.prepare(`SELECT 1 FROM maps LIMIT 1`).get()
+    probe.prepare(`SELECT 1 FROM features LIMIT 1`).get()
+  } catch {
+    throw new Error(NOT_A_WORLD)
+  } finally {
+    probe?.close()
+  }
+}
+
 /** Open a .dunya file OVER the working copy (the current working copy is overwritten —
  *  the caller must confirm/back up first). Embedded images are extracted into assets/. */
 export function unpackWorld(sourcePath: string): void {
+  probeWorldFile(sourcePath) // throws before anything is touched
+  // Even past the probe, the copy + open is the one destructive step in the app. Keep the old
+  // working copy one file away and put it back if any part of it fails, so a failed open always
+  // ends with a live db and the world the user already had — never a half-replaced one.
+  const rescue = dbFile + '.rescue'
   db.close()
-  copyFileSync(sourcePath, dbFile)
-  db = new DatabaseSync(dbFile)
-  db.exec(SCHEMA)
+  copyFileSync(dbFile, rescue)
+  try {
+    copyFileSync(sourcePath, dbFile)
+    db = new DatabaseSync(dbFile)
+    db.exec(SCHEMA)
+  } catch (err) {
+    copyFileSync(rescue, dbFile)
+    db = new DatabaseSync(dbFile)
+    db.exec(SCHEMA)
+    rmSync(rescue, { force: true })
+    throw err
+  }
+  rmSync(rescue, { force: true })
   const hasAssets = db
     .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assets'`)
     .get()
@@ -263,6 +308,18 @@ function repairImportedJson(): number {
     isArray,
     `UPDATE maps SET layers = ? WHERE id = ?`,
     '[]'
+  )
+  // geometry was missing from this gate while fields/style/layers were covered, and it is
+  // parsed unguarded in eight places across MapView and Atlas — so one malformed geometry in a
+  // shared world took out the whole map render and the Atlas, which is exactly what this
+  // function exists to prevent. Reset to a degenerate Point rather than deleting the row: the
+  // rule here is that rows are never dropped, and a stray pin at the origin is visible and
+  // fixable, whereas a deleted drawing is silently gone.
+  repair(
+    db.prepare(`SELECT id, geometry AS v FROM features`).all() as { id: number; v: string }[],
+    isPlainObject,
+    `UPDATE features SET geometry = ? WHERE id = ?`,
+    '{"type":"Point","coordinates":[0,0]}'
   )
   // settings: some values are plain text ('dark', 'tr', a file path) — only JSON-LOOKING ones
   // (starting with { or [) are checked; a bad one is deleted so the code falls back to defaults
@@ -1146,6 +1203,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     bd.exec(`UPDATE entities SET fields = 'BOZUK{{'`)
     bd.exec(`UPDATE features SET style = '[1,2]'`) // valid JSON but an ARRAY — an object is expected
     bd.exec(`UPDATE maps SET layers = 'yok'`)
+    bd.exec(`UPDATE features SET geometry = '{"type":"Polygon" KESIK'`) // parsed unguarded in 8 places
     bd.exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('mapModes', '{bozuk')`)
     bd.exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('theme', 'dark')`)
     bd.close()
@@ -1155,11 +1213,39 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       '{}',
       'malformed fields must be repaired'
     )
-    const bm = api.getMap(m.id) as { layers: string; features: { style: string }[] }
+    const bm = api.getMap(m.id) as {
+      layers: string
+      features: { style: string; geometry: string }[]
+    }
     assert.equal(bm.features[0].style, '{}', 'malformed style must be repaired')
     assert.equal(bm.layers, '[]', 'malformed layers must be repaired')
     assert.equal(api.getSetting('mapModes'), null, 'a malformed JSON setting must be deleted')
     assert.equal(api.getSetting('theme'), 'dark', 'a plain-TEXT setting must survive (not JSON)')
+    // geometry was NOT covered by this gate once, and MapView/Atlas parse it without a try —
+    // one bad row took down the whole map render. It must come out parseable.
+    JSON.parse(bm.features[0].geometry) // throws the assertion for us if the repair regressed
+    assert.equal(
+      (JSON.parse(bm.features[0].geometry) as { type: string }).type,
+      'Point',
+      'malformed geometry must be repaired to a degenerate Point, not left as-is'
+    )
+  }
+  // A file that is NOT one of our worlds must be refused BEFORE anything is overwritten.
+  // Without the probe this destroyed world.db and the app could not be launched again at all:
+  // initDb threw on the garbage before a window existed, so ErrorBoundary could not help.
+  {
+    const notDb = join(dir, 'not-a-world.dunya')
+    writeFileSync(notDb, 'plain text wearing a .dunya extension')
+    const before = (api.listEntities() as unknown[]).length
+    assert.throws(() => unpackWorld(notDb), /NOT_A_WORLD/, 'a non-database must be refused')
+    assert.equal((api.listEntities() as unknown[]).length, before, 'the open world must survive')
+    // A real SQLite file that is not OURS is refused the same way (missing tables)
+    const stray = join(dir, 'stray.dunya')
+    const sd = new DatabaseSync(stray)
+    sd.exec(`CREATE TABLE notes (id INTEGER PRIMARY KEY)`)
+    sd.close()
+    assert.throws(() => unpackWorld(stray), /NOT_A_WORLD/, 'a foreign database must be refused')
+    assert.equal((api.listEntities() as unknown[]).length, before, 'the open world must survive')
   }
   // Blank launch: content is detected; after reset both db and assets are empty
   assert.ok(hasContent())
