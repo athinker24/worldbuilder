@@ -112,17 +112,20 @@ markerProto.update = function (this: Positionable): L.Marker {
 //    re-simplifies when crossing a step boundary — with BORDER_SMOOTH's LOD intact.
 //    Only works together with (1) — alone, the rounding noise flips borderline vertices anyway.
 //
-//    LOD_STEPS is the whole trade, measured over the same 199-frame sweep:
-//      1 (whole zooms)   4/199 frames, tolerance jumps x2.00 at each boundary
-//      2 (half)          8/199         x1.41
-//      4 (quarter)      16/199         x1.19   <- here
-//      8 (eighth)       32/199         x1.09
-//    Whole zooms re-simplify least, but halving the detail level in a single frame IS the visible
-//    stepping. Quarter steps cut each jump to about 19% for four times the re-simplifications,
-//    still an order of magnitude below the 174 that made borders shimmer. Frequent small
-//    corrections read as smooth; rare large ones read as a glitch. Go to 8 if any step still
-//    shows — it costs 32/199, which is a long way from where this started.
+//    LOD_STEPS quantises the zoom before scaling, so the vertex set is frozen inside each step
+//    instead of drifting every frame. Measured over the same 199-frame sweep: whole zooms
+//    re-simplify 4 times, halves 8, quarters 16, eighths 32 — against the 174 that shimmered.
 const LOD_STEPS = 4
+//    But quantising alone only makes the reshaping RARER, not absent, and simplification earns
+//    nothing at the zooms people actually work at: once you are past the fit view only a handful
+//    of shapes are on screen, so dropping vertices saves little and every dropped vertex is
+//    plainly visible. So the tolerance fades to zero as the view approaches the fit zoom, and
+//    above it the exact drawn geometry is rendered — no reshaping at all in normal use. LOD then
+//    lives only in the overview band (minZoom is fit − 1), which is where many polygons are on
+//    screen at once and each is too small for the loss to read.
+//    Set from the base-image effect; -Infinity until a map has an image, which disables the fade
+//    and leaves plain quantised LOD.
+let lodFitZoom = -Infinity
 type Simplifiable = { _simplifyPoints(): void; _map?: L.Map; options: { smoothFactor?: number } }
 const stockSimplify = (L.Polyline.prototype as unknown as Simplifiable)._simplifyPoints
 ;(L.Polyline.prototype as unknown as Simplifiable)._simplifyPoints = function (
@@ -132,7 +135,10 @@ const stockSimplify = (L.Polyline.prototype as unknown as Simplifiable)._simplif
   const tol = this.options.smoothFactor
   if (zoom === undefined || !tol) return stockSimplify.call(this)
   const step = Math.round(zoom * LOD_STEPS) / LOD_STEPS
-  this.options.smoothFactor = tol * 2 ** (zoom - step)
+  // Quantised so the fade itself cannot reintroduce per-frame drift.
+  const fade = Math.min(1, Math.max(0, lodFitZoom - step))
+  // Leaflet's simplify() returns the points untouched when the tolerance is falsy.
+  this.options.smoothFactor = fade === 0 ? 0 : tol * fade * 2 ** (zoom - step)
   stockSimplify.call(this)
   this.options.smoothFactor = tol
 }
@@ -2940,7 +2946,9 @@ export default function MapView({
       ]
       imageLayerRef.current = L.imageOverlay(assetUrl(worldMap.image_path), bounds).addTo(map)
       map.fitBounds(bounds)
-      setFitZoom(map.getBoundsZoom(bounds))
+      const fit = map.getBoundsZoom(bounds)
+      setFitZoom(fit)
+      lodFitZoom = fit // the simplification fade reads this (module scope: the patch is too)
       // Prevent escaping into ugly grey space beyond the image: pan bounded, no zooming out past fit
       map.options.maxBoundsViscosity = 1
       map.setMaxBounds(L.latLngBounds(bounds).pad(0.5))
