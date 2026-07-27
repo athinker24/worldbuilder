@@ -406,17 +406,6 @@ h4 {
 .folder-color {
   width: 12px;
   height: 12px;
-  background: none;
-  cursor: pointer;
-}
-/* Chromium pads the swatch inside a colour input and draws its own grey border, which at
-   this size left a speck of colour in a box. Strip both and let the fill reach our frame. */
-.folder-color::-webkit-color-swatch-wrapper {
-  padding: 0;
-}
-.folder-color::-webkit-color-swatch {
-  border: none;
-  border-radius: calc(var(--r-s) - 1px);
 }
 .folder-rename {
   flex: 1;
@@ -978,7 +967,7 @@ kbd {
   color: var(--muted);
 }
 
-.field-row input:not([type='color']) {
+.field-row input {
   flex: 1;
 }
 
@@ -1724,7 +1713,6 @@ input[type='range']:disabled {
 /* Controls that are a fixed glyph-sized square, not a text control: the shared
    control height would blow their containers open (a --h-md tall × inside a chip
    would make every chip 28px). */
-input[type='color'],
 .tag-x,
 .pin-img-x,
 .locate,

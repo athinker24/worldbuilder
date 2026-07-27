@@ -48,10 +48,19 @@ const PRESETS = ['#c0603a', '#7bb3ff', '#5f9e5f', '#d9a441', '#8e6bbf', '#4fb3a5
 interface Props {
   value: string // hex, e.g. #7bb3ff
   onChange: (hex: string) => void
+  /** Sizing for triggers that are not a standalone control (the folder chip in the tree). */
+  className?: string
+  /** The trigger shows no text, so without this it has no accessible name. */
+  title?: string
 }
 
 /** Swatch: clicking opens a classic color picker (gradient square + hue bar + hex + RGB). */
-export default function ColorPicker({ value, onChange }: Props): React.JSX.Element {
+export default function ColorPicker({
+  value,
+  onChange,
+  className,
+  title
+}: Props): React.JSX.Element {
   const t = useT()
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
   const swatchRef = useRef<HTMLButtonElement>(null)
@@ -144,7 +153,8 @@ export default function ColorPicker({ value, onChange }: Props): React.JSX.Eleme
       <button
         ref={swatchRef}
         type="button"
-        className="cp-trigger"
+        className={className ? `cp-trigger ${className}` : 'cp-trigger'}
+        title={title}
         style={{ background: value }}
         onClick={open}
       />

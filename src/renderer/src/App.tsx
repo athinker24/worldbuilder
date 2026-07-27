@@ -12,6 +12,7 @@ import {
   saveEntityFolders,
   Theme
 } from './api'
+import ColorPicker from './ColorPicker'
 import ContextMenu, { MenuState } from './ContextMenu'
 import Icon from './icons'
 import Select from './Select'
@@ -640,18 +641,17 @@ export default function App(): React.JSX.Element {
           <span className="tree-caret">{open ? '▾' : '▸'}</span>
           {/* The folder's color (the old entity-type color, re-homed): also the default color of
               map drawings whose article lives in this folder. */}
-          <input
-            type="color"
-            className="folder-color"
-            title={t('Folder color')}
-            value={folder.color ?? '#7bb3ff'}
-            onClick={(ev) => ev.stopPropagation()}
-            onChange={(ev) =>
-              writeFolders(
-                folders.map((f) => (f.id === folder.id ? { ...f, color: ev.target.value } : f))
-              )
-            }
-          />
+          {/* stopPropagation: the row itself toggles the folder open, and the picker sits inside it */}
+          <span onClick={(ev) => ev.stopPropagation()}>
+            <ColorPicker
+              className="folder-color"
+              title={t('Folder color')}
+              value={folder.color ?? '#7bb3ff'}
+              onChange={(hex) =>
+                writeFolders(folders.map((f) => (f.id === folder.id ? { ...f, color: hex } : f)))
+              }
+            />
+          </span>
           {renamingFolder === folder.id ? (
             <input
               className="folder-rename"

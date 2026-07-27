@@ -3537,20 +3537,31 @@ export default function MapView({
         <div className="map-host-wrap">
           {/* SVG marker def for the path direction arrow (referenced document-wide via
               url(#worldArrow); context-stroke makes the arrow follow the line's color,
-              markerUnits=strokeWidth scales it with weight → screen-fixed on zoom, no hot path) */}
+              markerUnits=strokeWidth sizes it in multiples of the line's own weight, so it
+              stays in proportion however the stroke scales — no hot path).
+
+              Geometry, in units of the stroke width w (markerWidth 3 over a 10-unit viewBox
+              means 1 viewBox unit = 0.3w): a plain triangle 3w long and 3w across the base.
+              refX=6 seats it so the tip lands 1.2w PAST the line's last point and the base
+              1.8w behind it. Both numbers are load-bearing. The old marker had the tip only
+              0.4w past the end, so the round line cap (0.5w) poked out through it and the
+              stroke ran visibly past the arrow; and at the end point the head must be at
+              least half the line wide to cover it — here it is 0.6w, so the cap tucks fully
+              inside and no stroke shows through. The old swallowtail notch is gone too: at
+              this size it read as a barb rather than an arrow. */}
           <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden>
             <defs>
               <marker
                 id="worldArrow"
                 viewBox="0 0 10 10"
-                refX="8"
+                refX="6"
                 refY="5"
-                markerWidth="4"
-                markerHeight="4"
+                markerWidth="3"
+                markerHeight="3"
                 orient="auto"
                 markerUnits="strokeWidth"
               >
-                <path d="M0,1 L9,5 L0,9 L3,5 z" fill="context-stroke" />
+                <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
               </marker>
               {/* Polygon fill patterns: one per unique image used on the map + in the draw
                   default. objectBoundingBox + preserveAspectRatio=none: the image stretches
