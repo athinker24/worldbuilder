@@ -55,8 +55,8 @@
   --accent-soft: rgba(62, 196, 173, 0.14); /* active/selected backgrounds */
   --accent-strong: #3ec4ad; /* the one high-emphasis fill per view */
   --accent-contrast: #08201c; /* text ON --accent-strong */
-  --accent-warm: #d9a441;
-  --accent-warm-soft: rgba(217, 164, 65, 0.14);
+  --accent-warm: #c2a468;
+  --accent-warm-soft: rgba(194, 164, 104, 0.15);
   --danger: #e06c75;
   --danger-soft: rgba(224, 108, 117, 0.14);
   --male: #5b8fd6;
@@ -145,8 +145,8 @@
   --accent-soft: rgba(13, 148, 136, 0.13);
   --accent-strong: #0d9488;
   --accent-contrast: #ffffff;
-  --accent-warm: #a8761c;
-  --accent-warm-soft: rgba(168, 118, 28, 0.14);
+  --accent-warm: #8a6c35;
+  --accent-warm-soft: rgba(138, 108, 53, 0.14);
   --danger: #c4404b;
   --danger-soft: rgba(196, 64, 75, 0.13);
   --male: #3c6cb4;
@@ -1668,11 +1668,6 @@ input[type='color'],
   min-height: 0;
 }
 
-option {
-  background-color: var(--surface-float);
-  color: var(--text);
-}
-
 button {
   cursor: pointer;
   display: inline-flex;
@@ -1815,6 +1810,82 @@ a {
 .tool-settings label {
   color: var(--muted);
   font-size: 12px;
+}
+
+/* --- select (our own; see Select.tsx for why the native popup had to go) --- */
+.select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: var(--h-md);
+  padding: 0 var(--sp-2);
+  background: var(--control);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-s);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.select-trigger:hover {
+  background: var(--control-hover);
+  border-color: var(--border-strong);
+}
+
+.select-trigger .icon {
+  color: var(--text-faint);
+}
+
+.select-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+}
+
+.select-list {
+  position: fixed;
+  z-index: 3001;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-1);
+  background: var(--surface-float);
+  border-radius: var(--r-m);
+  box-shadow: var(--shadow-3);
+}
+
+.select-option {
+  min-height: var(--h-md);
+  padding: 0 var(--sp-2);
+  background: none;
+  border: none;
+  border-radius: var(--r-s);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.select-option.active {
+  background: var(--surface-hover);
+}
+
+.select-option.selected {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* --- color picker --- */
@@ -3313,6 +3384,30 @@ a {
 .rel-item:hover .rel-action,
 .rel-item:focus-within .rel-action {
   opacity: 1;
+}
+
+/* Teal is the application talking; the warm accent is the WORLD's own content —
+   reigns, eras, year marks, templates. Applied here so the split is visible rather
+   than merely declared in the token block. */
+.section.warm .section-head .icon {
+  color: var(--accent-warm);
+}
+
+.timeline-year {
+  color: var(--accent-warm);
+}
+
+.timeline-period {
+  color: var(--accent-warm);
+  opacity: 0.9;
+}
+
+.tree-chip.ruler {
+  border-color: var(--accent-warm);
+}
+
+.ruler-badge {
+  color: var(--accent-warm);
 }
 
 /* --- inspector header: identity + the continuity gesture back to the page --- */

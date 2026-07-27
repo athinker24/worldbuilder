@@ -14,6 +14,7 @@ import {
 } from './api'
 import ContextMenu, { MenuState } from './ContextMenu'
 import Icon from './icons'
+import Select from './Select'
 import { IconButton } from './ui'
 import { alertDialog, confirmDialog, DialogHost } from './dialog'
 import EntityPage from './EntityPage'
@@ -760,17 +761,18 @@ export default function App(): React.JSX.Element {
                 {t('＋ Folder')}
               </button>
               <span className="side-foot-spacer" />
-              <select
+              <Select
                 className="side-sort"
                 title={t('Sort')}
                 value={sortKey}
-                onChange={(ev) => setSortKey(ev.target.value as typeof sortKey)}
-              >
-                <option value="az">A–Z</option>
-                <option value="za">Z–A</option>
-                <option value="created">{t('Created')}</option>
-                <option value="modified">{t('Modified')}</option>
-              </select>
+                onChange={(v) => setSortKey(v as typeof sortKey)}
+                options={[
+                  { value: 'az', label: 'A–Z' },
+                  { value: 'za', label: 'Z–A' },
+                  { value: 'created', label: t('Created') },
+                  { value: 'modified', label: t('Modified') }
+                ]}
+              />
             </div>
           </div>
 

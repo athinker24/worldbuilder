@@ -43,6 +43,7 @@ import EntityPage from './EntityPage'
 import HierarchyPanel, { ActiveMode } from './HierarchyPanel'
 import { alertDialog, confirmDialog } from './dialog'
 import Icon from './icons'
+import Select from './Select'
 import { IconButton } from './ui'
 import { useT } from './i18n'
 import Timeline from './Timeline'
@@ -3520,37 +3521,29 @@ export default function MapView({
                   <Icon name="conquest" size={13} /> {t('Click the conqueror — the picks join it…')}{' '}
                   <label>
                     {t('conqueror')}{' '}
-                    <select
+                    <Select
                       value={conquest.recvLevel ?? ''}
                       title={t('Which rank the conqueror is taken as')}
-                      onChange={(e) =>
-                        setConquest({ ...conquest, recvLevel: e.target.value || null })
-                      }
-                    >
-                      <option value="">{t('base')}</option>
-                      {ladderTags.map((tag) => (
-                        <option key={tag} value={tag}>
-                          {tag}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(v) => setConquest({ ...conquest, recvLevel: v || null })}
+                      options={[
+                        { value: '', label: t('base') },
+                        ...ladderTags.map((tag) => ({ value: tag, label: tag }))
+                      ]}
+                    />
                   </label>{' '}
                   <label>
                     {t('takes')}{' '}
-                    <select
+                    <Select
                       value={conquest.level ?? ''}
                       title={t(
                         'Which ladder rank changes hands (upper ranks take their whole branch)'
                       )}
-                      onChange={(e) => setConquest({ ...conquest, level: e.target.value || null })}
-                    >
-                      <option value="">{t('base')}</option>
-                      {ladderTags.map((tag) => (
-                        <option key={tag} value={tag}>
-                          {tag}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(v) => setConquest({ ...conquest, level: v || null })}
+                      options={[
+                        { value: '', label: t('base') },
+                        ...ladderTags.map((tag) => ({ value: tag, label: tag }))
+                      ]}
+                    />
                   </label>{' '}
                   <button className="mini" onClick={() => setConquest(null)}>
                     {t('cancel')}
@@ -3851,17 +3844,12 @@ export default function MapView({
                       onChange={(e) => editSelectedStyle({ weight: Number(e.target.value) })}
                     />
                     <label>{t('Label font')}</label>
-                    <select
+                    <Select
                       value={selStyle.font ?? 'Cinzel'}
                       style={{ fontFamily: selStyle.font ?? 'Cinzel' }}
-                      onChange={(e) => editSelectedStyle({ font: e.target.value })}
-                    >
-                      {FONTS.map((fnt) => (
-                        <option key={fnt} value={fnt} style={{ fontFamily: fnt }}>
-                          {fnt}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(v) => editSelectedStyle({ font: v })}
+                      options={FONTS.map((f) => ({ value: f, label: f, style: { fontFamily: f } }))}
+                    />
                     <label>{t('Fill image (click again to remove)')}</label>
                     <ImageStrip
                       img={selStyle.fillImg}
@@ -3910,16 +3898,11 @@ export default function MapView({
                       onChange={(e) => editSelectedStyle({ opacity: Number(e.target.value) })}
                     />
                     <label>{t('Line style')}</label>
-                    <select
+                    <Select
                       value={selStyle.dash ?? 'solid'}
-                      onChange={(e) => editSelectedStyle({ dash: e.target.value as LineDash })}
-                    >
-                      {LINE_DASHES.map((d) => (
-                        <option key={d} value={d}>
-                          {t(DASH_LABELS[d])}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(v) => editSelectedStyle({ dash: v as LineDash })}
+                      options={LINE_DASHES.map((d) => ({ value: d, label: t(DASH_LABELS[d]) }))}
+                    />
                     <label>{t('Curviness: {val}', { val: selStyle.curviness ?? 0 })}</label>
                     <input
                       type="range"
@@ -3930,16 +3913,11 @@ export default function MapView({
                       onChange={(e) => editSelectedStyle({ curviness: Number(e.target.value) })}
                     />
                     <label>{t('Direction arrow')}</label>
-                    <select
+                    <Select
                       value={selStyle.arrow ?? 'none'}
-                      onChange={(e) => editSelectedStyle({ arrow: e.target.value as LineArrow })}
-                    >
-                      {LINE_ARROWS.map((a) => (
-                        <option key={a} value={a}>
-                          {t(ARROW_LABELS[a])}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(v) => editSelectedStyle({ arrow: v as LineArrow })}
+                      options={LINE_ARROWS.map((a) => ({ value: a, label: t(ARROW_LABELS[a]) }))}
+                    />
                   </>
                 ) : selIsLabel ? (
                   <>
@@ -3955,17 +3933,12 @@ export default function MapView({
                       onChange={(color) => editSelectedStyle({ color })}
                     />
                     <label>{t('Label font')}</label>
-                    <select
+                    <Select
                       value={selStyle.font ?? 'Cinzel'}
                       style={{ fontFamily: selStyle.font ?? 'Cinzel' }}
-                      onChange={(e) => editSelectedStyle({ font: e.target.value })}
-                    >
-                      {FONTS.map((fnt) => (
-                        <option key={fnt} value={fnt} style={{ fontFamily: fnt }}>
-                          {fnt}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(v) => editSelectedStyle({ font: v })}
+                      options={FONTS.map((f) => ({ value: f, label: f, style: { fontFamily: f } }))}
+                    />
                     <label>{t('Size: ×{val}', { val: (selStyle.size ?? 1).toFixed(2) })}</label>
                     <input
                       type="range"
@@ -4125,10 +4098,10 @@ export default function MapView({
 
               <div className="panel-block">
                 <label>{t('Child map (door):')}</label>
-                <select
-                  value={selStyle.childMapId ?? ''}
-                  onChange={async (e) => {
-                    const childMapId = e.target.value ? Number(e.target.value) : undefined
+                <Select
+                  value={selStyle.childMapId ? String(selStyle.childMapId) : ''}
+                  onChange={async (v) => {
+                    const childMapId = v ? Number(v) : undefined
                     await api.updateFeature(selected.id, {
                       style: JSON.stringify({ ...selStyle, childMapId })
                     })
@@ -4136,16 +4109,13 @@ export default function MapView({
                     onChanged()
                     setSelected({ ...selected, style: JSON.stringify({ ...selStyle, childMapId }) })
                   }}
-                >
-                  <option value="">{t('— none —')}</option>
-                  {maps
-                    .filter((m) => m.id !== id)
-                    .map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                </select>
+                  options={[
+                    { value: '', label: t('— none —') },
+                    ...maps
+                      .filter((m) => m.id !== id)
+                      .map((m) => ({ value: String(m.id), label: m.name }))
+                  ]}
+                />
                 {selStyle.childMapId && (
                   <button className="mini" onClick={() => onNavigate(selStyle.childMapId!)}>
                     {t('Open map →')}

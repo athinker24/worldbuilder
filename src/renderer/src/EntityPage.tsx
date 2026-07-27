@@ -26,6 +26,7 @@ import { confirmDialog } from './dialog'
 import { deleteEntityWithUndo } from './entityOps'
 import FamilyTree from './FamilyTree'
 import Icon from './icons'
+import Select from './Select'
 import { useT } from './i18n'
 import { randomName } from './names'
 import { IconButton, Row, Section } from './ui'
@@ -786,7 +787,7 @@ export default function EntityPage({
       )}
 
       {!isPerson && (
-        <Section title={t('Rulers')} icon="crown">
+        <Section title={t('Rulers')} icon="crown" tone="warm">
           {rulers.map((r, i) => (
             <Row
               key={i}
@@ -848,7 +849,7 @@ export default function EntityPage({
       )}
 
       {!isPerson && (
-        <Section title={t('Ruling house')} icon="users" defaultOpen={houses.length > 0}>
+        <Section title={t('Ruling house')} icon="users" tone="warm" defaultOpen={houses.length > 0}>
           {houses.map((r, i) => (
             <Row
               key={i}
@@ -911,7 +912,7 @@ export default function EntityPage({
       {/* On a person the ruler relation is DERIVED (entered on the realm), so it
           is read-only here — the inverse of fields.ruler. */}
       {isPerson && rules.length > 0 && (
-        <Section title={t('Rules')} icon="crown">
+        <Section title={t('Rules')} icon="crown" tone="warm">
           {rules.map((r, i) => (
             <Row key={i} label={r.from === null ? t('start') : String(r.from)}>
               <a
@@ -929,19 +930,21 @@ export default function EntityPage({
       {isPerson && (
         <Section title={t('Life')} icon="calendar">
           <Row label={t('Gender')}>
-            <select
+            <Select
               value={genderValue}
-              onChange={(e) => {
+              placeholder="—"
+              onChange={(v) => {
                 const f = { ...fields }
-                if (e.target.value) f['gender'] = e.target.value
+                if (v) f['gender'] = v
                 else delete f['gender']
                 saveFields(f)
               }}
-            >
-              <option value="">—</option>
-              <option value="male">♂ {t('Male')}</option>
-              <option value="female">♀ {t('Female')}</option>
-            </select>
+              options={[
+                { value: '', label: '—' },
+                { value: 'male', label: `♂ ${t('Male')}` },
+                { value: 'female', label: `♀ ${t('Female')}` }
+              ]}
+            />
             {genderIsAuto && <span className="hint">{t('(auto from relations)')}</span>}
           </Row>
           {(['birth', 'death'] as const).map((k) => (
@@ -1126,7 +1129,7 @@ export default function EntityPage({
       {/* The OHM chronology pattern: where this entity is drawn, and when.
           Needs a host that can actually navigate to a map. */}
       {onLocateFeature && feats.length > 0 && (
-        <Section title={t('Map history')} icon="map-pin">
+        <Section title={t('Map history')} icon="map-pin" tone="warm">
           <div className="chrono-list">
             {feats.map((f) => {
               const s = JSON.parse(f.style || '{}') as { from?: number; to?: number }
@@ -1209,23 +1212,20 @@ export default function EntityPage({
             The applied name sits in fields['_tpl'] so the select shows it chosen. */}
         <div className="tpl-row">
           {tpls.length > 0 && (
-            <select
+            <Select
               value={
                 fields['_tpl'] && tpls.some((x) => x.name === fields['_tpl']) ? fields['_tpl'] : ''
               }
               title={t('Apply a template (adds missing fields only)')}
-              onChange={(e) => {
-                const x = tpls.find((y) => y.name === e.target.value)
+              onChange={(v) => {
+                const x = tpls.find((y) => y.name === v)
                 if (x) applyTemplate(x)
               }}
-            >
-              <option value="">{t('Apply template…')}</option>
-              {tpls.map((x) => (
-                <option key={x.name} value={x.name}>
-                  {x.name}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: t('Apply template…') },
+                ...tpls.map((x) => ({ value: x.name, label: x.name }))
+              ]}
+            />
           )}
           {tplDraft === null ? (
             <IconButton

@@ -15,6 +15,7 @@ import {
 } from './api'
 import { confirmDialog } from './dialog'
 import Icon from './icons'
+import Select from './Select'
 import { useT } from './i18n'
 import { IconButton, Section } from './ui'
 
@@ -107,12 +108,12 @@ export default function ProjectPreferences(): React.JSX.Element {
         </p>
         <div className="field-row" style={{ marginBottom: 8 }}>
           <span className="field-key">{t('Load preset')}</span>
-          <select
+          <Select
             value=""
             title={t('Adds example government forms and ladders (existing ones are kept)')}
-            onChange={(e) => {
-              const p = HIER_PRESETS.find((x) => x.name === e.target.value)
-              e.currentTarget.value = ''
+            placeholder={t('Add starter ladders…')}
+            onChange={(v) => {
+              const p = HIER_PRESETS.find((x) => x.name === v)
               if (!p) return
               const existing = new Set(hierCfg.govs.map((g) => g.name))
               const additions = p.govs.filter((g) => !existing.has(g.name))
@@ -120,14 +121,8 @@ export default function ProjectPreferences(): React.JSX.Element {
               updateHier({ ...hierCfg, govs: [...hierCfg.govs, ...additions] })
               setActiveGov(additions[0].name)
             }}
-          >
-            <option value="">{t('Add starter ladders…')}</option>
-            {HIER_PRESETS.map((p) => (
-              <option key={p.name} value={p.name}>
-                {t(p.name)}
-              </option>
-            ))}
-          </select>
+            options={HIER_PRESETS.map((p) => ({ value: p.name, label: t(p.name) }))}
+          />
         </div>
         <div className="hier-tags" style={{ marginBottom: 8 }}>
           {hierCfg.govs.map((g) => (

@@ -1,4 +1,5 @@
 import { Lang, saveLanguage, saveTheme, Theme } from './api'
+import Select from './Select'
 import { useT } from './i18n'
 import { Row, Section } from './ui'
 
@@ -27,30 +28,32 @@ export default function Preferences({
 
       <Section title={t('Language')}>
         <Row label={t('Interface language')}>
-          <select
+          <Select
             value={lang}
-            onChange={(e) => {
-              const next = e.target.value as Lang
+            onChange={(v) => {
+              const next = v as Lang
               onLangChange(next)
               saveLanguage(next)
             }}
-          >
-            <option value="en">English</option>
-            <option value="tr">Turkish</option>
-          </select>
+            options={[
+              { value: 'en', label: 'English' },
+              { value: 'tr', label: 'Turkish' }
+            ]}
+          />
         </Row>
         <Row label={t('Theme')}>
-          <select
+          <Select
             value={theme}
-            onChange={(e) => {
-              const next = e.target.value as Theme
+            onChange={(v) => {
+              const next = v as Theme
               onThemeChange(next)
               saveTheme(next)
             }}
-          >
-            <option value="dark">{t('Dark')}</option>
-            <option value="light">{t('Light')}</option>
-          </select>
+            options={[
+              { value: 'dark', label: t('Dark') },
+              { value: 'light', label: t('Light') }
+            ]}
+          />
         </Row>
       </Section>
 

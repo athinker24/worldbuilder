@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { PinImage } from './api'
 import ColorPicker from './ColorPicker'
-import { IconName } from './icons'
+import Icon, { IconName } from './icons'
 import { ImageStrip } from './pinIcons'
-import Icon from './icons'
+import Select from './Select'
 import { useT } from './i18n'
 
 export type Tool =
@@ -254,19 +254,14 @@ export default function ToolPanel({
               }
             />
             <label>{t('Label font')}</label>
-            <select
+            <Select
               value={settings.polygon.font}
               style={{ fontFamily: settings.polygon.font }}
-              onChange={(e) =>
-                onSettings({ ...settings, polygon: { ...settings.polygon, font: e.target.value } })
+              onChange={(v) =>
+                onSettings({ ...settings, polygon: { ...settings.polygon, font: v } })
               }
-            >
-              {FONTS.map((f) => (
-                <option key={f} value={f} style={{ fontFamily: f }}>
-                  {f}
-                </option>
-              ))}
-            </select>
+              options={FONTS.map((f) => ({ value: f, label: f, style: { fontFamily: f } }))}
+            />
             <label>{t('Fill image (click again to remove)')}</label>
             <ImageStrip
               img={settings.polygon.fillImg}
@@ -338,21 +333,13 @@ export default function ToolPanel({
               }
             />
             <label>{t('Line style')}</label>
-            <select
+            <Select
               value={settings.line.dash}
-              onChange={(e) =>
-                onSettings({
-                  ...settings,
-                  line: { ...settings.line, dash: e.target.value as LineDash }
-                })
+              onChange={(v) =>
+                onSettings({ ...settings, line: { ...settings.line, dash: v as LineDash } })
               }
-            >
-              {LINE_DASHES.map((d) => (
-                <option key={d} value={d}>
-                  {t(DASH_LABELS[d])}
-                </option>
-              ))}
-            </select>
+              options={LINE_DASHES.map((d) => ({ value: d, label: t(DASH_LABELS[d]) }))}
+            />
             <label>{t('Curviness: {val}', { val: settings.line.curviness })}</label>
             <input
               type="range"
@@ -371,21 +358,13 @@ export default function ToolPanel({
               {t('Curve appears after drawing; the live preview stays straight.')}
             </p>
             <label>{t('Direction arrow')}</label>
-            <select
+            <Select
               value={settings.line.arrow}
-              onChange={(e) =>
-                onSettings({
-                  ...settings,
-                  line: { ...settings.line, arrow: e.target.value as LineArrow }
-                })
+              onChange={(v) =>
+                onSettings({ ...settings, line: { ...settings.line, arrow: v as LineArrow } })
               }
-            >
-              {LINE_ARROWS.map((a) => (
-                <option key={a} value={a}>
-                  {t(ARROW_LABELS[a])}
-                </option>
-              ))}
-            </select>
+              options={LINE_ARROWS.map((a) => ({ value: a, label: t(ARROW_LABELS[a]) }))}
+            />
           </>
         )}
         {active === 'marker' && (
@@ -477,19 +456,12 @@ export default function ToolPanel({
               onChange={(color) => onSettings({ ...settings, label: { ...settings.label, color } })}
             />
             <label>{t('Label font')}</label>
-            <select
+            <Select
               value={settings.label.font}
               style={{ fontFamily: settings.label.font }}
-              onChange={(e) =>
-                onSettings({ ...settings, label: { ...settings.label, font: e.target.value } })
-              }
-            >
-              {FONTS.map((f) => (
-                <option key={f} value={f} style={{ fontFamily: f }}>
-                  {f}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => onSettings({ ...settings, label: { ...settings.label, font: v } })}
+              options={FONTS.map((f) => ({ value: f, label: f, style: { fontFamily: f } }))}
+            />
             <label>{t('Size: ×{val}', { val: settings.label.size.toFixed(2) })}</label>
             <input
               type="range"
