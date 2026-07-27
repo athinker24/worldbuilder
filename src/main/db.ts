@@ -182,13 +182,58 @@ export function packWorld(targetPath: string): void {
   renameSync(tmp, targetPath) // write to tmp then rename — a half-written file can never remain
 }
 
+/** Thrown when the chosen file is not one of our worlds. The renderer shows it as a message
+ *  rather than a crash, so the code is a stable string and not prose. */
+export const NOT_A_WORLD = 'NOT_A_WORLD'
+
+/** Is this file a world we can open? Checked BEFORE anything is overwritten.
+ *
+ *  Opening used to copy the file straight over world.db and only then try to open it. A file
+ *  that was not a database — a renamed .txt, a truncated download, a hostile file — threw at
+ *  that point with the working copy ALREADY destroyed and the live handle dead. Worse, the
+ *  garbage stayed at world.db, so the next launch threw in initDb before a window existed:
+ *  the app could not be started again at all, and ErrorBoundary (a renderer thing) could not
+ *  help. Verified in the db self-check.
+ *
+ *  Read-only so probing can never modify the candidate, and the missing-table case is what
+ *  separates one of our worlds from someone's unrelated SQLite file. */
+function probeWorldFile(sourcePath: string): void {
+  let probe: DatabaseSync | null = null
+  try {
+    probe = new DatabaseSync(sourcePath, { readOnly: true })
+    // An empty world is legitimate — these return no row. Only a MISSING table throws.
+    probe.prepare(`SELECT 1 FROM entities LIMIT 1`).get()
+    probe.prepare(`SELECT 1 FROM maps LIMIT 1`).get()
+    probe.prepare(`SELECT 1 FROM features LIMIT 1`).get()
+  } catch {
+    throw new Error(NOT_A_WORLD)
+  } finally {
+    probe?.close()
+  }
+}
+
 /** Open a .dunya file OVER the working copy (the current working copy is overwritten —
  *  the caller must confirm/back up first). Embedded images are extracted into assets/. */
 export function unpackWorld(sourcePath: string): void {
+  probeWorldFile(sourcePath) // throws before anything is touched
+  // Even past the probe, the copy + open is the one destructive step in the app. Keep the old
+  // working copy one file away and put it back if any part of it fails, so a failed open always
+  // ends with a live db and the world the user already had — never a half-replaced one.
+  const rescue = dbFile + '.rescue'
   db.close()
-  copyFileSync(sourcePath, dbFile)
-  db = new DatabaseSync(dbFile)
-  db.exec(SCHEMA)
+  copyFileSync(dbFile, rescue)
+  try {
+    copyFileSync(sourcePath, dbFile)
+    db = new DatabaseSync(dbFile)
+    db.exec(SCHEMA)
+  } catch (err) {
+    copyFileSync(rescue, dbFile)
+    db = new DatabaseSync(dbFile)
+    db.exec(SCHEMA)
+    rmSync(rescue, { force: true })
+    throw err
+  }
+  rmSync(rescue, { force: true })
   const hasAssets = db
     .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assets'`)
     .get()
@@ -263,6 +308,18 @@ function repairImportedJson(): number {
     isArray,
     `UPDATE maps SET layers = ? WHERE id = ?`,
     '[]'
+  )
+  // geometry was missing from this gate while fields/style/layers were covered, and it is
+  // parsed unguarded in eight places across MapView and Atlas — so one malformed geometry in a
+  // shared world took out the whole map render and the Atlas, which is exactly what this
+  // function exists to prevent. Reset to a degenerate Point rather than deleting the row: the
+  // rule here is that rows are never dropped, and a stray pin at the origin is visible and
+  // fixable, whereas a deleted drawing is silently gone.
+  repair(
+    db.prepare(`SELECT id, geometry AS v FROM features`).all() as { id: number; v: string }[],
+    isPlainObject,
+    `UPDATE features SET geometry = ? WHERE id = ?`,
+    '{"type":"Point","coordinates":[0,0]}'
   )
   // settings: some values are plain text ('dark', 'tr', a file path) — only JSON-LOOKING ones
   // (starting with { or [) are checked; a bad one is deleted so the code falls back to defaults
@@ -517,6 +574,27 @@ export const api = {
   entityFeatureIds(entityId: number): number[] {
     return (api.featuresByEntity(entityId) as { id: number }[]).map((r) => r.id)
   },
+  // Which article is drawn on which map, and on which board inside it. The sidebar groups
+  // articles by map from this. The relation is DERIVED from drawings rather than stored on
+  // the entity: an article gains a map by being drawn there and loses it when the drawing
+  // goes, with no field to keep in sync and nothing added to the schema — the same reasoning
+  // that keeps the de-jure chain in fields rather than in columns.
+  // Style carries the board id; it is small next to geom, which is why geom is not selected.
+  entityPlacements(): { entity_id: number; map_id: number; board: string | null }[] {
+    const rows = db
+      .prepare(`SELECT entity_id, map_id, style FROM features WHERE entity_id IS NOT NULL`)
+      .all() as { entity_id: number; map_id: number; style: string }[]
+    return rows.map((r) => {
+      let board: string | null = null
+      // repairImportedJson resets malformed style at the entry gate; this is belt and braces
+      try {
+        board = (JSON.parse(r.style || '{}') as { board?: string }).board ?? null
+      } catch {
+        board = null
+      }
+      return { entity_id: r.entity_id, map_id: r.map_id, board }
+    })
+  },
   // Hierarchy tags: the "hierarchy" key in the fields JSON, a comma-separated "#tag" list.
   // gov: "government" in fields (government form — parallel rank ladders).
   // fields is also returned as raw JSON: map modes (religion/language dimensions) and datalist
@@ -717,14 +795,35 @@ export const api = {
     }[]
     const maps = db.prepare(`SELECT id, name FROM maps`).all() as { id: number; name: string }[]
     const feats = db
-      .prepare(`SELECT DISTINCT map_id, entity_id FROM features WHERE entity_id IS NOT NULL`)
-      .all() as { map_id: number; entity_id: number }[]
+      .prepare(`SELECT map_id, entity_id, style FROM features WHERE entity_id IS NOT NULL`)
+      .all() as { map_id: number; entity_id: number; style: string }[]
 
     const mapName = new Map(maps.map((m) => [m.id, m.name]))
-    const entMaps = new Map<number, Set<number>>() // entity id → ids of maps it is drawn on
+    // entity id → map id → the board ids it is drawn on within that map (null = untagged).
+    // Mirrors the sidebar's two grouping tiers, so the .txt tree reads like the panel.
+    const entMaps = new Map<number, Map<number, Set<string | null>>>()
     for (const f of feats) {
-      if (!entMaps.has(f.entity_id)) entMaps.set(f.entity_id, new Set())
-      entMaps.get(f.entity_id)!.add(f.map_id)
+      let byMap = entMaps.get(f.entity_id)
+      if (!byMap) entMaps.set(f.entity_id, (byMap = new Map()))
+      let boards = byMap.get(f.map_id)
+      if (!boards) byMap.set(f.map_id, (boards = new Set()))
+      try {
+        boards.add((JSON.parse(f.style || '{}') as { board?: string }).board ?? null)
+      } catch {
+        boards.add(null)
+      }
+    }
+    // Board definitions per map (settings 'mapBoards'), for the level between map and folders.
+    const boardsOf = new Map<number, { id: string; name: string }[]>()
+    try {
+      const parsed = JSON.parse(api.getSetting('mapBoards') || '{}') as Record<
+        string,
+        { list?: { id: string; name: string }[] }
+      >
+      for (const [mid, v] of Object.entries(parsed))
+        if (Array.isArray(v?.list) && v.list.length) boardsOf.set(Number(mid), v.list)
+    } catch {
+      /* malformed setting → no board level, the tree just skips it */
     }
     const parseNotes = (fields: string): { title: string; content: string }[] => {
       try {
@@ -786,15 +885,31 @@ export const api = {
     for (const ent of ents) {
       const notes = parseNotes(ent.fields)
       if (!notes.length) continue
-      const mids = entMaps.get(ent.id)
-      const mapFolders =
-        mids && mids.size
-          ? [...mids].map((mid) => safe(mapName.get(mid) ?? '', `map-${mid}`))
-          : ['(no map)']
+      // The levels above the folder tree: <map>, plus <board> when that map has boards at all.
+      // A map without boards gets no board level, exactly as the sidebar shows no board tier
+      // for it; an orphan or missing board id falls to the first board (MapView's resolveBoard).
+      const byMap = entMaps.get(ent.id)
+      const placeDirs: string[][] = []
+      for (const [mid, boardIds] of byMap ?? []) {
+        const mSeg = safe(mapName.get(mid) ?? '', `map-${mid}`)
+        const list = boardsOf.get(mid)
+        if (!list) {
+          placeDirs.push([mSeg])
+          continue
+        }
+        const done = new Set<string>()
+        for (const b of boardIds) {
+          const def = list.find((x) => x.id === b) ?? list[0]
+          if (done.has(def.id)) continue
+          done.add(def.id)
+          placeDirs.push([mSeg, safe(def.name, 'board')])
+        }
+      }
+      if (!placeDirs.length) placeDirs.push(['(no map)'])
       const fPath = folderPath(folderOf(ent.fields))
-      for (const mf of mapFolders) {
+      for (const place of placeDirs) {
         // On a name clash in the same folder, disambiguate with the entity id
-        let entDir = join(notesDir, mf, ...fPath, safe(ent.name, `entity-${ent.id}`))
+        let entDir = join(notesDir, ...place, ...fPath, safe(ent.name, `entity-${ent.id}`))
         if (existsSync(entDir)) entDir += ` (#${ent.id})`
         mkdirSync(entDir, { recursive: true })
         const used = new Set<string>()
@@ -870,12 +985,20 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.equal(he.gov, 'feudal')
   assert.equal((JSON.parse(he.fields) as { religion: string }).religion, 'Islam')
   const m = api.createMap({ name: 'World' }) as { id: number }
-  api.createFeature({
+  const feat = api.createFeature({
     map_id: m.id,
     entity_id: a.id,
     geometry: '{"type":"Point","coordinates":[1,2]}'
-  })
+  }) as { id: number }
   assert.equal((api.getMap(m.id) as { features: unknown[] }).features.length, 1)
+  // entityPlacements: the sidebar's map grouping is derived from drawings, not from a field on
+  // the entity, so a drawn article must report its map and an undrawn one must not appear at all.
+  assert.deepEqual(api.entityPlacements(), [{ entity_id: a.id, map_id: m.id, board: null }])
+  api.updateFeature(feat.id, { style: JSON.stringify({ board: 'b1' }) })
+  assert.equal(api.entityPlacements()[0].board, 'b1') // board read out of the style JSON
+  api.updateFeature(feat.id, { style: 'not json' })
+  assert.equal(api.entityPlacements()[0].board, null) // malformed style must not throw
+  api.updateFeature(feat.id, { style: '{}' }) // restore: later checks share this fixture
   // exportNotes mirrors the SIDEBAR FOLDER TREE: a sits in the nested folder Realms/States and is
   // on the World map → notes/World/Realms/States/Test State/…; b is in no folder and on no map →
   // notes/(no map)/(no folder)/…
@@ -901,6 +1024,28 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     existsSync(join(dir, 'notes', '(no map)', '(no folder)', 'Test Dynasty', 'Wars.txt')),
     'a mapless, folderless entity must land under (no map)/(no folder)'
   )
+  // Boards become a level between map and folders — but ONLY for maps that have boards, which
+  // is why the assertions above (a boardless map) keep passing unchanged.
+  {
+    api.setSetting(
+      'mapBoards',
+      JSON.stringify({ [m.id]: { list: [{ id: 'b1', name: 'Borders' }], active: 'b1' } })
+    )
+    const e2 = api.exportNotes()
+    assert.equal(e2.files, 2) // same notes, deeper tree
+    assert.ok(
+      existsSync(
+        join(dir, 'notes', 'World', 'Borders', 'Realms', 'States', 'Test State', 'Founding.txt')
+      ),
+      'a board must sit between the map and the folder tree'
+    )
+    // The feature carries no board id, so it resolved to the first board rather than vanishing
+    assert.ok(
+      !existsSync(join(dir, 'notes', 'World', 'Realms')),
+      'the board level must not be skipped'
+    )
+    api.setSetting('mapBoards', '{}') // restore: later checks share this fixture
+  }
   // safe(): the Windows device name CON cannot be a folder → _CON; control chars become _.
   // Without these, exportNotes would blow up on Windows with EPERM or a wrong target.
   {
@@ -1058,6 +1203,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     bd.exec(`UPDATE entities SET fields = 'BOZUK{{'`)
     bd.exec(`UPDATE features SET style = '[1,2]'`) // valid JSON but an ARRAY — an object is expected
     bd.exec(`UPDATE maps SET layers = 'yok'`)
+    bd.exec(`UPDATE features SET geometry = '{"type":"Polygon" KESIK'`) // parsed unguarded in 8 places
     bd.exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('mapModes', '{bozuk')`)
     bd.exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('theme', 'dark')`)
     bd.close()
@@ -1067,11 +1213,39 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       '{}',
       'malformed fields must be repaired'
     )
-    const bm = api.getMap(m.id) as { layers: string; features: { style: string }[] }
+    const bm = api.getMap(m.id) as {
+      layers: string
+      features: { style: string; geometry: string }[]
+    }
     assert.equal(bm.features[0].style, '{}', 'malformed style must be repaired')
     assert.equal(bm.layers, '[]', 'malformed layers must be repaired')
     assert.equal(api.getSetting('mapModes'), null, 'a malformed JSON setting must be deleted')
     assert.equal(api.getSetting('theme'), 'dark', 'a plain-TEXT setting must survive (not JSON)')
+    // geometry was NOT covered by this gate once, and MapView/Atlas parse it without a try —
+    // one bad row took down the whole map render. It must come out parseable.
+    JSON.parse(bm.features[0].geometry) // throws the assertion for us if the repair regressed
+    assert.equal(
+      (JSON.parse(bm.features[0].geometry) as { type: string }).type,
+      'Point',
+      'malformed geometry must be repaired to a degenerate Point, not left as-is'
+    )
+  }
+  // A file that is NOT one of our worlds must be refused BEFORE anything is overwritten.
+  // Without the probe this destroyed world.db and the app could not be launched again at all:
+  // initDb threw on the garbage before a window existed, so ErrorBoundary could not help.
+  {
+    const notDb = join(dir, 'not-a-world.dunya')
+    writeFileSync(notDb, 'plain text wearing a .dunya extension')
+    const before = (api.listEntities() as unknown[]).length
+    assert.throws(() => unpackWorld(notDb), /NOT_A_WORLD/, 'a non-database must be refused')
+    assert.equal((api.listEntities() as unknown[]).length, before, 'the open world must survive')
+    // A real SQLite file that is not OURS is refused the same way (missing tables)
+    const stray = join(dir, 'stray.dunya')
+    const sd = new DatabaseSync(stray)
+    sd.exec(`CREATE TABLE notes (id INTEGER PRIMARY KEY)`)
+    sd.close()
+    assert.throws(() => unpackWorld(stray), /NOT_A_WORLD/, 'a foreign database must be refused')
+    assert.equal((api.listEntities() as unknown[]).length, before, 'the open world must survive')
   }
   // Blank launch: content is detected; after reset both db and assets are empty
   assert.ok(hasContent())

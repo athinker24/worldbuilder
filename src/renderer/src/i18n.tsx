@@ -4,14 +4,60 @@ import { Lang } from './api'
 // English is the canonical text used directly in JSX (t('Some Text')); this dictionary
 // only needs to hold the Turkish alternative. Missing keys fall back to the English text.
 const TR: Record<string, string> = {
+  'New note tab': 'Yeni not sekmesi',
+  'Long notes live in their own tabs — add one with ＋.':
+    'Uzun notlar kendi sekmelerinde yaşar — ＋ ile ekle.',
+  // "Fields" named the storage; these are the user's own structured properties.
+  Attributes: 'Özellikler',
+  'new attribute': 'yeni özellik',
+  'Delete attribute': 'Özelliği sil',
+  // Labels that lost a leading glyph to the icon set, plus the split empty states.
+  'Open…': 'Aç…',
+  'Person folder': 'Kişi klasörü',
+  'Show in panel': 'Panelde göster',
+  'Link to entity…': 'Maddeye bağla…',
+  map: 'harita',
+  'Pick an entity or a map from the left, or search with Ctrl+K.':
+    'Soldan bir madde ya da harita seç, ya da Ctrl+K ile ara.',
+  'Nothing to measure yet': 'Henüz ölçülecek bir şey yok',
+  'Draw base-rank polygons on a map, and set a map scale with the Scale tool to get real areas rather than map units.':
+    'Bir haritaya taban kademe poligonları çiz; harita birimi yerine gerçek alanlar için Ölçek aracıyla ölçeği ayarla.',
+  'no scale set — use the Scale tool on the map': 'ölçek atanmamış — haritada Ölçek aracı',
+  'Nothing recorded yet': 'Henüz kayıt yok',
+  'Add events from the map timeline, or a ruler’s reign from an entity page — both land here.':
+    'Harita zaman çizgisinden olay, madde sayfasından hükümdarlık ekle — ikisi de buraya düşer.',
+  'No relations yet': 'Henüz ilişki yok',
+  'Link two entities from the Relations section of an entity page and the web draws itself.':
+    'Bir madde sayfasının İlişkiler bölümünden iki maddeyi bağla, ağ kendiliğinden çizilir.',
+  'Removing only takes it out of this list; the file stays in your assets folder.':
+    'Kaldırmak yalnızca listeden çıkarır; dosya assets klasöründe kalır.',
+  // Map hint bars: the glyph became a leading <Icon>, so the key lost it.
+  'Click the conqueror — the picks join it…': 'Fethedene tıkla — seçtiklerin ona bağlanır…',
+  'Select polygons to join {name} ({n} selected)':
+    "{name}'e katılacak poligonları seç ({n} seçili)",
+  'Click the START pin…': 'Başlangıç pinine tıkla…',
+  'Now click the DESTINATION pin ({from} → …)': 'Şimdi varış pinine tıkla ({from} → …)',
+  'Click the FIRST point of a known distance…': 'Bilinen bir mesafenin İLK noktasına tıkla…',
+  'Now click the SECOND point…': 'Şimdi İKİNCİ noktaya tıkla…',
+  'Real distance between the two points:': 'İki nokta arasındaki gerçek mesafe:',
+  'Event name (year {n}):': 'Olay adı (yıl {n}):',
+  // Context-menu labels: the glyph moved out of the key and into MenuItem.icon.
+  'Change border from this year': 'Sınırı bu yıldan itibaren değiştir',
+  'Move mode': 'Taşı modu',
+  'Edit mode': 'Düzenle modu',
+  'Edit shape': 'Şekli düzenle',
+  'Draw polygon': 'Poligon çiz',
+  'Draw path': 'Yol çiz',
+  'Add label': 'Etiket ekle',
+  'Add event to this drawing': 'Bu çizime olay ekle',
+  'Add location': 'Konum ekle',
+  Open: 'Aç',
+  'Delete mode': 'Silme modu',
+  'Open map': 'Haritayı aç',
   // App.tsx
   'Search…  (Ctrl+K)': 'Ara…  (Ctrl+K)',
   Maps: 'Haritalar',
   'map name': 'harita adı',
-  '🗺 Open': '🗺 Aç',
-  '🗑 Delete': '🗑 Sil',
-  '✏️ Edit shape': '✏️ Şekli düzenle',
-  '✋ Move': '✋ Taşı',
   'Delete "{name}" and all drawings on it?':
     '"{name}" haritası ve üzerindeki tüm çizimler silinsin mi?',
   Entities: 'Maddeler',
@@ -19,15 +65,10 @@ const TR: Record<string, string> = {
   'New region': 'Yeni bölge',
   'New pin': 'Yeni pin',
   'New path': 'Yeni yol',
-  '📖 Open': '📖 Aç',
-  '📍 Show on map': '📍 Haritada göster',
   'Show on map': 'Haritada göster',
   'Search on map…': 'Haritada ara…',
   // Kenar çubuğu çalışma alanları + Overview sekmeleri (proje komutları artık File menüsünde)
-  '📊 Overview': '📊 Genel Bakış',
   Overview: 'Genel Bakış',
-  '🕸 Relations': '🕸 İlişkiler',
-  '⚙ Project Preferences': '⚙ Proje Tercihleri',
   'Project Preferences': 'Proje Tercihleri',
   Preferences: 'Tercihler',
   'Open a map first.': 'Önce bir harita aç.',
@@ -43,6 +84,7 @@ const TR: Record<string, string> = {
   'Auto-saved': 'Otomatik kaydedildi',
   // Kısayol yardımı (Shortcuts.tsx)
   '⌨ Shortcuts': '⌨ Kısayollar',
+  Shortcuts: 'Kısayollar',
   General: 'Genel',
   'Map — selection': 'Harita — seçim',
   'Map — copy': 'Harita — kopyalama',
@@ -90,12 +132,11 @@ const TR: Record<string, string> = {
   '{n} drawings selected': '{n} çizim seçili',
   'Edits apply to all selected drawings. Ctrl+click to add/remove.':
     'Düzenlemeler seçili tüm çizimlere uygulanır. Ctrl+tık ile ekle/çıkar.',
-  '📜 Chronology': '📜 Kronoloji',
+  Chronology: 'Kronoloji',
   'This will discard unsaved changes. Continue?':
     'Kaydedilmemiş değişiklikler kaybolacak. Devam edilsin mi?',
   // Başlangıç ekranı (son kullanılan .dunya dosyaları)
   '＋ New world': '＋ Yeni dünya',
-  '📂 Open…': '📂 Aç…',
   Recent: 'Son kullanılanlar',
   Presets: 'Hazır renkler', // renk seçicideki sabit altılı şerit (son kullanılanlardan ayrı)
   'No recent worlds yet — save one with Ctrl+S.':
@@ -104,14 +145,14 @@ const TR: Record<string, string> = {
   'File not found: {p}': 'Dosya bulunamadı: {p}',
   'Remove from list': 'Listeden çıkar',
   World: 'Dünya',
-  'Pick an entity or 🗺 Maps from the left, or search with Ctrl+K.':
-    'Soldan bir madde ya da 🗺 Haritalar seç, ya da Ctrl+K ile ara.',
   'This entity is not marked on any map yet.': 'Bu madde henüz hiçbir haritada işaretli değil.',
 
   // ProjectPreferences.tsx (eski Settings.tsx). Not dışa aktarma artık File ▸ Export ▸ Notes.
   'Exported {n} note file(s); opening the folder…': '{n} not dosyası yazıldı; klasör açılıyor…',
   Person: 'Kişi',
   'Hierarchy Ranks': 'Hiyerarşi Kademeleri',
+  'Move up': 'Yukarı taşı',
+  'Move down': 'Aşağı taşı',
   'Load preset': 'Hazır şablon',
   'Adds example government forms and ladders (existing ones are kept)':
     'Örnek yönetim biçimleri ve merdivenleri ekler (mevcutlar korunur)',
@@ -152,7 +193,6 @@ const TR: Record<string, string> = {
   Light: 'Açık',
 
   // Palette.tsx
-  '🗺 map': '🗺 harita',
   entity: 'madde',
   'Create new entity named "{query}"': '"{query}" adında yeni madde oluştur',
   'Search entity or map…': 'Madde ya da harita ara…',
@@ -221,7 +261,6 @@ const TR: Record<string, string> = {
   'Curve: {val}': 'Eğri: {val}',
   'Gentle curves read best; sharp ones crowd the letters.':
     'Hafif eğriler en okunaklısıdır; sert eğrilerde harfler sıkışır.',
-  '🏷 Add label': '🏷 Etiket ekle',
   'Exported to {path}': '{path} konumuna aktarıldı',
   Backup: 'Yedekleme',
   'A dated copy of world.db is made automatically once a day (last 30 days kept). Restoring is manual: with the app closed, copy a file from the backups folder over world.db.':
@@ -259,7 +298,26 @@ const TR: Record<string, string> = {
   'target entity': 'hedef madde',
   'Linked from here': 'Buraya bağlananlar',
   'mentions in content': 'içerikte anıyor',
-  '🗒 New tab': '🗒 Yeni sekme',
+  'New tab': 'Yeni sekme',
+  // Entity page — the identity rail's sections and rows. Emoji left the JSX for
+  // the SVG icon set, so these keys lost their glyphs; the English string IS the
+  // key, so a stale entry here silently falls back to English.
+  Identity: 'Kimlik',
+  Folder: 'Klasör',
+  Ranks: 'Kademeler',
+  Rulers: 'Hükümdarlar',
+  // Family / Life already exist further down (the dynasty block) — keys are unique.
+  Born: 'Doğum',
+  Died: 'Ölüm',
+  Fields: 'Alanlar',
+  'Delete field': 'Alanı sil',
+  'Open entity': 'Maddeyi aç',
+  'Open full page': 'Tam sayfayı aç',
+  'Independent — belongs to no other realm.': 'Bağımsız — başka bir ülkeye bağlı değil.',
+  Appearance: 'Görünüm',
+  Close: 'Kapat',
+  Expand: 'Genişlet',
+  Collapse: 'Daralt',
   'New note': 'Yeni not',
   'New folder': 'Yeni klasör',
   'Delete note "{name}"?': '"{name}" notu silinsin mi?',
@@ -267,12 +325,7 @@ const TR: Record<string, string> = {
   Sort: 'Sırala',
   Created: 'Oluşturulma',
   Modified: 'Değiştirilme',
-  '🗒 New note': '🗒 Yeni not',
-  '📁 New folder': '📁 Yeni klasör',
-  '✎ Rename': '✎ Yeniden adlandır',
   'Folder color': 'Klasör rengi',
-  '👤 Person folder': '👤 Kişi klasörü',
-  '👤 Person folder ✓': '👤 Kişi klasörü ✓',
   'Enlarge — center it on screen for reading': 'Büyüt — okumak için ekranın ortasına al',
   'Pin folders': 'Pin klasörleri',
   rank: 'kademe',
@@ -282,7 +335,19 @@ const TR: Record<string, string> = {
   'This region has no owner at that rank in this year.':
     'Bu bölgenin o yıl o kademede bir sahibi yok.',
   '(no folder)': '(klasörsüz)',
-  '＋ Note': '＋ Not',
+  '＋ Entity': '＋ Madde',
+  'Not on a map': 'Haritada değil',
+  Shape: 'Şekil',
+  Disc: 'Daire',
+  Ring: 'İçi boş daire',
+  'Ringed dot': 'Halkalı nokta',
+  Star: 'Yıldız',
+  Diamond: 'Başak',
+  Square: 'Kare',
+  Triangle: 'Üçgen',
+  Cross: 'Haç',
+  'Nothing drawn on this map yet.': 'Bu haritada henüz bir çizim yok.',
+  'Every article is on a map.': 'Bütün maddeler bir haritada.',
   '＋ Folder': '＋ Klasör',
   'Delete folder "{name}"? (articles are kept)': '"{name}" klasörü silinsin mi? (maddeler korunur)',
   'Add banner': 'Sancak ekle',
@@ -343,17 +408,13 @@ const TR: Record<string, string> = {
   end: 'bitiş',
   'event name (no location)': 'olay adı (konumsuz)',
   year: 'yıl',
-  '🕰 Time': '🕰 Zaman',
+  Time: 'Zaman',
 
   // Atlas.tsx ('📊 Atlas' iki dilde aynı)
   Year: 'Yıl',
   Realms: 'Devletler',
   'mapped area': 'haritalanmış alan',
   'mu²': 'hb²', // harita birimi² (ölçek yokken)
-  'no scale set — 📏 tool on the map': 'ölçek atanmamış — haritada 📏 aracı',
-  'No measurable regions yet. Draw base-rank polygons on a map (and set a map scale with the 📏 tool for real areas).':
-    'Henüz ölçülebilir bölge yok. Bir haritaya taban kademe poligonları çiz (gerçek alanlar için 📏 aracıyla harita ölçeği ata).',
-
   // Diplomacy.tsx
   'No relations between entities yet. Add links from the Relations tab of an entity page.':
     'Maddeler arasında henüz ilişki yok. Madde sayfasının İlişkiler sekmesinden bağ ekleyebilirsin.',
@@ -366,17 +427,8 @@ const TR: Record<string, string> = {
   // MapView.tsx
   'The slider must be within the year range the drawing exists (after its start).':
     'Slider, çizimin var olduğu yıl aralığının içinde (başlangıcından sonra) olmalı.',
-  '📖 Open entity': '📖 Maddeyi aç',
-  '🔍 Show in panel': '🔍 Panelde göster',
-  '🔗 Link to entity…': '🔗 Maddeye bağla…',
-  '🗺 Open map →': '🗺 Haritayı aç →',
   '⏳ Change border from this year': '⏳ Sınırı bu yıldan itibaren değiştir',
-  '📅 Add event to this drawing': '📅 Bu çizime olay ekle',
   '⬠ Draw polygon': '⬠ Poligon çiz',
-  '📍 Add location': '📍 Konum ekle',
-  '✏️ Edit mode': '✏️ Düzenle modu',
-  '✋ Move mode': '✋ Taşı modu',
-  '🗑 Delete mode': '🗑 Silme modu',
   'Could not load image. The file may be corrupt or in an unsupported format.':
     'Görsel yüklenemedi. Dosya bozuk ya da desteklenmeyen bir biçimde olabilir.',
   'Add base image': 'Zemin görseli ekle',
@@ -393,17 +445,13 @@ const TR: Record<string, string> = {
     'Her şey tek zeminde. Çizimleri katmanlara ayırmak için zemin ekle.',
   'Delete board "{name}"? Its drawings move to the first board.':
     '"{name}" zemini silinsin mi? Çizimleri ilk zemine taşınır.',
-  '⚔ Click the conqueror — the picks join it…': '⚔ Fethedene tıkla — seçtiklerin ona bağlanır…',
   conqueror: 'fetheden',
   takes: 'aldığı',
   'Which rank the conqueror is taken as': 'Fetheden hangi kademe olarak alınsın',
   'A region cannot conquer the realm it belongs to.':
     'Bir bölge bağlı olduğu üst devleti fethedemez.',
   cancel: 'iptal',
-  '⚔ Select polygons to join {name} ({n} selected)':
-    "⚔ {name}'e katılacak poligonları seç ({n} seçili)",
   OK: 'Tamam',
-  '📅 Event name (year {n}):': '📅 Olay adı (yıl {n}):',
   'event name': 'olay adı',
   add: 'ekle',
   'This entity has no drawing on the map.': 'Bu maddenin haritada çizimi yok.',
@@ -443,17 +491,12 @@ const TR: Record<string, string> = {
   Add: 'Ekle',
   'Pick two pins': 'İki pin seç',
   // ('Clear' ve 'Delete' anahtarları yukarıda zaten var)
-  '🧭 Click the START pin…': '🧭 Başlangıç pinine tıkla…',
-  '🧭 Now click the DESTINATION pin ({from} → …)': '🧭 Şimdi varış pinine tıkla ({from} → …)',
   'Route: {a} → {b}': 'Rota: {a} → {b}',
   '{val} days': '{val} gün',
   '(off-road)': '(yol dışı)',
   '(unnamed path)': '(adsız yol)',
   'No route — make sure the paths meet at a shared point.':
     'Rota yok — yolların ortak bir noktada birleştiğinden emin ol.',
-  '📏 Click the FIRST point of a known distance…': '📏 Bilinen bir mesafenin İLK noktasına tıkla…',
-  '📏 Now click the SECOND point…': '📏 Şimdi İKİNCİ noktaya tıkla…',
-  '📏 Real distance between the two points:': '📏 İki nokta arasındaki gerçek mesafe:',
   Finish: 'Bitir',
   'Distance: {val} {unit}': 'Mesafe: {val} {unit}',
   'Length: {val} {unit}': 'Uzunluk: {val} {unit}',

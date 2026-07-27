@@ -6,6 +6,7 @@ import {
   Entity,
   EntityRow,
   EntityTemplate,
+  folderColor,
   getHierConfig,
   getMapModes,
   getParents,
@@ -24,8 +25,11 @@ import ContextMenu, { MenuState } from './ContextMenu'
 import { confirmDialog } from './dialog'
 import { deleteEntityWithUndo } from './entityOps'
 import FamilyTree from './FamilyTree'
+import Icon from './icons'
+import Select from './Select'
 import { useT } from './i18n'
 import { randomName } from './names'
+import { IconButton, Row, Section } from './ui'
 import { pushUndo } from './undo'
 
 interface Props {
@@ -132,8 +136,6 @@ export default function EntityPage({
   // Reading mode: one note centered + enlarged over the page (long notes are hard to read in
   // the narrow column). Index of the note, or null.
   const [focusNote, setFocusNote] = useState<number | null>(null)
-  // Bottom section tab: one section visible at a time to keep the page uncluttered
-  const [section, setSection] = useState<'hier' | 'dynasty' | 'links'>('hier')
   // Notes region: context menu + indices of tabs in edit mode (local, not persisted)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [noteEdit, setNoteEdit] = useState<Set<number>>(new Set())
@@ -257,6 +259,12 @@ export default function EntityPage({
     if (next.length) f['notes'] = JSON.stringify(next)
     else delete f['notes']
     return saveFields(f)
+  }
+
+  // A new tab opens in edit mode — you added it to write in it.
+  const addNoteTab = (): void => {
+    setNoteEdit((prev) => new Set(prev).add(notes.length))
+    saveNoteTabs([...notes, { title: t('New note'), content: '', collapsed: false }])
   }
 
   const toggleNoteEdit = (i: number): void =>
@@ -442,57 +450,55 @@ export default function EntityPage({
   ): React.JSX.Element => {
     const cur = familyLinks(rel)
     return (
-      <div className="tag-row">
-        <span className="field-key">{label}</span>
-        <span className="chrono-list">
-          {cur.map((c) => (
-            <span className="tag-chip" key={c.linkId ?? `d${c.other}`}>
-              <a href="#" onClick={(e) => (e.preventDefault(), onOpen(c.other))}>
-                {c.name}
-              </a>
-              {c.linkId !== undefined && (
-                <button
-                  className="tag-x"
-                  onClick={async () => {
-                    const ref = { id: c.linkId as number }
-                    pushUndo({
-                      undo: async () => {
-                        ref.id = (await api.addLink(id, c.other, rel)).id
-                      },
-                      redo: () => api.deleteLink(ref.id)
-                    })
-                    await api.deleteLink(c.linkId as number)
-                    reloadFamily()
-                  }}
-                >
-                  ×
-                </button>
-              )}
-            </span>
-          ))}
-          {(!single || cur.length === 0) && (
-            <form
-              className="tag-add"
-              onSubmit={async (e) => {
-                e.preventDefault()
-                const form = e.currentTarget
-                const nm = (new FormData(form).get('name') as string) ?? ''
-                form.reset()
-                const target = await findOrCreate(nm)
-                if (target === null || target === id) return
-                await api.addLink(id, target, rel)
-                reloadFamily()
-              }}
-            >
-              <input name="name" list="person-list" placeholder={t('person…')} />
-              {dice(gen)}
-              <button className="mini" type="submit">
-                +
+      <Row label={label}>
+        {cur.map((c) => (
+          <span className="tag-chip" key={c.linkId ?? `d${c.other}`}>
+            <a href="#" onClick={(e) => (e.preventDefault(), onOpen(c.other))}>
+              {c.name}
+            </a>
+            {c.linkId !== undefined && (
+              <button
+                className="tag-x"
+                title={t('Remove')}
+                onClick={async () => {
+                  const ref = { id: c.linkId as number }
+                  pushUndo({
+                    undo: async () => {
+                      ref.id = (await api.addLink(id, c.other, rel)).id
+                    },
+                    redo: () => api.deleteLink(ref.id)
+                  })
+                  await api.deleteLink(c.linkId as number)
+                  reloadFamily()
+                }}
+              >
+                <Icon name="x" size={11} />
               </button>
-            </form>
-          )}
-        </span>
-      </div>
+            )}
+          </span>
+        ))}
+        {(!single || cur.length === 0) && (
+          <form
+            className="tag-add"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              const form = e.currentTarget
+              const nm = (new FormData(form).get('name') as string) ?? ''
+              form.reset()
+              const target = await findOrCreate(nm)
+              if (target === null || target === id) return
+              await api.addLink(id, target, rel)
+              reloadFamily()
+            }}
+          >
+            <input name="name" list="person-list" placeholder={t('person…')} />
+            {dice(gen)}
+            <button className="mini" type="submit" title={t('Add')}>
+              <Icon name="plus" size={12} />
+            </button>
+          </form>
+        )}
+      </Row>
     )
   }
 
@@ -590,84 +596,608 @@ export default function EntityPage({
     await reload()
   }
 
-  return (
-    <div className={compact ? 'page compact' : 'page'}>
-      {fields['banner'] ? (
-        <div className="banner">
-          <img src={assetUrl(fields['banner'])} alt="" />
-          <span className="banner-actions">
-            <button className="mini" title={t('Replace banner')} onClick={pickBanner}>
-              🖼
+  // Banner: 140px and it CARRIES the title (see .entity-banner + .entity-head).
+  // At 200px it pushed the name and every structural field below the fold.
+  const banner = fields['banner'] ? (
+    <div className="entity-banner">
+      <img src={assetUrl(fields['banner'])} alt="" />
+      <span className="banner-actions">
+        <IconButton icon="image" label={t('Replace banner')} onClick={pickBanner} />
+        <IconButton
+          icon="x"
+          label={t('Remove banner')}
+          danger
+          onClick={() => {
+            const f = { ...fields }
+            delete f['banner']
+            saveFields(f)
+          }}
+        />
+      </span>
+    </div>
+  ) : (
+    <button className="banner-add" onClick={pickBanner}>
+      <Icon name="image" size={14} />
+      {t('Add banner')}
+    </button>
+  )
+
+  // ---------------------------------------------------------------------------
+  // THE IDENTITY RAIL — everything that answers "what IS this?".
+  //
+  // It used to sit at the very bottom of the page behind a three-tab strip,
+  // below an arbitrarily long prose body: you had to scroll past the article to
+  // learn the entity was a duchy, who ruled it, or what it belonged to. It is
+  // now always visible beside the document.
+  //
+  // It is also the ONLY thing the map inspector renders. The full page and the
+  // inspector are two presentations of one object, so they share these sections
+  // verbatim rather than being styled to resemble each other.
+  // ---------------------------------------------------------------------------
+  const rail = (
+    <div className="entity-rail">
+      <Section title={t('Identity')} icon="landmark">
+        {myFolder && (
+          <Row label={t('Folder')}>
+            <span className="tag-chip">
+              <span className="dot" style={{ background: folderColor(folders, myFolder) }} />
+              {folders.find((f) => f.id === myFolder)?.name ?? ''}
+            </span>
+          </Row>
+        )}
+        <Row label={t('Ranks')}>
+          {tags.map((tag) => (
+            <span className="tag-chip" key={tag}>
+              {tag}
+              <button
+                className="tag-x"
+                title={t('Remove')}
+                onClick={() => saveTags(tags.filter((x) => x !== tag))}
+              >
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          ))}
+          <form
+            className="tag-add"
+            onSubmit={(e) => {
+              e.preventDefault()
+              addTag()
+            }}
+          >
+            <input
+              list="tag-list"
+              placeholder={t('county, religion, language…')}
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+            />
+            <datalist id="tag-list">
+              {allTags
+                .filter((tag) => !tags.includes(tag))
+                .map((tag) => (
+                  <option key={tag} value={tag} />
+                ))}
+            </datalist>
+            <button className="mini" type="submit" title={t('Add')}>
+              <Icon name="plus" size={12} />
             </button>
-            <button
-              className="mini danger"
-              title={t('Remove banner')}
-              onClick={() => {
+          </form>
+        </Row>
+        <Row label={t('Government form')}>
+          <input
+            list="gov-list"
+            placeholder={t('feudal, nomadic…')}
+            defaultValue={fields['government'] ?? ''}
+            key={`gov-${entity.id}-${entity.updated_at}`}
+            onBlur={(e) => {
+              const v = e.target.value.trim()
+              if (v === (fields['government'] ?? '')) return
+              const f = { ...fields }
+              if (v) f['government'] = v
+              else delete f['government']
+              saveFields(f)
+            }}
+          />
+          <datalist id="gov-list">
+            {allGovs.map((g) => (
+              <option key={g} value={g} />
+            ))}
+          </datalist>
+        </Row>
+        {/* Map-mode dimensions (religion, language, culture…) are SYSTEM fields:
+            they paint the map, so they live here rather than among free metadata. */}
+        {dims.map((d) => (
+          <Row label={d} key={d}>
+            <input
+              list={`dim-list-${d}`}
+              placeholder={t('value') + '…'}
+              defaultValue={fields[d] ?? ''}
+              key={`dim-${d}-${entity.id}-${entity.updated_at}`}
+              onBlur={(e) => {
+                const v = e.target.value.trim()
+                if (v === (fields[d] ?? '')) return
                 const f = { ...fields }
-                delete f['banner']
+                if (v) f[d] = v
+                else delete f[d]
                 saveFields(f)
               }}
+            />
+            <datalist id={`dim-list-${d}`}>
+              {(dimValues[d] ?? []).map((v) => (
+                <option key={v} value={v} />
+              ))}
+            </datalist>
+          </Row>
+        ))}
+      </Section>
+
+      {/* De-jure chain. The year is the row LABEL because this is a sequence in
+          time (barony → county → duchy), not a bag of tags. */}
+      {!isPerson && (
+        <Section title={t('Belongs to')} icon="map">
+          {parents.length === 0 && (
+            <p className="hint">{t('Independent — belongs to no other realm.')}</p>
+          )}
+          {parents.map((p, i) => (
+            <Row
+              key={i}
+              label={p.from === null ? t('start') : String(p.from)}
+              action={
+                <IconButton
+                  icon="x"
+                  label={t('Remove')}
+                  small
+                  onClick={() => saveParents(parents.filter((_, j) => j !== i))}
+                />
+              }
             >
-              ×
+              <a href="#" onClick={(e) => (e.preventDefault(), onOpen(p.id))}>
+                {allEntities.find((x) => x.id === p.id)?.name ?? `#${p.id}`}
+              </a>
+            </Row>
+          ))}
+          <form
+            className="tag-add"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const target = allEntities.find((en) => en.name === parentName.trim())
+              if (!target || target.id === id) return
+              const from = parentYear === '' ? null : Number(parentYear)
+              const next = parents.filter((p) => p.from !== from)
+              next.push({ from, id: target.id })
+              next.sort((a, b) => (a.from ?? -Infinity) - (b.from ?? -Infinity))
+              setParentName('')
+              setParentYear('')
+              saveParents(next)
+            }}
+          >
+            <input
+              list="entity-list"
+              placeholder={t('belongs to…')}
+              value={parentName}
+              onChange={(e) => setParentName(e.target.value)}
+            />
+            <input
+              type="number"
+              placeholder={t('year')}
+              title={t('year (blank=from start)')}
+              style={{ width: 72 }}
+              value={parentYear}
+              onChange={(e) => setParentYear(e.target.value)}
+            />
+            <button className="mini" type="submit" title={t('Add')}>
+              <Icon name="plus" size={12} />
             </button>
-          </span>
-        </div>
-      ) : (
-        <button className="banner-placeholder" onClick={pickBanner}>
-          🖼 {t('Add banner')}
-        </button>
+          </form>
+        </Section>
       )}
-      <div className="page-head">
-        <input
-          className="title-input"
-          defaultValue={entity.name}
-          key={`name-${entity.id}-${entity.updated_at}`}
-          onBlur={(e) =>
-            e.target.value !== entity.name &&
-            e.target.value.trim() &&
-            save({ name: e.target.value.trim() })
+
+      {!isPerson && (
+        <Section title={t('Rulers')} icon="crown">
+          {rulers.map((r, i) => (
+            <Row
+              key={i}
+              label={r.from === null ? t('start') : String(r.from)}
+              action={
+                <IconButton
+                  icon="x"
+                  label={t('Remove')}
+                  small
+                  onClick={() => saveRulers(rulers.filter((_, j) => j !== i))}
+                />
+              }
+            >
+              <a
+                href="#"
+                onClick={(e) => (e.preventDefault(), onOpen(r.id))}
+                title={t('Open entity')}
+              >
+                {allEntities.find((x) => x.id === r.id)?.name ?? `#${r.id}`}
+              </a>
+            </Row>
+          ))}
+          <form
+            className="tag-add"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              const nm = rulerName
+              const from = rulerYear === '' ? null : Number(rulerYear)
+              setRulerName('')
+              setRulerYear('')
+              const target = await findOrCreate(nm)
+              if (target === null || target === id) return
+              const next = rulers.filter((r) => r.from !== from)
+              next.push({ from, id: target })
+              next.sort((a, b) => (a.from ?? -Infinity) - (b.from ?? -Infinity))
+              saveRulers(next)
+            }}
+          >
+            <input
+              list="person-list"
+              placeholder={t('ruler (person)')}
+              value={rulerName}
+              onChange={(e) => setRulerName(e.target.value)}
+            />
+            {dice(null, setRulerName)}
+            <input
+              type="number"
+              placeholder={t('year')}
+              title={t('year (blank=from start)')}
+              style={{ width: 72 }}
+              value={rulerYear}
+              onChange={(e) => setRulerYear(e.target.value)}
+            />
+            <button className="mini" type="submit" title={t('Add')}>
+              <Icon name="plus" size={12} />
+            </button>
+          </form>
+        </Section>
+      )}
+
+      {!isPerson && (
+        <Section title={t('Ruling house')} icon="users" defaultOpen={houses.length > 0}>
+          {houses.map((r, i) => (
+            <Row
+              key={i}
+              label={r.from === null ? t('start') : String(r.from)}
+              action={
+                <IconButton
+                  icon="x"
+                  label={t('Remove')}
+                  small
+                  onClick={() => saveHouses(houses.filter((_, j) => j !== i))}
+                />
+              }
+            >
+              <a
+                href="#"
+                onClick={(e) => (e.preventDefault(), onOpen(r.id))}
+                title={t('Open entity')}
+              >
+                {allEntities.find((x) => x.id === r.id)?.name ?? `#${r.id}`}
+              </a>
+            </Row>
+          ))}
+          <form
+            className="tag-add"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              const nm = houseName
+              const from = houseYear === '' ? null : Number(houseYear)
+              setHouseName('')
+              setHouseYear('')
+              const target = await findOrCreatePlain(nm)
+              if (target === null || target === id) return
+              const next = houses.filter((r) => r.from !== from)
+              next.push({ from, id: target })
+              next.sort((a, b) => (a.from ?? -Infinity) - (b.from ?? -Infinity))
+              saveHouses(next)
+            }}
+          >
+            <input
+              list="entity-list"
+              placeholder={t('ruling house')}
+              value={houseName}
+              onChange={(e) => setHouseName(e.target.value)}
+            />
+            <input
+              type="number"
+              placeholder={t('year')}
+              title={t('year (blank=from start)')}
+              style={{ width: 72 }}
+              value={houseYear}
+              onChange={(e) => setHouseYear(e.target.value)}
+            />
+            <button className="mini" type="submit" title={t('Add')}>
+              <Icon name="plus" size={12} />
+            </button>
+          </form>
+        </Section>
+      )}
+
+      {/* On a person the ruler relation is DERIVED (entered on the realm), so it
+          is read-only here — the inverse of fields.ruler. */}
+      {isPerson && rules.length > 0 && (
+        <Section title={t('Rules')} icon="crown">
+          {rules.map((r, i) => (
+            <Row key={i} label={r.from === null ? t('start') : String(r.from)}>
+              <a
+                href="#"
+                onClick={(e) => (e.preventDefault(), onOpen(r.eid))}
+                title={t('Open entity')}
+              >
+                {r.name}
+              </a>
+            </Row>
+          ))}
+        </Section>
+      )}
+
+      {isPerson && (
+        <Section title={t('Life')} icon="calendar">
+          <Row label={t('Gender')}>
+            <Select
+              value={genderValue}
+              placeholder="—"
+              onChange={(v) => {
+                const f = { ...fields }
+                if (v) f['gender'] = v
+                else delete f['gender']
+                saveFields(f)
+              }}
+              options={[
+                { value: '', label: '—' },
+                { value: 'male', label: `♂ ${t('Male')}` },
+                { value: 'female', label: `♀ ${t('Female')}` }
+              ]}
+            />
+            {genderIsAuto && <span className="hint">{t('(auto from relations)')}</span>}
+          </Row>
+          {(['birth', 'death'] as const).map((k) => (
+            <Row label={k === 'birth' ? t('Born') : t('Died')} key={k}>
+              <input
+                key={`${k}${fields[k] ?? ''}`}
+                type="number"
+                placeholder={t('year')}
+                defaultValue={fields[k] ?? ''}
+                onBlur={(e) => {
+                  const f = { ...fields }
+                  const v = e.target.value.trim()
+                  if (v) f[k] = v
+                  else delete f[k]
+                  if ((fields[k] ?? '') !== v) saveFields(f)
+                }}
+              />
+            </Row>
+          ))}
+        </Section>
+      )}
+
+      {isPerson && (
+        <Section
+          title={t('Family')}
+          icon="users"
+          action={
+            <IconButton
+              icon="family-tree"
+              label={t('Family tree')}
+              small
+              onClick={() => setTreeOpen(true)}
+            />
           }
-        />
-        <button onClick={() => setEditing(!editing)}>{editing ? t('View') : t('Edit')}</button>
-        <button
-          className="danger"
-          onClick={async () => {
-            if (await deleteEntityWithUndo(id)) {
-              onChanged()
-              onDeleted()
-            }
+        >
+          {famRow(t('Mother'), 'mother', true, 'F')}
+          {famRow(t('Father'), 'father', true, 'M')}
+          {/* a spouse is assumed to be of the opposite gender; unknown → offer both */}
+          {famRow(
+            t('Spouse'),
+            'spouse',
+            false,
+            inferredGender === 'F' ? 'M' : inferredGender === 'M' ? 'F' : null
+          )}
+          {/* A child = a reversed link (child → this person). The relation becomes
+              mother/father by this person's gender (father assumed when unknown;
+              later ones correct themselves once a gender is set). */}
+          <Row label={t('Children')}>
+            {childLinks.map((l) => (
+              <span className="tag-chip" key={l.id}>
+                <a href="#" onClick={(e) => (e.preventDefault(), onOpen(l.from_id))}>
+                  {l.from_name}
+                </a>
+                <button
+                  className="tag-x"
+                  title={t('Remove')}
+                  onClick={async () => {
+                    const ref = { id: l.id }
+                    pushUndo({
+                      undo: async () => {
+                        ref.id = (await api.addLink(l.from_id, id, l.relation)).id
+                      },
+                      redo: () => api.deleteLink(ref.id)
+                    })
+                    await api.deleteLink(l.id)
+                    reloadFamily()
+                  }}
+                >
+                  <Icon name="x" size={11} />
+                </button>
+              </span>
+            ))}
+            <form
+              className="tag-add"
+              onSubmit={async (e) => {
+                e.preventDefault()
+                const form = e.currentTarget
+                const nm = (new FormData(form).get('name') as string) ?? ''
+                form.reset()
+                const child = await findOrCreate(nm)
+                if (child === null || child === id) return
+                const rel = inferredGender === 'F' ? 'mother' : 'father'
+                await api.addLink(child, id, rel)
+                reloadFamily()
+              }}
+            >
+              <input name="name" list="person-list" placeholder={t('child…')} />
+              {dice(null)}
+              <button className="mini" type="submit" title={t('Add')}>
+                <Icon name="plus" size={12} />
+              </button>
+            </form>
+          </Row>
+        </Section>
+      )}
+
+      {/* Relations. The old chain-of-rows read as a list of unrelated links; a
+          relation is a DIRECTED statement, so each item leads with the direction,
+          names the relation quietly and gives the entity the weight. Incoming and
+          mentions are the same shape pointing the other way. */}
+      <Section
+        title={t('Relations')}
+        icon="link"
+        defaultOpen={entity.outLinks.length + entity.inLinks.length > 0}
+      >
+        {entity.outLinks.map((l) => (
+          <div className="rel-item" key={l.id}>
+            <Icon name="arrow-right" size={13} className="rel-dir out" />
+            <span className="rel-text">
+              <span className="rel-verb">{l.relation}</span>
+              <a href="#" onClick={(e) => (e.preventDefault(), onOpen(l.to_id))}>
+                {l.to_name}
+              </a>
+            </span>
+            <span className="rel-action">
+              <IconButton
+                icon="unlink"
+                label={t('Remove')}
+                small
+                danger
+                onClick={async () => {
+                  const ref = { id: l.id }
+                  pushUndo({
+                    undo: async () => {
+                      ref.id = (await api.addLink(id, l.to_id, l.relation)).id
+                    },
+                    redo: () => api.deleteLink(ref.id)
+                  })
+                  await api.deleteLink(l.id)
+                  reload()
+                }}
+              />
+            </span>
+          </div>
+        ))}
+        {entity.inLinks.map((l) => (
+          <div className="rel-item" key={`in-${l.id}`}>
+            <Icon name="arrow-left" size={13} className="rel-dir" />
+            <span className="rel-text">
+              <span className="rel-verb">{l.relation}</span>
+              <a href="#" onClick={(e) => (e.preventDefault(), onOpen(l.from_id))}>
+                {l.from_name}
+              </a>
+            </span>
+          </div>
+        ))}
+        {entity.mentions.map((m) => (
+          <div className="rel-item" key={`m-${m.id}`}>
+            <Icon name="file-text" size={13} className="rel-dir" />
+            <span className="rel-text">
+              <span className="rel-verb">{t('mentions in content')}</span>
+              <a href="#" onClick={(e) => (e.preventDefault(), onOpen(m.id))}>
+                {m.name}
+              </a>
+            </span>
+          </div>
+        ))}
+        <form
+          className="tag-add"
+          onSubmit={(e) => {
+            e.preventDefault()
+            addLink()
           }}
         >
-          {t('Delete')}
-        </button>
-      </div>
+          <input
+            placeholder={t('relation (rules, member of…)')}
+            value={linkRelation}
+            onChange={(e) => setLinkRelation(e.target.value)}
+          />
+          <input
+            list="entity-list"
+            placeholder={t('target entity')}
+            value={linkTarget}
+            onChange={(e) => setLinkTarget(e.target.value)}
+          />
+          <button className="mini" type="submit" title={t('Add')}>
+            <Icon name="plus" size={12} />
+          </button>
+        </form>
+      </Section>
 
-      <div className="fields">
+      {/* The OHM chronology pattern: where this entity is drawn, and when.
+          Needs a host that can actually navigate to a map. */}
+      {onLocateFeature && feats.length > 0 && (
+        <Section title={t('Map history')} icon="map-pin">
+          <div className="chrono-list">
+            {feats.map((f) => {
+              const s = JSON.parse(f.style || '{}') as { from?: number; to?: number }
+              const range =
+                s.from === undefined && s.to === undefined
+                  ? t('always')
+                  : `${s.from ?? '…'} – ${s.to ?? '…'}`
+              return (
+                <button
+                  className="tag-chip clickable"
+                  key={f.id}
+                  title={t('Show on map')}
+                  onClick={() => onLocateFeature(f.map_id, f.id)}
+                >
+                  <Icon name="map" size={12} />
+                  {f.map_name} <span className="rail-year">({range})</span>
+                </button>
+              )
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* The user's OWN structured properties — height, skin colour, real-world
+          parallel. "Fields" described the storage, not what the user puts there. */}
+      <Section
+        title={t('Attributes')}
+        icon="file-text"
+        defaultOpen={Object.keys(fields).some(
+          (k) => !RESERVED_FIELDS.includes(k) && !dims.includes(k)
+        )}
+      >
         {Object.entries(fields)
-          .filter(([k]) => !RESERVED_FIELDS.includes(k) && !dims.includes(k)) // shown in their own sections
+          .filter(([k]) => !RESERVED_FIELDS.includes(k) && !dims.includes(k))
           .map(([k, v]) => (
-            <div className="field-row" key={k}>
-              <span className="field-key">{k}</span>
+            <Row
+              key={k}
+              label={k}
+              action={
+                <IconButton
+                  icon="x"
+                  label={t('Delete attribute')}
+                  small
+                  danger
+                  onClick={() => {
+                    const f = { ...fields }
+                    delete f[k]
+                    saveFields(f)
+                  }}
+                />
+              }
+            >
               <input
                 defaultValue={v}
                 onBlur={(e) =>
                   e.target.value !== v && saveFields({ ...fields, [k]: e.target.value })
                 }
               />
-              <button
-                className="mini danger"
-                onClick={() => {
-                  const f = { ...fields }
-                  delete f[k]
-                  saveFields(f)
-                }}
-              >
-                ×
-              </button>
-            </div>
+            </Row>
           ))}
         <form
-          className="field-row add"
+          className="tag-add"
           onSubmit={(e) => {
             e.preventDefault()
             const fd = new FormData(e.currentTarget)
@@ -678,42 +1208,37 @@ export default function EntityPage({
             }
           }}
         >
-          <input name="key" placeholder={t('new field')} />
+          <input name="key" placeholder={t('new attribute')} />
           <input name="value" placeholder={t('value')} />
-          <button className="mini" type="submit">
-            +
+          <button className="mini" type="submit" title={t('Add')}>
+            <Icon name="plus" size={12} />
           </button>
         </form>
-        {/* Template: adds missing fields (never overwrites), undone with Ctrl+Z. The applied
-            template's name sits in fields['_tpl'] — so the select shows it as chosen (informational). */}
+        {/* Template: ADDS missing fields, never overwrites; undone with Ctrl+Z.
+            The applied name sits in fields['_tpl'] so the select shows it chosen. */}
         <div className="tpl-row">
           {tpls.length > 0 && (
-            <select
+            <Select
               value={
                 fields['_tpl'] && tpls.some((x) => x.name === fields['_tpl']) ? fields['_tpl'] : ''
               }
               title={t('Apply a template (adds missing fields only)')}
-              onChange={(e) => {
-                const x = tpls.find((y) => y.name === e.target.value)
+              onChange={(v) => {
+                const x = tpls.find((y) => y.name === v)
                 if (x) applyTemplate(x)
               }}
-            >
-              <option value="">📋 {t('Apply template…')}</option>
-              {tpls.map((x) => (
-                <option key={x.name} value={x.name}>
-                  {x.name}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: t('Apply template…') },
+                ...tpls.map((x) => ({ value: x.name, label: x.name }))
+              ]}
+            />
           )}
           {tplDraft === null ? (
-            <button
-              className="mini"
-              title={t('Save this page’s fields as a reusable template')}
+            <IconButton
+              icon="template"
+              label={t('Save this page’s fields as a reusable template')}
               onClick={() => setTplDraft(entity.name)}
-            >
-              {t('Save as template')}
-            </button>
+            />
           ) : (
             <form
               className="tpl-save"
@@ -739,8 +1264,15 @@ export default function EntityPage({
             </form>
           )}
         </div>
-      </div>
+      </Section>
+    </div>
+  )
 
+  // The document column: the entity's own prose, its note tabs, and its links.
+  // Deliberately NOT in the inspector — a markdown editor and a stack of note
+  // tabs are unusable at 380px, and "Open full page" is one click away.
+  const doc = (
+    <div className="entity-doc">
       {editing ? (
         <textarea
           className="content-edit"
@@ -766,37 +1298,42 @@ export default function EntityPage({
       <div
         className="notes-region"
         onContextMenu={(e) => {
+          // Not while the pointer is in an editor or a rendered note: a textarea's own
+          // menu (copy, paste, spelling) is worth more there than a shortcut that now
+          // has a visible button.
+          if ((e.target as HTMLElement).closest('.note-body, .note-body-edit')) return
           e.preventDefault()
           e.stopPropagation()
           setMenu({
             x: e.clientX,
             y: e.clientY,
-            items: [
-              {
-                label: t('🗒 New tab'),
-                onClick: () => {
-                  setNoteEdit((prev) => new Set(prev).add(notes.length)) // a new tab opens in edit mode
-                  saveNoteTabs([...notes, { title: t('New note'), content: '', collapsed: false }])
-                }
-              }
-            ]
+            items: [{ icon: 'file-text', label: t('New tab'), onClick: addNoteTab }]
           })
         }}
       >
-        {notes.length === 0 && <p className="hint">{t('Right click → new tab for long notes.')}</p>}
+        {/* Right-click was the ONLY way to add a note, on a target that shrinks to a
+            sliver once a long note is open — so the action was effectively hidden.
+            The header states it; right-click stays as the shortcut. */}
+        <div className="notes-head">
+          <h4>{t('Notes')}</h4>
+          <IconButton icon="plus" label={t('New note tab')} small onClick={addNoteTab} />
+        </div>
+        {notes.length === 0 && (
+          <p className="hint">{t('Long notes live in their own tabs — add one with ＋.')}</p>
+        )}
         {notes.map((n, i) => (
           <div className="note-tab" key={i}>
             <div className="note-head">
-              <button
-                className="mini"
+              <IconButton
+                icon={n.collapsed ? 'chevron-right' : 'chevron-down'}
+                label={n.collapsed ? t('Expand') : t('Collapse')}
+                small
                 onClick={() =>
                   saveNoteTabs(
                     notes.map((x, j) => (j === i ? { ...x, collapsed: !x.collapsed } : x))
                   )
                 }
-              >
-                {n.collapsed ? '▸' : '▾'}
-              </button>
+              />
               <input
                 className="note-title"
                 defaultValue={n.title}
@@ -807,29 +1344,29 @@ export default function EntityPage({
                     saveNoteTabs(notes.map((x, j) => (j === i ? { ...x, title: v } : x)))
                 }}
               />
-              <button
-                className="mini"
-                title={t('Enlarge — center it on screen for reading')}
+              <IconButton
+                icon="maximize"
+                label={t('Enlarge — center it on screen for reading')}
+                small
                 onClick={() => setFocusNote(i)}
-              >
-                ⛶
-              </button>
-              <button
-                className="mini"
-                title={noteEdit.has(i) ? t('View') : t('Edit')}
+              />
+              <IconButton
+                icon={noteEdit.has(i) ? 'book-open' : 'pencil'}
+                label={noteEdit.has(i) ? t('View') : t('Edit')}
+                small
+                active={noteEdit.has(i)}
                 onClick={() => toggleNoteEdit(i)}
-              >
-                {noteEdit.has(i) ? '📖' : '✏️'}
-              </button>
-              <button
-                className="mini danger"
+              />
+              <IconButton
+                icon="trash"
+                label={t('Delete')}
+                small
+                danger
                 onClick={async () => {
                   if (await confirmDialog(t('Delete note "{name}"?', { name: n.title })))
                     saveNoteTabs(notes.filter((_, j) => j !== i))
                 }}
-              >
-                ×
-              </button>
+              />
             </div>
             {!n.collapsed &&
               (noteEdit.has(i) ? (
@@ -876,537 +1413,52 @@ export default function EntityPage({
           </div>
         ))}
       </div>
+    </div>
+  )
 
-      <div className="links-section">
-        <div className="hier-tabs">
-          {(
-            [
-              ['hier', t('Hierarchy')],
-              ['dynasty', t('Dynasty')],
-              ['links', t('Relations')]
-            ] as const
-          ).map(([key, label]) => (
+  // Shared by both presentations: the completion popup, the datalists every form
+  // above reads from, and the three overlays.
+  const overlays = (
+    <>
+      {/* [[ completion suggestions. onMouseDown preventDefault is REQUIRED: if the click
+          blurred the textarea, onBlur would save the old text, remount, and undo the insert. */}
+      {wikiSug && sugList.length > 0 && (
+        <div className="wiki-sug" style={{ left: wikiSug.x, top: wikiSug.y }}>
+          {sugList.map((en, i) => (
             <button
-              key={key}
-              className={`tag-chip clickable ${section === key ? 'active' : ''}`}
-              onClick={() => setSection(key)}
+              key={en.id}
+              type="button"
+              className={i === Math.min(sugIdx, sugList.length - 1) ? 'active' : undefined}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyWiki(en.name)}
             >
-              {label}
+              {en.name}
+              {en.folder && (
+                <span className="wiki-sug-type">
+                  {folders.find((f) => f.id === en.folder)?.name ?? ''}
+                </span>
+              )}
             </button>
           ))}
         </div>
-        {section === 'hier' && (
-          <>
-            <div className="tag-row">
-              {tags.map((tag) => (
-                <span className="tag-chip" key={tag}>
-                  {tag}
-                  <button className="tag-x" onClick={() => saveTags(tags.filter((x) => x !== tag))}>
-                    ×
-                  </button>
-                </span>
-              ))}
-              <form
-                className="tag-add"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  addTag()
-                }}
-              >
-                <input
-                  list="tag-list"
-                  placeholder={t('county, religion, language…')}
-                  value={tagInput}
-                  onChange={(e) => setTagInput(e.target.value)}
-                />
-                <datalist id="tag-list">
-                  {allTags
-                    .filter((tag) => !tags.includes(tag))
-                    .map((tag) => (
-                      <option key={tag} value={tag} />
-                    ))}
-                </datalist>
-                <button className="mini" type="submit">
-                  +
-                </button>
-              </form>
-            </div>
-            <div className="tag-row">
-              <span className="field-key">{t('Government form')}</span>
-              <input
-                list="gov-list"
-                placeholder={t('feudal, nomadic…')}
-                defaultValue={fields['government'] ?? ''}
-                key={`gov-${entity.id}-${entity.updated_at}`}
-                onBlur={(e) => {
-                  const v = e.target.value.trim()
-                  if (v === (fields['government'] ?? '')) return
-                  const f = { ...fields }
-                  if (v) f['government'] = v
-                  else delete f['government']
-                  saveFields(f)
-                }}
-              />
-              <datalist id="gov-list">
-                {allGovs.map((g) => (
-                  <option key={g} value={g} />
-                ))}
-              </datalist>
-            </div>
-            <div className="tag-row">
-              <span className="field-key">{t('Belongs to')}</span>
-              <span className="chrono-list">
-                {parents.map((p, i) => (
-                  <span className="tag-chip" key={i}>
-                    {p.from === null ? t('start') : t('year {n}', { n: p.from })} →{' '}
-                    {allEntities.find((x) => x.id === p.id)?.name ?? `#${p.id}`}
-                    <button
-                      className="tag-x"
-                      onClick={() => saveParents(parents.filter((_, j) => j !== i))}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-                <form
-                  className="tag-add"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    const target = allEntities.find((en) => en.name === parentName.trim())
-                    if (!target || target.id === id) return
-                    const from = parentYear === '' ? null : Number(parentYear)
-                    const next = parents.filter((p) => p.from !== from)
-                    next.push({ from, id: target.id })
-                    next.sort((a, b) => (a.from ?? -Infinity) - (b.from ?? -Infinity))
-                    setParentName('')
-                    setParentYear('')
-                    saveParents(next)
-                  }}
-                >
-                  <input
-                    list="entity-list"
-                    placeholder={t('belongs to…')}
-                    value={parentName}
-                    onChange={(e) => setParentName(e.target.value)}
-                  />
-                  <input
-                    type="number"
-                    placeholder={t('year (blank=from start)')}
-                    style={{ width: 110 }}
-                    value={parentYear}
-                    onChange={(e) => setParentYear(e.target.value)}
-                  />
-                  <button className="mini" type="submit">
-                    +
-                  </button>
-                </form>
-              </span>
-            </div>
-            {dims.map((d) => (
-              <div className="tag-row" key={d}>
-                <span className="field-key">{d}</span>
-                <input
-                  list={`dim-list-${d}`}
-                  placeholder={t('value') + '…'}
-                  defaultValue={fields[d] ?? ''}
-                  key={`dim-${d}-${entity.id}-${entity.updated_at}`}
-                  onBlur={(e) => {
-                    const v = e.target.value.trim()
-                    if (v === (fields[d] ?? '')) return
-                    const f = { ...fields }
-                    if (v) f[d] = v
-                    else delete f[d]
-                    saveFields(f)
-                  }}
-                />
-                <datalist id={`dim-list-${d}`}>
-                  {(dimValues[d] ?? []).map((v) => (
-                    <option key={v} value={v} />
-                  ))}
-                </datalist>
-              </div>
-            ))}
-            {!compact && feats.length > 0 && (
-              <div className="tag-row">
-                <span className="field-key">{t('Map history')}</span>
-                <span className="chrono-list">
-                  {feats.map((f) => {
-                    const s = JSON.parse(f.style || '{}') as { from?: number; to?: number }
-                    const range =
-                      s.from === undefined && s.to === undefined
-                        ? t('always')
-                        : `${s.from ?? '…'} – ${s.to ?? '…'}`
-                    return (
-                      <button
-                        className="tag-chip clickable"
-                        key={f.id}
-                        title={t('Show on map')}
-                        onClick={() => onLocateFeature?.(f.map_id, f.id)}
-                      >
-                        🗺 {f.map_name} ({range})
-                      </button>
-                    )
-                  })}
-                </span>
-              </div>
-            )}
-          </>
-        )}
+      )}
 
-        {section === 'dynasty' && (
-          <>
-            {isPerson && (
-              <div className="tag-row">
-                <button className="mini" title={t('Family tree')} onClick={() => setTreeOpen(true)}>
-                  🌳 {t('Family tree')}
-                </button>
-              </div>
-            )}
-            {isPerson ? (
-              // Ruler is not entered on a person; the states/regions they rule are derived and listed
-              rules.length > 0 && (
-                <div className="tag-row">
-                  <span className="field-key">{t('Rules')}</span>
-                  <span className="chrono-list">
-                    {rules.map((r, i) => (
-                      <button
-                        className="tag-chip clickable"
-                        key={i}
-                        title={t('📖 Open entity')}
-                        onClick={() => onOpen(r.eid)}
-                      >
-                        {r.from === null ? t('start') : t('year {n}', { n: r.from })} → {r.name}
-                      </button>
-                    ))}
-                  </span>
-                </div>
-              )
-            ) : (
-              <div className="tag-row">
-                <span className="field-key">{t('Ruler')}</span>
-                <span className="chrono-list">
-                  {rulers.map((r, i) => (
-                    <span className="tag-chip" key={i}>
-                      {r.from === null ? t('start') : t('year {n}', { n: r.from })} →{' '}
-                      <a
-                        href="#"
-                        onClick={(e) => (e.preventDefault(), onOpen(r.id))}
-                        title={t('📖 Open entity')}
-                      >
-                        {allEntities.find((x) => x.id === r.id)?.name ?? `#${r.id}`}
-                      </a>
-                      <button
-                        className="tag-x"
-                        onClick={() => saveRulers(rulers.filter((_, j) => j !== i))}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                  <form
-                    className="tag-add"
-                    onSubmit={async (e) => {
-                      e.preventDefault()
-                      const nm = rulerName
-                      const from = rulerYear === '' ? null : Number(rulerYear)
-                      setRulerName('')
-                      setRulerYear('')
-                      const target = await findOrCreate(nm)
-                      if (target === null || target === id) return
-                      const next = rulers.filter((r) => r.from !== from)
-                      next.push({ from, id: target })
-                      next.sort((a, b) => (a.from ?? -Infinity) - (b.from ?? -Infinity))
-                      saveRulers(next)
-                    }}
-                  >
-                    <input
-                      list="person-list"
-                      placeholder={t('ruler (person)')}
-                      value={rulerName}
-                      onChange={(e) => setRulerName(e.target.value)}
-                    />
-                    {dice(null, setRulerName)}
-                    <input
-                      type="number"
-                      placeholder={t('year (blank=from start)')}
-                      style={{ width: 110 }}
-                      value={rulerYear}
-                      onChange={(e) => setRulerYear(e.target.value)}
-                    />
-                    <button className="mini" type="submit">
-                      +
-                    </button>
-                  </form>
-                </span>
-              </div>
-            )}
-            {!isPerson && (
-              // Ruling house: next to ruler on non-person entities; the house is its own entity
-              <div className="tag-row">
-                <span className="field-key">{t('Ruling house')}</span>
-                <span className="chrono-list">
-                  {houses.map((r, i) => (
-                    <span className="tag-chip" key={i}>
-                      {r.from === null ? t('start') : t('year {n}', { n: r.from })} →{' '}
-                      <a
-                        href="#"
-                        onClick={(e) => (e.preventDefault(), onOpen(r.id))}
-                        title={t('📖 Open entity')}
-                      >
-                        {allEntities.find((x) => x.id === r.id)?.name ?? `#${r.id}`}
-                      </a>
-                      <button
-                        className="tag-x"
-                        onClick={() => saveHouses(houses.filter((_, j) => j !== i))}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                  <form
-                    className="tag-add"
-                    onSubmit={async (e) => {
-                      e.preventDefault()
-                      const nm = houseName
-                      const from = houseYear === '' ? null : Number(houseYear)
-                      setHouseName('')
-                      setHouseYear('')
-                      const target = await findOrCreatePlain(nm)
-                      if (target === null || target === id) return
-                      const next = houses.filter((r) => r.from !== from)
-                      next.push({ from, id: target })
-                      next.sort((a, b) => (a.from ?? -Infinity) - (b.from ?? -Infinity))
-                      saveHouses(next)
-                    }}
-                  >
-                    <input
-                      list="entity-list"
-                      placeholder={t('ruling house')}
-                      value={houseName}
-                      onChange={(e) => setHouseName(e.target.value)}
-                    />
-                    <input
-                      type="number"
-                      placeholder={t('year (blank=from start)')}
-                      style={{ width: 110 }}
-                      value={houseYear}
-                      onChange={(e) => setHouseYear(e.target.value)}
-                    />
-                    <button className="mini" type="submit">
-                      +
-                    </button>
-                  </form>
-                </span>
-              </div>
-            )}
-            {isPerson && (
-              <>
-                <div className="tag-row">
-                  <span className="field-key">{t('Gender')}</span>
-                  <select
-                    value={genderValue}
-                    onChange={(e) => {
-                      const f = { ...fields }
-                      if (e.target.value) f['gender'] = e.target.value
-                      else delete f['gender']
-                      saveFields(f)
-                    }}
-                  >
-                    <option value="">—</option>
-                    <option value="male">♂ {t('Male')}</option>
-                    <option value="female">♀ {t('Female')}</option>
-                  </select>
-                  {genderIsAuto && <span className="hint">{t('(auto from relations)')}</span>}
-                </div>
-                <div className="tag-row">
-                  <span className="field-key">{t('Life')}</span>
-                  {(['birth', 'death'] as const).map((k) => (
-                    <input
-                      key={`${k}${fields[k] ?? ''}`}
-                      type="number"
-                      style={{ width: 110 }}
-                      placeholder={k === 'birth' ? t('birth year') : t('death year')}
-                      defaultValue={fields[k] ?? ''}
-                      onBlur={(e) => {
-                        const f = { ...fields }
-                        const v = e.target.value.trim()
-                        if (v) f[k] = v
-                        else delete f[k]
-                        if ((fields[k] ?? '') !== v) saveFields(f)
-                      }}
-                    />
-                  ))}
-                </div>
-                {famRow(t('Mother'), 'mother', true, 'F')}
-                {famRow(t('Father'), 'father', true, 'M')}
-                {/* a spouse is assumed to be of the opposite gender; unknown → offer both */}
-                {famRow(
-                  t('Spouse'),
-                  'spouse',
-                  false,
-                  inferredGender === 'F' ? 'M' : inferredGender === 'M' ? 'F' : null
-                )}
-                {/* A child = a reversed link (child → this person). The relation becomes
-                    mother/father by this person's gender (father assumed when unknown; later
-                    ones correct themselves once a gender is set). */}
-                <div className="tag-row">
-                  <span className="field-key">{t('Children')}</span>
-                  <span className="chrono-list">
-                    {childLinks.map((l) => (
-                      <span className="tag-chip" key={l.id}>
-                        <a href="#" onClick={(e) => (e.preventDefault(), onOpen(l.from_id))}>
-                          {l.from_name}
-                        </a>
-                        <button
-                          className="tag-x"
-                          onClick={async () => {
-                            const ref = { id: l.id }
-                            pushUndo({
-                              undo: async () => {
-                                ref.id = (await api.addLink(l.from_id, id, l.relation)).id
-                              },
-                              redo: () => api.deleteLink(ref.id)
-                            })
-                            await api.deleteLink(l.id)
-                            reloadFamily()
-                          }}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                    <form
-                      className="tag-add"
-                      onSubmit={async (e) => {
-                        e.preventDefault()
-                        const form = e.currentTarget
-                        const nm = (new FormData(form).get('name') as string) ?? ''
-                        form.reset()
-                        const child = await findOrCreate(nm)
-                        if (child === null || child === id) return
-                        // Relation by this person's (inferred) gender: female→mother, else father
-                        const rel = inferredGender === 'F' ? 'mother' : 'father'
-                        await api.addLink(child, id, rel)
-                        reloadFamily()
-                      }}
-                    >
-                      <input name="name" list="person-list" placeholder={t('child…')} />
-                      {dice(null)}
-                      <button className="mini" type="submit">
-                        +
-                      </button>
-                    </form>
-                  </span>
-                </div>
-              </>
-            )}
-          </>
-        )}
+      {/* The Parent/Ruler/Family/Links forms all read these, whichever is on screen */}
+      <datalist id="entity-list">
+        {allEntities
+          .filter((en) => en.id !== id)
+          .map((en) => (
+            <option key={en.id} value={en.name} />
+          ))}
+      </datalist>
+      <datalist id="person-list">
+        {personEntities
+          .filter((en) => en.id !== id)
+          .map((en) => (
+            <option key={en.id} value={en.name} />
+          ))}
+      </datalist>
 
-        {section === 'links' && (
-          <>
-            {entity.outLinks.map((l) => (
-              <div className="link-row" key={l.id}>
-                <span className="relation">{l.relation}</span>
-                <a href="#" onClick={(e) => (e.preventDefault(), onOpen(l.to_id))}>
-                  {l.to_name}
-                </a>
-                <button
-                  className="mini danger"
-                  onClick={async () => {
-                    const ref = { id: l.id }
-                    pushUndo({
-                      undo: async () => {
-                        ref.id = (await api.addLink(id, l.to_id, l.relation)).id
-                      },
-                      redo: () => api.deleteLink(ref.id)
-                    })
-                    await api.deleteLink(l.id)
-                    reload()
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-            <div className="link-row add">
-              <input
-                placeholder={t('relation (rules, member of…)')}
-                value={linkRelation}
-                onChange={(e) => setLinkRelation(e.target.value)}
-              />
-              <input
-                list="entity-list"
-                placeholder={t('target entity')}
-                value={linkTarget}
-                onChange={(e) => setLinkTarget(e.target.value)}
-              />
-              <button className="mini" onClick={addLink}>
-                +
-              </button>
-            </div>
-
-            {(entity.inLinks.length > 0 || entity.mentions.length > 0) && (
-              <h3>{t('Linked from here')}</h3>
-            )}
-            {entity.inLinks.map((l) => (
-              <div className="link-row" key={l.id}>
-                <a href="#" onClick={(e) => (e.preventDefault(), onOpen(l.from_id))}>
-                  {l.from_name}
-                </a>
-                <span className="relation">{l.relation}</span>
-              </div>
-            ))}
-            {entity.mentions.map((m) => (
-              <div className="link-row" key={`m-${m.id}`}>
-                <a href="#" onClick={(e) => (e.preventDefault(), onOpen(m.id))}>
-                  {m.name}
-                </a>
-                <span className="relation">{t('mentions in content')}</span>
-              </div>
-            ))}
-          </>
-        )}
-
-        {/* [[ completion suggestions. onMouseDown preventDefault is REQUIRED: if the click
-            blurred the textarea, onBlur would save the old text, remount, and undo the insert. */}
-        {wikiSug && sugList.length > 0 && (
-          <div className="wiki-sug" style={{ left: wikiSug.x, top: wikiSug.y }}>
-            {sugList.map((en, i) => (
-              <button
-                key={en.id}
-                type="button"
-                className={i === Math.min(sugIdx, sugList.length - 1) ? 'active' : undefined}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => applyWiki(en.name)}
-              >
-                {en.name}
-                {en.folder && (
-                  <span className="wiki-sug-type">
-                    {folders.find((f) => f.id === en.folder)?.name ?? ''}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* The Parent/Ruler/Family/Links forms use this list whichever tab is open */}
-        <datalist id="entity-list">
-          {allEntities
-            .filter((en) => en.id !== id)
-            .map((en) => (
-              <option key={en.id} value={en.name} />
-            ))}
-        </datalist>
-        <datalist id="person-list">
-          {personEntities
-            .filter((en) => en.id !== id)
-            .map((en) => (
-              <option key={en.id} value={en.name} />
-            ))}
-        </datalist>
-      </div>
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
       {/* Enlarged note: centered over the page for comfortable reading of long notes.
           Click the backdrop or press Esc to close; editing works the same as inline. */}
@@ -1420,16 +1472,13 @@ export default function EntityPage({
               <div className="note-focus" onClick={(e) => e.stopPropagation()}>
                 <div className="note-focus-head">
                   <span className="note-focus-title">{n.title}</span>
-                  <button
-                    className="mini"
-                    title={noteEdit.has(fi) ? t('View') : t('Edit')}
+                  <IconButton
+                    icon={noteEdit.has(fi) ? 'book-open' : 'pencil'}
+                    label={noteEdit.has(fi) ? t('View') : t('Edit')}
+                    active={noteEdit.has(fi)}
                     onClick={() => toggleNoteEdit(fi)}
-                  >
-                    {noteEdit.has(fi) ? '📖' : '✏️'}
-                  </button>
-                  <button className="mini" onClick={() => setFocusNote(null)}>
-                    ×
-                  </button>
+                  />
+                  <IconButton icon="x" label={t('Close')} onClick={() => setFocusNote(null)} />
                 </div>
                 {noteEdit.has(fi) ? (
                   <textarea
@@ -1463,6 +1512,74 @@ export default function EntityPage({
       {treeOpen && (
         <FamilyTree rootId={id} onOpenEntity={onOpen} onClose={() => setTreeOpen(false)} />
       )}
+    </>
+  )
+
+  // The inspector presentation: the rail alone. `compact` no longer means "the
+  // same page squeezed into 380px" — it means the identity of this object,
+  // without its document.
+  if (compact)
+    return (
+      <>
+        <div className="entity-compact-head">
+          <input
+            className="entity-title sm"
+            defaultValue={entity.name}
+            key={`name-${entity.id}-${entity.updated_at}`}
+            onBlur={(e) =>
+              e.target.value !== entity.name &&
+              e.target.value.trim() &&
+              save({ name: e.target.value.trim() })
+            }
+          />
+          <IconButton
+            icon="arrow-up-right"
+            label={t('Open full page')}
+            onClick={() => onOpen(id)}
+          />
+        </div>
+        {rail}
+        {overlays}
+      </>
+    )
+
+  return (
+    <div className="entity-page">
+      {banner}
+      <div className="entity-head">
+        <input
+          className="entity-title"
+          defaultValue={entity.name}
+          key={`name-${entity.id}-${entity.updated_at}`}
+          onBlur={(e) =>
+            e.target.value !== entity.name &&
+            e.target.value.trim() &&
+            save({ name: e.target.value.trim() })
+          }
+        />
+        <IconButton
+          icon={editing ? 'book-open' : 'pencil'}
+          label={editing ? t('View') : t('Edit')}
+          active={editing}
+          onClick={() => setEditing(!editing)}
+        />
+        <IconButton
+          icon="trash"
+          label={t('Delete')}
+          danger
+          onClick={async () => {
+            if (await deleteEntityWithUndo(id)) {
+              onChanged()
+              onDeleted()
+            }
+          }}
+        />
+      </div>
+      <div className="entity-body">
+        {doc}
+        {rail}
+      </div>
+      {overlays}
     </div>
   )
 }

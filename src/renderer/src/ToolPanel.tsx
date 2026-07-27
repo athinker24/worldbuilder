@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { PinImage } from './api'
 import ColorPicker from './ColorPicker'
-import { ImageStrip } from './pinIcons'
+import Icon, { IconName } from './icons'
+import { ImageStrip, PinShape, PinShapePicker } from './pinIcons'
+import Select from './Select'
 import { useT } from './i18n'
 
 export type Tool =
@@ -41,6 +43,7 @@ export interface DrawSettings {
   marker: {
     size: number
     color: string
+    shape?: PinShape
     img?: string
     imgFree?: boolean
     imgAR?: number
@@ -104,39 +107,40 @@ const fmtNav = (v: number): string =>
 export const FONTS = ['Cinzel', 'IM Fell English', 'MedievalSharp', 'Uncial Antiqua', 'system-ui']
 
 // Exported so MapToolbar can show the same icon and name for the subset it displays — one source
-// for tool labels, whichever container renders the buttons.
-export const TOOLS: { key: Tool; icon: string; name: string; hint?: string }[] = [
-  { key: 'polygon', icon: '⬠', name: 'Polygon' },
-  { key: 'line', icon: '〰', name: 'Path', hint: 'Draw roads, routes, borders as lines.' },
-  { key: 'marker', icon: '📍', name: 'Location' },
+// for tool labels, whichever container renders the buttons. Drawing tools carry the icon of the
+// SHAPE they produce, so the palette reads as its own output.
+export const TOOLS: { key: Tool; icon: IconName; name: string; hint?: string }[] = [
+  { key: 'polygon', icon: 'polygon', name: 'Polygon' },
+  { key: 'line', icon: 'path', name: 'Path', hint: 'Draw roads, routes, borders as lines.' },
+  { key: 'marker', icon: 'map-pin', name: 'Location' },
   {
     key: 'label',
-    icon: '🏷',
+    icon: 'label',
     name: 'Label',
     hint: 'Free text on the map — name seas, mountain ranges, regions.'
   },
   {
     key: 'scale',
-    icon: '📏',
+    icon: 'ruler',
     name: 'Scale',
     hint: 'Set the map scale; measure distance and area without drawing.'
   },
   {
     key: 'nav',
-    icon: '🧭',
+    icon: 'map',
     name: 'Navigate',
     hint: 'Pick two pins; the route follows your drawn paths.'
   },
   {
     key: 'edit',
-    icon: '✏️',
+    icon: 'pencil',
     name: 'Edit',
     hint: 'Drag the corner points of drawings to change their shape.'
   },
-  { key: 'drag', icon: '✋', name: 'Move', hint: 'Drag drawings to move them.' },
+  { key: 'drag', icon: 'maximize', name: 'Move', hint: 'Drag drawings to move them.' },
   {
     key: 'remove',
-    icon: '🗑',
+    icon: 'trash',
     name: 'Delete',
     hint: 'Clicked drawing is deleted (undo with Ctrl+Z).'
   }
@@ -251,19 +255,14 @@ export default function ToolPanel({
               }
             />
             <label>{t('Label font')}</label>
-            <select
+            <Select
               value={settings.polygon.font}
               style={{ fontFamily: settings.polygon.font }}
-              onChange={(e) =>
-                onSettings({ ...settings, polygon: { ...settings.polygon, font: e.target.value } })
+              onChange={(v) =>
+                onSettings({ ...settings, polygon: { ...settings.polygon, font: v } })
               }
-            >
-              {FONTS.map((f) => (
-                <option key={f} value={f} style={{ fontFamily: f }}>
-                  {f}
-                </option>
-              ))}
-            </select>
+              options={FONTS.map((f) => ({ value: f, label: f, style: { fontFamily: f } }))}
+            />
             <label>{t('Fill image (click again to remove)')}</label>
             <ImageStrip
               img={settings.polygon.fillImg}
@@ -335,21 +334,13 @@ export default function ToolPanel({
               }
             />
             <label>{t('Line style')}</label>
-            <select
+            <Select
               value={settings.line.dash}
-              onChange={(e) =>
-                onSettings({
-                  ...settings,
-                  line: { ...settings.line, dash: e.target.value as LineDash }
-                })
+              onChange={(v) =>
+                onSettings({ ...settings, line: { ...settings.line, dash: v as LineDash } })
               }
-            >
-              {LINE_DASHES.map((d) => (
-                <option key={d} value={d}>
-                  {t(DASH_LABELS[d])}
-                </option>
-              ))}
-            </select>
+              options={LINE_DASHES.map((d) => ({ value: d, label: t(DASH_LABELS[d]) }))}
+            />
             <label>{t('Curviness: {val}', { val: settings.line.curviness })}</label>
             <input
               type="range"
@@ -368,21 +359,13 @@ export default function ToolPanel({
               {t('Curve appears after drawing; the live preview stays straight.')}
             </p>
             <label>{t('Direction arrow')}</label>
-            <select
+            <Select
               value={settings.line.arrow}
-              onChange={(e) =>
-                onSettings({
-                  ...settings,
-                  line: { ...settings.line, arrow: e.target.value as LineArrow }
-                })
+              onChange={(v) =>
+                onSettings({ ...settings, line: { ...settings.line, arrow: v as LineArrow } })
               }
-            >
-              {LINE_ARROWS.map((a) => (
-                <option key={a} value={a}>
-                  {t(ARROW_LABELS[a])}
-                </option>
-              ))}
-            </select>
+              options={LINE_ARROWS.map((a) => ({ value: a, label: t(ARROW_LABELS[a]) }))}
+            />
           </>
         )}
         {active === 'marker' && (
@@ -395,6 +378,19 @@ export default function ToolPanel({
                   value={settings.marker.color}
                   onChange={(color) =>
                     onSettings({ ...settings, marker: { ...settings.marker, color } })
+                  }
+                />
+              </>
+            )}
+            {/* A custom image replaces the mark entirely, so the shape row is pointless then */}
+            {!settings.marker.img && (
+              <>
+                <label>{t('Shape')}</label>
+                <PinShapePicker
+                  shape={settings.marker.shape}
+                  color={settings.marker.color}
+                  onPick={(shape) =>
+                    onSettings({ ...settings, marker: { ...settings.marker, shape } })
                   }
                 />
               </>
@@ -474,19 +470,12 @@ export default function ToolPanel({
               onChange={(color) => onSettings({ ...settings, label: { ...settings.label, color } })}
             />
             <label>{t('Label font')}</label>
-            <select
+            <Select
               value={settings.label.font}
               style={{ fontFamily: settings.label.font }}
-              onChange={(e) =>
-                onSettings({ ...settings, label: { ...settings.label, font: e.target.value } })
-              }
-            >
-              {FONTS.map((f) => (
-                <option key={f} value={f} style={{ fontFamily: f }}>
-                  {f}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => onSettings({ ...settings, label: { ...settings.label, font: v } })}
+              options={FONTS.map((f) => ({ value: f, label: f, style: { fontFamily: f } }))}
+            />
             <label>{t('Size: ×{val}', { val: settings.label.size.toFixed(2) })}</label>
             <input
               type="range"
@@ -563,7 +552,7 @@ export default function ToolPanel({
             )}
             {/* Method B: measure a known distance on the map */}
             <button className="mini" onClick={onCalibrate}>
-              📏 {t('Measure known distance…')}
+              <Icon name="ruler" size={12} /> {t('Measure known distance…')}
             </button>
             {scale && (
               <p className="hint">
@@ -579,13 +568,13 @@ export default function ToolPanel({
                 className={`mini ${measuring === 'dist' ? 'active' : ''}`}
                 onClick={() => onMeasure('dist')}
               >
-                📏 {t('Distance')}
+                <Icon name="ruler" size={12} /> {t('Distance')}
               </button>
               <button
                 className={`mini ${measuring === 'area' ? 'active' : ''}`}
                 onClick={() => onMeasure('area')}
               >
-                📐 {t('Area')}
+                <Icon name="polygon" size={12} /> {t('Area')}
               </button>
             </div>
             <p className="hint">
@@ -644,7 +633,7 @@ export default function ToolPanel({
                 className={`mini ${navStep && navStep !== 'result' ? 'active' : ''}`}
                 onClick={navStep ? onNavEnd : onNavStart}
               >
-                🧭 {navStep ? t('Clear') : t('Pick two pins')}
+                <Icon name="map" size={12} /> {navStep ? t('Clear') : t('Pick two pins')}
               </button>
               {navResult &&
                 (() => {

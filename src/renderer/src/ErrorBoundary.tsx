@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react'
 import { api, getLanguage, type Lang } from './api'
+import Icon from './icons'
 import { translate } from './i18n'
 
 // An opened .dunya is written OVER the working copy: if a corrupt/hostile file throws during
@@ -38,7 +39,9 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
         <p>{t('The file may be corrupt or created by a newer version.')}</p>
         <div className="start-actions">
           <button onClick={() => api.newWorld()}>{t('＋ New world')}</button>
-          <button onClick={() => api.openWorld()}>{t('📂 Open…')}</button>
+          <button onClick={() => api.openWorld()}>
+            <Icon name="folder" size={14} /> {t('Open…')}
+          </button>
         </div>
         <h4>{t('Details')}</h4>
         <pre className="error-detail">{String(error?.stack ?? error)}</pre>

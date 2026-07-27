@@ -38,10 +38,13 @@ import {
 } from './api'
 import ColorPicker from './ColorPicker'
 import ContextMenu, { MenuItem, MenuState } from './ContextMenu'
-import { ImageStrip } from './pinIcons'
+import { ImageStrip, PinShape, PinShapePicker, pinShapeBody } from './pinIcons'
 import EntityPage from './EntityPage'
 import HierarchyPanel, { ActiveMode } from './HierarchyPanel'
 import { alertDialog, confirmDialog } from './dialog'
+import Icon from './icons'
+import Select from './Select'
+import { IconButton } from './ui'
 import { useT } from './i18n'
 import Timeline from './Timeline'
 import MapToolbar from './MapToolbar'
@@ -104,10 +107,25 @@ markerProto.update = function (this: Positionable): L.Marker {
 //    re-runs on every re-projection, so the surviving vertex set kept changing: the outline
 //    morphed on 174 of 199 swept frames, each change moving the border by up to `smoothFactor`
 //    pixels. Invisible inside one realm (neighbours share a colour), glaring in rank/paint view
-//    where every boundary is a colour edge. Scaling the tolerance by 2^(z - round(z)) makes it
-//    constant in MAP units within a zoom level, so the shape is frozen while zooming and only
-//    re-simplifies when crossing a whole zoom: 2 of 199 frames, with BORDER_SMOOTH's LOD intact.
+//    where every boundary is a colour edge. Quantising the zoom before scaling the tolerance makes
+//    it constant in MAP units inside each step, so the shape is frozen while zooming and only
+//    re-simplifies when crossing a step boundary — with BORDER_SMOOTH's LOD intact.
 //    Only works together with (1) — alone, the rounding noise flips borderline vertices anyway.
+//
+//    LOD_STEPS quantises the zoom before scaling, so the vertex set is frozen inside each step
+//    instead of drifting every frame. Measured over the same 199-frame sweep: whole zooms
+//    re-simplify 4 times, halves 8, quarters 16, eighths 32 — against the 174 that shimmered.
+const LOD_STEPS = 4
+//    But quantising alone only makes the reshaping RARER, not absent, and simplification earns
+//    nothing at the zooms people actually work at: once you are past the fit view only a handful
+//    of shapes are on screen, so dropping vertices saves little and every dropped vertex is
+//    plainly visible. So the tolerance fades to zero as the view approaches the fit zoom, and
+//    above it the exact drawn geometry is rendered — no reshaping at all in normal use. LOD then
+//    lives only in the overview band (minZoom is fit − 1), which is where many polygons are on
+//    screen at once and each is too small for the loss to read.
+//    Set from the base-image effect; -Infinity until a map has an image, which disables the fade
+//    and leaves plain quantised LOD.
+let mapFitZoom = -Infinity
 type Simplifiable = { _simplifyPoints(): void; _map?: L.Map; options: { smoothFactor?: number } }
 const stockSimplify = (L.Polyline.prototype as unknown as Simplifiable)._simplifyPoints
 ;(L.Polyline.prototype as unknown as Simplifiable)._simplifyPoints = function (
@@ -116,9 +134,50 @@ const stockSimplify = (L.Polyline.prototype as unknown as Simplifiable)._simplif
   const zoom = this._map?.getZoom()
   const tol = this.options.smoothFactor
   if (zoom === undefined || !tol) return stockSimplify.call(this)
-  this.options.smoothFactor = tol * 2 ** (zoom - Math.round(zoom))
+  const step = Math.round(zoom * LOD_STEPS) / LOD_STEPS
+  // Quantised so the fade itself cannot reintroduce per-frame drift.
+  const fade = Math.min(1, Math.max(0, mapFitZoom - step))
+  // Leaflet's simplify() returns the points untouched when the tolerance is falsy.
+  this.options.smoothFactor = fade === 0 ? 0 : tol * fade * 2 ** (zoom - step)
   stockSimplify.call(this)
   this.options.smoothFactor = tol
+}
+
+// 3. Stroke width. Leaflet strokes are screen-fixed, so a road held its pixel width while the
+//    terrain under it grew and shrank — a thread when zoomed in, a continent-wide band when
+//    zoomed out, while the labels and pins beside it scale with the map by design. A road has a
+//    real width in the world, so weight is read as MAP PIXELS, the same unit the geometry is in:
+//    the pane carries the zoom scale in --mz (ONE property write per frame, the trick the free
+//    labels use for --lz) and each path publishes its own weight as --w, so the CSS multiplies
+//    them. Writing --w here rather than at each call site covers polygons, lines, curve overlays
+//    and highlights alike.
+//    The anchor is zoom 0 (1 map pixel = 1 screen pixel), NOT the fit view. Anchoring at fit was
+//    tried and reverted: fit is a negative zoom for any image larger than the viewport, so it
+//    inflated every stroke by 1/2**fit — two to three times too thick on a normal map.
+//    POLYGONS ARE EXEMPT, and the distinction is cartographic rather than technical: a road has
+//    a real width on the ground, so it belongs to the terrain and scales with it. A border has
+//    none — it is a pen stroke describing where one thing stops, and on paper maps it is drawn
+//    at a constant width whatever the scale. Scaling it just made outlines swallow the land they
+//    were describing. Setting --mz on the polygon's own path shadows the pane's value (custom
+//    properties inherit), so the exemption costs one line and no second code path.
+//    The hook is the RENDERER's _updateStyle(layer), not Path's — Path has no such method, it
+//    delegates via this._renderer._updateStyle(this). Patching Path.prototype defined a method
+//    nobody calls, so --w was never written and every stroke fell back to the CSS default of 3:
+//    the thickness sliders did nothing and weight-2 outlines drew at 3. Hence the hop through
+//    _renderer here.
+type Styled = { _path?: SVGElement; options: { weight?: number } }
+type SvgRenderer = { _updateStyle(layer: Styled): void }
+const stockUpdateStyle = (L.SVG.prototype as unknown as SvgRenderer)._updateStyle
+;(L.SVG.prototype as unknown as SvgRenderer)._updateStyle = function (
+  this: SvgRenderer,
+  layer: Styled
+): void {
+  stockUpdateStyle.call(this, layer)
+  const path = layer._path
+  if (path && layer.options.weight !== undefined) {
+    path.style.setProperty('--w', String(layer.options.weight))
+    if (layer instanceof L.Polygon) path.style.setProperty('--mz', '1')
+  }
 }
 
 // Shape of the Feature.style JSON (all optional — old records fall back to defaults)
@@ -127,6 +186,7 @@ interface FeatureStyle {
   fillOpacity?: number
   weight?: number
   size?: number
+  shape?: PinShape // pin mark from the abstract set; absent = disc (pinIcons)
   font?: string
   childMapId?: number
   from?: number // year range the feature exists in (timeline); empty = always
@@ -162,6 +222,12 @@ interface Props {
   onExportReady?: (fn: (() => void) | null) => void
   // Photoshop's Tab / Shift+Tab, driven from App: hidePanels covers the inspector and the tool
   // settings popover, hideTools additionally hides the floating tool palette.
+  /** False while another workspace is on screen. The map stays MOUNTED so returning
+      to it does not rebuild Leaflet and throw away your zoom and position — but its
+      window-level shortcuts must stand down, or Del on the entity list would also
+      delete the selected drawing (that handler runs in the capture phase and stops
+      propagation, so it would swallow App's Del outright). */
+  active?: boolean
   hidePanels?: boolean
   hideTools?: boolean
 }
@@ -191,13 +257,17 @@ const PIN_BASE = 28
 // pixel-space Douglas–Peucker) drops vertices when zoomed out and restores full detail when zoomed
 // in — cutting the SVG path-string rebuilt every wheel-zoom frame. Display-only: geoman editing and
 // the weld read the real latlngs, not this render simplification. Raise to trade fidelity for speed.
-const BORDER_SMOOTH = 2.5
+// Lowered from 2.5: with LOD_STEPS quantising the zoom, what remains visible at a step boundary is
+// the tolerance itself, since that is how far a dropped vertex can pull the outline. 1.6px keeps
+// most of the vertex saving while putting the largest possible jump under two pixels.
+const BORDER_SMOOTH = 1.6
 const PIN_DEFAULT_COLOR = '#c0603a'
 // Three looks: (1) free custom image — no badge, aspect kept (transparent PNG symbols);
 // (2) custom image inside the badge — clipped to a circle (crest/portrait); (3) plain badge.
 const pinDivIcon = (m: {
   size?: number
   color?: string
+  shape?: PinShape
   img?: string
   imgFree?: boolean
   imgAR?: number
@@ -216,11 +286,17 @@ const pinDivIcon = (m: {
       iconAnchor: [0, 0]
     })
   }
-  // With an image it is clipped to a circle inside the badge; else a plain colored badge (the glyph set was removed)
-  const inner = m.img ? `<img class="pin-badge-img" src="${escapeHtml(assetUrl(m.img))}">` : ''
+  // With an image it is clipped to a circle inside the badge; without one it is a shape from
+  // the abstract set (see pinIcons). The svg is 100%×100% of the icon box, which the zoom hot
+  // path already resizes — so shapes scale with zoom for free, no branch added there.
+  // Only `color` is interpolated, and it is escaped: the shape bodies are static markup.
+  const html = m.img
+    ? `<div class="pin-badge" style="background:${escapeHtml(color)}">` +
+      `<img class="pin-badge-img" src="${escapeHtml(assetUrl(m.img))}"></div>`
+    : `<svg class="pin-shape" viewBox="0 0 24 24" style="color:${escapeHtml(color)}">${pinShapeBody(m.shape)}</svg>`
   return L.divIcon({
     className: 'pin-marker',
-    html: `<div class="pin-badge" style="background:${escapeHtml(color)}">${inner}</div>`,
+    html,
     iconSize: [w, w],
     iconAnchor: [w / 2, w / 2],
     tooltipAnchor: [0, -w / 2]
@@ -567,6 +643,7 @@ export default function MapView({
   onOpenEntity,
   onChanged,
   onExportReady,
+  active = true,
   hidePanels,
   hideTools
 }: Props): React.JSX.Element {
@@ -626,6 +703,14 @@ export default function MapView({
       ro.disconnect()
     }
   }, [])
+  // Zoom at which the whole map fits the window — the origin for the % readout.
+  // State, not a ref: it is read while rendering the HUD and changes only when a
+  // base image loads, so it is nowhere near the zoom hot path.
+  const [fitZoom, setFitZoom] = useState(0)
+  const activeRef = useRef(active)
+  useEffect(() => {
+    activeRef.current = active
+  }, [active])
   const [allEntities, setAllEntities] = useState<EntityRow[]>([])
   // Person entities cannot be bound to the map (see EntityPage — they exist for family/dynasty fields)
   const personFolders = personFolderIds(folders) // people cannot be bound to the map
@@ -736,6 +821,7 @@ export default function MapView({
   const geomSaveChain = useRef<Promise<void>>(Promise.resolve())
   useEffect(() => {
     const down = (e: KeyboardEvent): void => {
+      if (!activeRef.current) return
       if (e.key === 'Control') ctrlRef.current = true
     }
     const up = (e: KeyboardEvent): void => {
@@ -1151,6 +1237,7 @@ export default function MapView({
   // stands down whenever a session is live.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      if (!activeRef.current) return
       if (e.key !== 'Escape' || !toolRef.current) return
       if (conquest || measure || nav) return
       const el = e.target as HTMLElement
@@ -1222,6 +1309,11 @@ export default function MapView({
       const el = (m as unknown as { _icon?: HTMLElement })._icon
       if (el) el.style.setProperty('--lz', String(scale)) // base is baked; see labelDivIcon
     }
+    // Stroke widths (see patch 3): one property on the pane, inherited by every path, instead
+    // of a setStyle per feature per frame. Anchored at zoom 0, so a weight of 3 means 3 MAP
+    // pixels — the unit the geometry itself is in.
+    const pane = map.getPane('overlayPane')
+    if (pane) pane.style.setProperty('--mz', String(2 ** map.getZoom()))
     // the open label preview (the hint marker is outside the featureGroup too) — scale it on zoom
     if (toolRef.current === 'label') styleHintLabel(scale)
   }
@@ -1844,9 +1936,14 @@ export default function MapView({
           e.originalEvent.preventDefault()
           const items: MenuItem[] = []
           if (f.entity_id)
-            items.push({ label: t('📖 Open entity'), onClick: () => onOpenEntity(f.entity_id!) })
+            items.push({
+              icon: 'file-text',
+              label: t('Open entity'),
+              onClick: () => onOpenEntity(f.entity_id!)
+            })
           items.push({
-            label: f.entity_id ? t('🔍 Show in panel') : t('🔗 Link to entity…'),
+            icon: f.entity_id ? 'search' : 'link',
+            label: f.entity_id ? t('Show in panel') : t('Link to entity…'),
             onClick: () => setSelected(f)
           })
           // Edit and Move are MODIFYING actions on an existing drawing, so they live here rather
@@ -1854,24 +1951,37 @@ export default function MapView({
           // the selection (syncEditMode), and the [selected, tool] effect re-syncs once the state
           // lands. setTool, not activateTool — the latter toggles off when handed the current tool.
           items.push({
-            label: t('✏️ Edit shape'),
+            icon: 'pencil',
+            label: t('Edit shape'),
             onClick: () => (setSelected(f), setTool('edit'))
           })
-          items.push({ label: t('✋ Move'), onClick: () => (setSelected(f), setTool('drag')) })
+          items.push({
+            icon: 'maximize',
+            label: t('Move'),
+            onClick: () => (setSelected(f), setTool('drag'))
+          })
           if (style.childMapId)
             items.push({
-              label: t('🗺 Open map →'),
+              icon: 'map',
+              label: t('Open map'),
               onClick: () => onNavigate(style.childMapId!)
             })
           items.push({
-            label: t('⏳ Change border from this year'),
+            icon: 'clock',
+            label: t('Change border from this year'),
             onClick: () => forkFeature(f)
           })
           items.push({
-            label: t('📅 Add event to this drawing'),
+            icon: 'calendar',
+            label: t('Add event to this drawing'),
             onClick: () => setEventDraft({ f, year: yearRef.current })
           })
-          items.push({ label: t('🗑 Delete'), danger: true, onClick: () => removeFeature(f.id) })
+          items.push({
+            icon: 'trash',
+            label: t('Delete'),
+            danger: true,
+            onClick: () => removeFeature(f.id)
+          })
           setMenu({ x: e.originalEvent.clientX, y: e.originalEvent.clientY, items })
         })
         fg.addLayer(layer)
@@ -2409,6 +2519,10 @@ export default function MapView({
   // Bare effect (dep dizisi yok): handler'lar her render tazelenir, bayat closure olmaz.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      // The most important guard of the six: this one runs in the CAPTURE phase and
+      // calls stopImmediatePropagation, so left live it would eat App's Del on the
+      // entity list and delete a drawing instead.
+      if (!activeRef.current) return
       const target = e.target as HTMLElement
       const typing =
         target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
@@ -2439,6 +2553,7 @@ export default function MapView({
   useEffect(() => {
     if (!conquest) return
     const onKey = (e: KeyboardEvent): void => {
+      if (!activeRef.current) return
       if (e.key === 'Escape') {
         setConquest(null)
         applyYear(yearRef.current)
@@ -2453,6 +2568,7 @@ export default function MapView({
   useEffect(() => {
     if (!measure) return
     const onKey = (e: KeyboardEvent): void => {
+      if (!activeRef.current) return
       if (e.key === 'Escape') endMeasure()
     }
     window.addEventListener('keydown', onKey)
@@ -2464,6 +2580,7 @@ export default function MapView({
   useEffect(() => {
     if (!nav) return
     const onKey = (e: KeyboardEvent): void => {
+      if (!activeRef.current) return
       if (e.key === 'Escape') endNav()
     }
     window.addEventListener('keydown', onKey)
@@ -2675,13 +2792,13 @@ export default function MapView({
         x: e.originalEvent.clientX,
         y: e.originalEvent.clientY,
         items: [
-          { label: t('⬠ Draw polygon'), onClick: () => activateTool('polygon') },
-          { label: t('〰 Draw path'), onClick: () => activateTool('line') },
-          { label: t('📍 Add location'), onClick: () => activateTool('marker') },
-          { label: t('🏷 Add label'), onClick: () => activateTool('label') },
-          { label: t('✏️ Edit mode'), onClick: () => activateTool('edit') },
-          { label: t('✋ Move mode'), onClick: () => activateTool('drag') },
-          { label: t('🗑 Delete mode'), onClick: () => activateTool('remove') }
+          { icon: 'polygon', label: t('Draw polygon'), onClick: () => activateTool('polygon') },
+          { icon: 'path', label: t('Draw path'), onClick: () => activateTool('line') },
+          { icon: 'map-pin', label: t('Add location'), onClick: () => activateTool('marker') },
+          { icon: 'label', label: t('Add label'), onClick: () => activateTool('label') },
+          { icon: 'pencil', label: t('Edit mode'), onClick: () => activateTool('edit') },
+          { icon: 'maximize', label: t('Move mode'), onClick: () => activateTool('drag') },
+          { icon: 'trash', label: t('Delete mode'), onClick: () => activateTool('remove') }
         ]
       })
     })
@@ -2879,6 +2996,9 @@ export default function MapView({
       ]
       imageLayerRef.current = L.imageOverlay(assetUrl(worldMap.image_path), bounds).addTo(map)
       map.fitBounds(bounds)
+      const fit = map.getBoundsZoom(bounds)
+      setFitZoom(fit)
+      mapFitZoom = fit // read by the LOD fade (module scope)
       // Prevent escaping into ugly grey space beyond the image: pan bounded, no zooming out past fit
       map.options.maxBoundsViscosity = 1
       map.setMaxBounds(L.latLngBounds(bounds).pad(0.5))
@@ -2950,7 +3070,7 @@ export default function MapView({
   // Zoom visibility (pin + label): the user PICKS the threshold with a slider (shown as a
   // percentage). Ticking the box starts at the current zoom, then fine-tune; minZoom = "hide
   // below this (further out)", maxZoom = "hide above this (closer in)".
-  const zoomPct = (z: number): string => `%${Math.round(2 ** z * 100)}`
+  const zoomPct = (z: number): string => `%${Math.round(2 ** (z - fitZoom) * 100)}`
   const zoomVisRow = (key: 'minZoom' | 'maxZoom', label: string): React.JSX.Element => {
     const val = selStyle[key]
     return (
@@ -3114,7 +3234,19 @@ export default function MapView({
                   }}
                 >
                   <span className="layers-icon">
-                    {{ polygon: '⬟', line: '〰', pin: '📍', label: '🏷' }[kind]}
+                    <Icon
+                      name={
+                        (
+                          {
+                            polygon: 'polygon',
+                            line: 'path',
+                            pin: 'map-pin',
+                            label: 'label'
+                          } as const
+                        )[kind]
+                      }
+                      size={14}
+                    />
                   </span>
                   <span className="layers-text">
                     <span className="layers-name">{name}</span>
@@ -3131,10 +3263,11 @@ export default function MapView({
         </div>
         <div className="layers-menu">
           <button
-            className={`layers-btn ${mapsOpen ? 'open' : ''}`}
+            className={`layers-btn tier-1 ${mapsOpen ? 'open' : ''}`}
             onClick={() => setMapsOpen((o) => !o)}
           >
-            🗺 {t('Maps')}
+            <Icon name="map" size={14} />
+            {t('Maps')}
             {maps.length > 1 && <span className="layers-count">{maps.length}</span>}
           </button>
           {mapsOpen && (
@@ -3171,7 +3304,9 @@ export default function MapView({
                       style={{ paddingLeft: m.parent_map_id ? 26 : undefined }}
                       onClick={() => m.id !== id && onNavigate(m.id)}
                     >
-                      <span className="layers-icon">🗺</span>
+                      <span className="layers-icon">
+                        <Icon name="map" size={14} />
+                      </span>
                       <span
                         className="layers-name"
                         style={
@@ -3185,7 +3320,7 @@ export default function MapView({
                         title={t('Rename')}
                         onClick={(e) => (e.stopPropagation(), setEditMapId(m.id))}
                       >
-                        ✎
+                        <Icon name="pencil" size={12} />
                       </button>
                       {m.id !== id && (
                         <button
@@ -3213,7 +3348,7 @@ export default function MapView({
                       onKeyDown={(e) => e.key === 'Escape' && setNewMapName(null)}
                     />
                     <button className="mini" type="submit">
-                      ✓
+                      <Icon name="check" size={12} />
                     </button>
                   </form>
                 ) : (
@@ -3254,10 +3389,11 @@ export default function MapView({
             the header keeps only map CONTEXT: search, maps, boards, layers. */}
         <div className="layers-menu">
           <button
-            className={`layers-btn ${boardsOpen ? 'open' : ''}`}
+            className={`layers-btn tier-2 ${boardsOpen ? 'open' : ''}`}
             onClick={() => setBoardsOpen((o) => !o)}
           >
-            📚 {t('Boards')}
+            <Icon name="board" size={14} />
+            {t('Boards')}
             {boards.list.length > 0 && (
               <span className="layers-count">
                 {(boards.list.find((b) => b.id === boards.active)?.name ?? boards.list[0]?.name) ||
@@ -3313,7 +3449,7 @@ export default function MapView({
                         title={t('Rename')}
                         onClick={(e) => (e.stopPropagation(), setEditBoardId(b.id))}
                       >
-                        ✎
+                        <Icon name="pencil" size={12} />
                       </button>
                       <button
                         className="mini danger map-row-btn"
@@ -3339,7 +3475,7 @@ export default function MapView({
                       onKeyDown={(e) => e.key === 'Escape' && setNewBoardName(null)}
                     />
                     <button className="mini" type="submit">
-                      ✓
+                      <Icon name="check" size={12} />
                     </button>
                   </form>
                 ) : (
@@ -3353,10 +3489,11 @@ export default function MapView({
         </div>
         <div className="layers-menu">
           <button
-            className={`layers-btn ${layersOpen ? 'open' : ''}`}
+            className={`layers-btn tier-3 ${layersOpen ? 'open' : ''}`}
+            title={t('Layers')}
             onClick={() => setLayersOpen((o) => !o)}
           >
-            🗂 {t('Layers')}{' '}
+            <Icon name="eye" size={14} />
             <span className="layers-count">{Object.values(layersOn).filter(Boolean).length}/4</span>
           </button>
           {layersOpen && (
@@ -3366,15 +3503,17 @@ export default function MapView({
                 <div className="layers-panel-head">{t('Show on map')}</div>
                 {(
                   [
-                    ['polygon', '⬟', t('Polygons'), t('State / region borders')],
-                    ['line', '〰', t('Paths'), t('Roads, routes, rivers')],
-                    ['pin', '📍', t('Pins'), t('Markers on the map')],
-                    ['label', '🏷', t('Labels'), t('Names on polygons and free text')]
+                    ['polygon', 'polygon', t('Polygons'), t('State / region borders')],
+                    ['line', 'path', t('Paths'), t('Roads, routes, rivers')],
+                    ['pin', 'map-pin', t('Pins'), t('Markers on the map')],
+                    ['label', 'label', t('Labels'), t('Names on polygons and free text')]
                   ] as const
                 ).map(([k, icon, label, desc]) => (
                   <label key={k} className="layers-row">
                     <input type="checkbox" checked={layersOn[k]} onChange={() => toggleLayer(k)} />
-                    <span className="layers-icon">{icon}</span>
+                    <span className="layers-icon">
+                      <Icon name={icon} size={14} />
+                    </span>
                     <span className="layers-text">
                       <span className="layers-name">{label}</span>
                       <span className="layers-desc">{desc}</span>
@@ -3406,20 +3545,31 @@ export default function MapView({
         <div className="map-host-wrap">
           {/* SVG marker def for the path direction arrow (referenced document-wide via
               url(#worldArrow); context-stroke makes the arrow follow the line's color,
-              markerUnits=strokeWidth scales it with weight → screen-fixed on zoom, no hot path) */}
+              markerUnits=strokeWidth sizes it in multiples of the line's own weight, so it
+              stays in proportion however the stroke scales — no hot path).
+
+              Geometry, in units of the stroke width w (markerWidth 3 over a 10-unit viewBox
+              means 1 viewBox unit = 0.3w): a plain triangle 3w long and 3w across the base.
+              refX=6 seats it so the tip lands 1.2w PAST the line's last point and the base
+              1.8w behind it. Both numbers are load-bearing. The old marker had the tip only
+              0.4w past the end, so the round line cap (0.5w) poked out through it and the
+              stroke ran visibly past the arrow; and at the end point the head must be at
+              least half the line wide to cover it — here it is 0.6w, so the cap tucks fully
+              inside and no stroke shows through. The old swallowtail notch is gone too: at
+              this size it read as a barb rather than an arrow. */}
           <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden>
             <defs>
               <marker
                 id="worldArrow"
                 viewBox="0 0 10 10"
-                refX="8"
+                refX="6"
                 refY="5"
-                markerWidth="4"
-                markerHeight="4"
+                markerWidth="3"
+                markerHeight="3"
                 orient="auto"
                 markerUnits="strokeWidth"
               >
-                <path d="M0,1 L9,5 L0,9 L3,5 z" fill="context-stroke" />
+                <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
               </marker>
               {/* Polygon fill patterns: one per unique image used on the map + in the draw
                   default. objectBoundingBox + preserveAspectRatio=none: the image stretches
@@ -3478,40 +3628,32 @@ export default function MapView({
               />
               {conquest?.step === 'receiver' && (
                 <div className="link-hint">
-                  {t('⚔ Click the conqueror — the picks join it…')}{' '}
+                  <Icon name="conquest" size={13} /> {t('Click the conqueror — the picks join it…')}{' '}
                   <label>
                     {t('conqueror')}{' '}
-                    <select
+                    <Select
                       value={conquest.recvLevel ?? ''}
                       title={t('Which rank the conqueror is taken as')}
-                      onChange={(e) =>
-                        setConquest({ ...conquest, recvLevel: e.target.value || null })
-                      }
-                    >
-                      <option value="">{t('base')}</option>
-                      {ladderTags.map((tag) => (
-                        <option key={tag} value={tag}>
-                          {tag}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(v) => setConquest({ ...conquest, recvLevel: v || null })}
+                      options={[
+                        { value: '', label: t('base') },
+                        ...ladderTags.map((tag) => ({ value: tag, label: tag }))
+                      ]}
+                    />
                   </label>{' '}
                   <label>
                     {t('takes')}{' '}
-                    <select
+                    <Select
                       value={conquest.level ?? ''}
                       title={t(
                         'Which ladder rank changes hands (upper ranks take their whole branch)'
                       )}
-                      onChange={(e) => setConquest({ ...conquest, level: e.target.value || null })}
-                    >
-                      <option value="">{t('base')}</option>
-                      {ladderTags.map((tag) => (
-                        <option key={tag} value={tag}>
-                          {tag}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(v) => setConquest({ ...conquest, level: v || null })}
+                      options={[
+                        { value: '', label: t('base') },
+                        ...ladderTags.map((tag) => ({ value: tag, label: tag }))
+                      ]}
+                    />
                   </label>{' '}
                   <button className="mini" onClick={() => setConquest(null)}>
                     {t('cancel')}
@@ -3520,7 +3662,8 @@ export default function MapView({
               )}
               {conquest?.step === 'picking' && (
                 <div className="link-hint">
-                  {t('⚔ Select polygons to join {name} ({n} selected)', {
+                  <Icon name="conquest" size={13} />{' '}
+                  {t('Select polygons to join {name} ({n} selected)', {
                     name: conquest.receiverName,
                     n: conquest.picked.size
                   })}{' '}
@@ -3543,9 +3686,10 @@ export default function MapView({
               )}
               {nav && nav.step !== 'result' && (
                 <div className="link-hint">
+                  <Icon name="map" size={13} />{' '}
                   {nav.step === 'a'
-                    ? t('🧭 Click the START pin…')
-                    : t('🧭 Now click the DESTINATION pin ({from} → …)', { from: nav.aName })}{' '}
+                    ? t('Click the START pin…')
+                    : t('Now click the DESTINATION pin ({from} → …)', { from: nav.aName })}{' '}
                   <button className="mini" onClick={endNav}>
                     {t('cancel')}
                   </button>
@@ -3553,9 +3697,10 @@ export default function MapView({
               )}
               {measure?.kind === 'calib' && (
                 <div className="link-hint">
+                  <Icon name="ruler" size={13} />{' '}
                   {measure.pts.length === 0
-                    ? t('📏 Click the FIRST point of a known distance…')
-                    : t('📏 Now click the SECOND point…')}{' '}
+                    ? t('Click the FIRST point of a known distance…')
+                    : t('Now click the SECOND point…')}{' '}
                   <button className="mini" onClick={endMeasure}>
                     {t('cancel')}
                   </button>
@@ -3570,7 +3715,7 @@ export default function MapView({
                     saveCalib(Number(fd.get('dist')), String(fd.get('unit') ?? 'km'))
                   }}
                 >
-                  {t('📏 Real distance between the two points:')}{' '}
+                  <Icon name="ruler" size={13} /> {t('Real distance between the two points:')}{' '}
                   <input
                     name="dist"
                     type="number"
@@ -3590,7 +3735,7 @@ export default function MapView({
               )}
               {measure?.kind === 'dist' && (
                 <div className="link-hint">
-                  📏{' '}
+                  <Icon name="ruler" size={13} />{' '}
                   {t('Distance: {val} {unit}', {
                     val: fmtDist(ringLen(ptsXY(measure.pts)) * measureK),
                     unit: measureUnit
@@ -3602,7 +3747,7 @@ export default function MapView({
               )}
               {measure?.kind === 'area' && (
                 <div className="link-hint">
-                  📐{' '}
+                  <Icon name="polygon" size={13} />{' '}
                   {t('Area: {val} {unit}²', {
                     val: fmtDist(ringArea(ptsXY(measure.pts)) * measureK * measureK),
                     unit: measureUnit
@@ -3634,7 +3779,8 @@ export default function MapView({
                     saveEventDraft(new FormData(e.currentTarget).get('name') as string)
                   }}
                 >
-                  {t('📅 Event name (year {n}):', { n: eventDraft.year })}{' '}
+                  <Icon name="calendar" size={13} />{' '}
+                  {t('Event name (year {n}):', { n: eventDraft.year })}{' '}
                   <input name="name" autoFocus placeholder={t('event name')} />
                   <button className="mini" type="submit">
                     {t('add')}
@@ -3652,9 +3798,14 @@ export default function MapView({
                     max={hudRange[1]}
                     step="any"
                     value={hudZoom}
-                    onChange={(e) => mapRef.current?.setZoom(Number(e.target.value))}
+                    // animate:false to match the wheel path: an animated setZoom per
+                    // drag frame queues transitions that fight each other, and each one
+                    // transforms the renderer instead of redrawing it.
+                    onChange={(e) =>
+                      mapRef.current?.setZoom(Number(e.target.value), { animate: false })
+                    }
                   />
-                  <span className="zoom-pct">%{Math.round(2 ** hudZoom * 100)}</span>
+                  <span className="zoom-pct">{zoomPct(hudZoom)}</span>
                 </div>
               )}
               <HierarchyPanel
@@ -3742,412 +3893,432 @@ export default function MapView({
               display: hidePanels ? 'none' : undefined
             }}
           >
-            <div className="map-panel-head">
-              <b>
+            {/* The inspector names the OBJECT, not the row id: "Drawing #47" told
+                you nothing you could act on. Kind + bound entity is what the user
+                is actually looking at. */}
+            <div className="inspector-head">
+              <Icon
+                name={
+                  selIsPolygon ? 'polygon' : selIsLine ? 'path' : selIsLabel ? 'label' : 'map-pin'
+                }
+                size={14}
+              />
+              <span className="inspector-title">
                 {selIds.length > 1
                   ? t('{n} drawings selected', { n: selIds.length })
-                  : t('Drawing #{id}', { id: selected.id })}
-              </b>
-              <button className="mini" onClick={clearSel}>
-                ×
-              </button>
+                  : (selected.entity_name ??
+                    selStyle.text ??
+                    t(
+                      selIsPolygon
+                        ? 'Polygon'
+                        : selIsLine
+                          ? 'Path'
+                          : selIsLabel
+                            ? 'Label'
+                            : 'Location'
+                    ))}
+              </span>
+              <IconButton icon="x" label={t('Close')} onClick={clearSel} />
             </div>
-            {selIds.length > 1 && (
-              // Controls follow the primary feature's kind; edits apply to the WHOLE selection
-              <div className="panel-block">
-                <label>
-                  {t('Edits apply to all selected drawings. Ctrl+click to add/remove.')}
-                </label>
-              </div>
-            )}
-
-            <div className="panel-block">
-              <label>{t('View:')}</label>
-              {selIsPolygon ? (
-                <>
-                  <ColorPicker
-                    value={selStyle.color ?? folderColor(folders, selected.entity_folder)}
-                    onChange={(color) => editSelectedStyle({ color })}
-                  />
+            <div className="inspector-body">
+              {selIds.length > 1 && (
+                // Controls follow the primary feature's kind; edits apply to the WHOLE selection
+                <div className="panel-block">
                   <label>
-                    {t('Fill opacity: {val}', { val: (selStyle.fillOpacity ?? 0.25).toFixed(2) })}
+                    {t('Edits apply to all selected drawings. Ctrl+click to add/remove.')}
                   </label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={selStyle.fillOpacity ?? 0.25}
-                    onChange={(e) => editSelectedStyle({ fillOpacity: Number(e.target.value) })}
-                  />
-                  <label>{t('Outline thickness: {val}px', { val: selStyle.weight ?? 2 })}</label>
-                  <input
-                    type="range"
-                    min={1}
-                    max={10}
-                    step={1}
-                    value={selStyle.weight ?? 2}
-                    onChange={(e) => editSelectedStyle({ weight: Number(e.target.value) })}
-                  />
-                  <label>{t('Label font')}</label>
-                  <select
-                    value={selStyle.font ?? 'Cinzel'}
-                    style={{ fontFamily: selStyle.font ?? 'Cinzel' }}
-                    onChange={(e) => editSelectedStyle({ font: e.target.value })}
-                  >
-                    {FONTS.map((fnt) => (
-                      <option key={fnt} value={fnt} style={{ fontFamily: fnt }}>
-                        {fnt}
-                      </option>
-                    ))}
-                  </select>
-                  <label>{t('Fill image (click again to remove)')}</label>
-                  <ImageStrip
-                    img={selStyle.fillImg}
-                    images={pinImages}
-                    onImg={(p) =>
-                      editSelectedStyle(
-                        selStyle.fillImg === p ? { fillImg: undefined } : { fillImg: p }
-                      )
-                    }
-                    onUpload={() => uploadPinImage((p) => editSelectedStyle({ fillImg: p }))}
-                    onRemoveImg={(path) => savePinLib(pinImages.filter((p) => p.path !== path))}
-                  />
-                  {selStyle.fillImg && (
-                    <button
-                      className="mini"
-                      onClick={() => editSelectedStyle({ fillImg: undefined })}
-                    >
-                      {t('Remove fill image')}
-                    </button>
-                  )}
-                </>
-              ) : selIsLine ? (
-                <>
-                  <ColorPicker
-                    value={selStyle.color ?? '#b08968'}
-                    onChange={(color) => editSelectedStyle({ color })}
-                  />
-                  <label>{t('Thickness: {val}px', { val: selStyle.weight ?? 3 })}</label>
-                  <input
-                    type="range"
-                    min={1}
-                    max={12}
-                    step={1}
-                    value={selStyle.weight ?? 3}
-                    onChange={(e) => editSelectedStyle({ weight: Number(e.target.value) })}
-                  />
-                  <label>
-                    {t('Opacity: {val}', { val: (selStyle.opacity ?? 0.9).toFixed(2) })}
-                  </label>
-                  <input
-                    type="range"
-                    min={0.1}
-                    max={1}
-                    step={0.05}
-                    value={selStyle.opacity ?? 0.9}
-                    onChange={(e) => editSelectedStyle({ opacity: Number(e.target.value) })}
-                  />
-                  <label>{t('Line style')}</label>
-                  <select
-                    value={selStyle.dash ?? 'solid'}
-                    onChange={(e) => editSelectedStyle({ dash: e.target.value as LineDash })}
-                  >
-                    {LINE_DASHES.map((d) => (
-                      <option key={d} value={d}>
-                        {t(DASH_LABELS[d])}
-                      </option>
-                    ))}
-                  </select>
-                  <label>{t('Curviness: {val}', { val: selStyle.curviness ?? 0 })}</label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={5}
-                    value={selStyle.curviness ?? 0}
-                    onChange={(e) => editSelectedStyle({ curviness: Number(e.target.value) })}
-                  />
-                  <label>{t('Direction arrow')}</label>
-                  <select
-                    value={selStyle.arrow ?? 'none'}
-                    onChange={(e) => editSelectedStyle({ arrow: e.target.value as LineArrow })}
-                  >
-                    {LINE_ARROWS.map((a) => (
-                      <option key={a} value={a}>
-                        {t(ARROW_LABELS[a])}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              ) : selIsLabel ? (
-                <>
-                  <label>{t('Text')}</label>
-                  <input
-                    value={selStyle.text ?? ''}
-                    placeholder={t('sea, mountain range…')}
-                    onChange={(e) => editSelectedStyle({ text: e.target.value })}
-                  />
-                  <label>{t('Color')}</label>
-                  <ColorPicker
-                    value={selStyle.color ?? '#ffffff'}
-                    onChange={(color) => editSelectedStyle({ color })}
-                  />
-                  <label>{t('Label font')}</label>
-                  <select
-                    value={selStyle.font ?? 'Cinzel'}
-                    style={{ fontFamily: selStyle.font ?? 'Cinzel' }}
-                    onChange={(e) => editSelectedStyle({ font: e.target.value })}
-                  >
-                    {FONTS.map((fnt) => (
-                      <option key={fnt} value={fnt} style={{ fontFamily: fnt }}>
-                        {fnt}
-                      </option>
-                    ))}
-                  </select>
-                  <label>{t('Size: ×{val}', { val: (selStyle.size ?? 1).toFixed(2) })}</label>
-                  <input
-                    type="range"
-                    min={0.5}
-                    max={10}
-                    step={0.25}
-                    value={selStyle.size ?? 1}
-                    onChange={(e) => editSelectedStyle({ size: Number(e.target.value) })}
-                  />
-                  <label>{t('Angle: {val}°', { val: selStyle.angle ?? 0 })}</label>
-                  <input
-                    type="range"
-                    min={-90}
-                    max={90}
-                    step={5}
-                    value={selStyle.angle ?? 0}
-                    onChange={(e) => editSelectedStyle({ angle: Number(e.target.value) })}
-                  />
-                  <label>{t('Curve: {val}', { val: selStyle.curve ?? 0 })}</label>
-                  <input
-                    type="range"
-                    min={-100}
-                    max={100}
-                    step={5}
-                    value={selStyle.curve ?? 0}
-                    onChange={(e) => editSelectedStyle({ curve: Number(e.target.value) })}
-                  />
-                  {zoomVisControls()}
-                </>
-              ) : (
-                <>
-                  {/* Free mode has no badge → color has no effect, hide the control */}
-                  {!(selStyle.img && selStyle.imgFree) && (
-                    <>
-                      <label>{t('Color')}</label>
-                      <ColorPicker
-                        value={selStyle.color ?? '#c0603a'}
-                        onChange={(color) => editSelectedStyle({ color })}
-                      />
-                    </>
-                  )}
-                  <label>{t('Pin image (click again to remove)')}</label>
-                  <ImageStrip
-                    img={selStyle.img}
-                    images={pinImages}
-                    onImg={(img, imgAR) =>
-                      editSelectedStyle(
-                        selStyle.img === img ? { img: undefined, imgAR: undefined } : { img, imgAR }
-                      )
-                    }
-                    onUpload={() =>
-                      uploadPinImage((img, imgAR) => editSelectedStyle({ img, imgAR }))
-                    }
-                    onRemoveImg={(path) => savePinLib(pinImages.filter((p) => p.path !== path))}
-                  />
-                  {selStyle.img && (
-                    <>
-                      <label>{t('Image style')}</label>
-                      <div className="measure-btns">
-                        <button
-                          className={`mini ${!selStyle.imgFree ? 'active' : ''}`}
-                          onClick={() => editSelectedStyle({ imgFree: false })}
-                        >
-                          {t('Badge')}
-                        </button>
-                        <button
-                          className={`mini ${selStyle.imgFree ? 'active' : ''}`}
-                          onClick={() => editSelectedStyle({ imgFree: true })}
-                        >
-                          {t('Free')}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                  <label>{t('Size: ×{val}', { val: (selStyle.size ?? 1).toFixed(2) })}</label>
-                  <input
-                    type="range"
-                    min={0.5}
-                    max={10}
-                    step={0.25}
-                    value={selStyle.size ?? 1}
-                    onChange={(e) => editSelectedStyle({ size: Number(e.target.value) })}
-                  />
-                  {zoomVisControls()}
-                </>
+                </div>
               )}
-            </div>
 
-            {mapScale &&
-              (selIsPolygon || selIsLine) &&
-              (() => {
-                const g = JSON.parse(selected.geometry) as { coordinates: unknown }
-                const k = mapScale.perUnit
-                if (selIsLine)
+              <div className="panel-block">
+                <label>{t('Appearance')}</label>
+                {selIsPolygon ? (
+                  <>
+                    <ColorPicker
+                      value={selStyle.color ?? folderColor(folders, selected.entity_folder)}
+                      onChange={(color) => editSelectedStyle({ color })}
+                    />
+                    <label>
+                      {t('Fill opacity: {val}', { val: (selStyle.fillOpacity ?? 0.25).toFixed(2) })}
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={selStyle.fillOpacity ?? 0.25}
+                      onChange={(e) => editSelectedStyle({ fillOpacity: Number(e.target.value) })}
+                    />
+                    <label>{t('Outline thickness: {val}px', { val: selStyle.weight ?? 2 })}</label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={10}
+                      step={1}
+                      value={selStyle.weight ?? 2}
+                      onChange={(e) => editSelectedStyle({ weight: Number(e.target.value) })}
+                    />
+                    <label>{t('Label font')}</label>
+                    <Select
+                      value={selStyle.font ?? 'Cinzel'}
+                      style={{ fontFamily: selStyle.font ?? 'Cinzel' }}
+                      onChange={(v) => editSelectedStyle({ font: v })}
+                      options={FONTS.map((f) => ({ value: f, label: f, style: { fontFamily: f } }))}
+                    />
+                    <label>{t('Fill image (click again to remove)')}</label>
+                    <ImageStrip
+                      img={selStyle.fillImg}
+                      images={pinImages}
+                      onImg={(p) =>
+                        editSelectedStyle(
+                          selStyle.fillImg === p ? { fillImg: undefined } : { fillImg: p }
+                        )
+                      }
+                      onUpload={() => uploadPinImage((p) => editSelectedStyle({ fillImg: p }))}
+                      onRemoveImg={(path) => savePinLib(pinImages.filter((p) => p.path !== path))}
+                    />
+                    {selStyle.fillImg && (
+                      <button
+                        className="mini"
+                        onClick={() => editSelectedStyle({ fillImg: undefined })}
+                      >
+                        {t('Remove fill image')}
+                      </button>
+                    )}
+                  </>
+                ) : selIsLine ? (
+                  <>
+                    <ColorPicker
+                      value={selStyle.color ?? '#b08968'}
+                      onChange={(color) => editSelectedStyle({ color })}
+                    />
+                    <label>{t('Thickness: {val}px', { val: selStyle.weight ?? 3 })}</label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={12}
+                      step={1}
+                      value={selStyle.weight ?? 3}
+                      onChange={(e) => editSelectedStyle({ weight: Number(e.target.value) })}
+                    />
+                    <label>
+                      {t('Opacity: {val}', { val: (selStyle.opacity ?? 0.9).toFixed(2) })}
+                    </label>
+                    <input
+                      type="range"
+                      min={0.1}
+                      max={1}
+                      step={0.05}
+                      value={selStyle.opacity ?? 0.9}
+                      onChange={(e) => editSelectedStyle({ opacity: Number(e.target.value) })}
+                    />
+                    <label>{t('Line style')}</label>
+                    <Select
+                      value={selStyle.dash ?? 'solid'}
+                      onChange={(v) => editSelectedStyle({ dash: v as LineDash })}
+                      options={LINE_DASHES.map((d) => ({ value: d, label: t(DASH_LABELS[d]) }))}
+                    />
+                    <label>{t('Curviness: {val}', { val: selStyle.curviness ?? 0 })}</label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={selStyle.curviness ?? 0}
+                      onChange={(e) => editSelectedStyle({ curviness: Number(e.target.value) })}
+                    />
+                    <label>{t('Direction arrow')}</label>
+                    <Select
+                      value={selStyle.arrow ?? 'none'}
+                      onChange={(v) => editSelectedStyle({ arrow: v as LineArrow })}
+                      options={LINE_ARROWS.map((a) => ({ value: a, label: t(ARROW_LABELS[a]) }))}
+                    />
+                  </>
+                ) : selIsLabel ? (
+                  <>
+                    <label>{t('Text')}</label>
+                    <input
+                      value={selStyle.text ?? ''}
+                      placeholder={t('sea, mountain range…')}
+                      onChange={(e) => editSelectedStyle({ text: e.target.value })}
+                    />
+                    <label>{t('Color')}</label>
+                    <ColorPicker
+                      value={selStyle.color ?? '#ffffff'}
+                      onChange={(color) => editSelectedStyle({ color })}
+                    />
+                    <label>{t('Label font')}</label>
+                    <Select
+                      value={selStyle.font ?? 'Cinzel'}
+                      style={{ fontFamily: selStyle.font ?? 'Cinzel' }}
+                      onChange={(v) => editSelectedStyle({ font: v })}
+                      options={FONTS.map((f) => ({ value: f, label: f, style: { fontFamily: f } }))}
+                    />
+                    <label>{t('Size: ×{val}', { val: (selStyle.size ?? 1).toFixed(2) })}</label>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={10}
+                      step={0.25}
+                      value={selStyle.size ?? 1}
+                      onChange={(e) => editSelectedStyle({ size: Number(e.target.value) })}
+                    />
+                    <label>{t('Angle: {val}°', { val: selStyle.angle ?? 0 })}</label>
+                    <input
+                      type="range"
+                      min={-90}
+                      max={90}
+                      step={5}
+                      value={selStyle.angle ?? 0}
+                      onChange={(e) => editSelectedStyle({ angle: Number(e.target.value) })}
+                    />
+                    <label>{t('Curve: {val}', { val: selStyle.curve ?? 0 })}</label>
+                    <input
+                      type="range"
+                      min={-100}
+                      max={100}
+                      step={5}
+                      value={selStyle.curve ?? 0}
+                      onChange={(e) => editSelectedStyle({ curve: Number(e.target.value) })}
+                    />
+                    {zoomVisControls()}
+                  </>
+                ) : (
+                  <>
+                    {/* Free mode has no badge → color has no effect, hide the control */}
+                    {!(selStyle.img && selStyle.imgFree) && (
+                      <>
+                        <label>{t('Color')}</label>
+                        <ColorPicker
+                          value={selStyle.color ?? '#c0603a'}
+                          onChange={(color) => editSelectedStyle({ color })}
+                        />
+                      </>
+                    )}
+                    {/* A custom image replaces the mark entirely, so the shape row is pointless then */}
+                    {!selStyle.img && (
+                      <>
+                        <label>{t('Shape')}</label>
+                        <PinShapePicker
+                          shape={selStyle.shape}
+                          color={selStyle.color ?? '#c0603a'}
+                          onPick={(shape) => editSelectedStyle({ shape })}
+                        />
+                      </>
+                    )}
+                    <label>{t('Pin image (click again to remove)')}</label>
+                    <ImageStrip
+                      img={selStyle.img}
+                      images={pinImages}
+                      onImg={(img, imgAR) =>
+                        editSelectedStyle(
+                          selStyle.img === img
+                            ? { img: undefined, imgAR: undefined }
+                            : { img, imgAR }
+                        )
+                      }
+                      onUpload={() =>
+                        uploadPinImage((img, imgAR) => editSelectedStyle({ img, imgAR }))
+                      }
+                      onRemoveImg={(path) => savePinLib(pinImages.filter((p) => p.path !== path))}
+                    />
+                    {selStyle.img && (
+                      <>
+                        <label>{t('Image style')}</label>
+                        <div className="measure-btns">
+                          <button
+                            className={`mini ${!selStyle.imgFree ? 'active' : ''}`}
+                            onClick={() => editSelectedStyle({ imgFree: false })}
+                          >
+                            {t('Badge')}
+                          </button>
+                          <button
+                            className={`mini ${selStyle.imgFree ? 'active' : ''}`}
+                            onClick={() => editSelectedStyle({ imgFree: true })}
+                          >
+                            {t('Free')}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    <label>{t('Size: ×{val}', { val: (selStyle.size ?? 1).toFixed(2) })}</label>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={10}
+                      step={0.25}
+                      value={selStyle.size ?? 1}
+                      onChange={(e) => editSelectedStyle({ size: Number(e.target.value) })}
+                    />
+                    {zoomVisControls()}
+                  </>
+                )}
+              </div>
+
+              {mapScale &&
+                (selIsPolygon || selIsLine) &&
+                (() => {
+                  const g = JSON.parse(selected.geometry) as { coordinates: unknown }
+                  const k = mapScale.perUnit
+                  if (selIsLine)
+                    return (
+                      <div className="panel-block scale-info">
+                        <span>
+                          <Icon name="ruler" size={12} />
+                          {t('Length: {val} {unit}', {
+                            val: fmtDist(ringLen(g.coordinates as number[][]) * k),
+                            unit: mapScale.unit
+                          })}
+                        </span>
+                      </div>
+                    )
+                  // ponytail: outer ring only — no holed polygons are drawn
+                  const ring = (g.coordinates as number[][][])[0]
                   return (
                     <div className="panel-block scale-info">
-                      📏{' '}
-                      {t('Length: {val} {unit}', {
-                        val: fmtDist(ringLen(g.coordinates as number[][]) * k),
-                        unit: mapScale.unit
-                      })}
+                      <span>
+                        <Icon name="polygon" size={12} />
+                        {t('Area: {val} {unit}²', {
+                          val: fmtDist(ringArea(ring) * k * k),
+                          unit: mapScale.unit
+                        })}
+                      </span>
+                      <span>
+                        <Icon name="ruler" size={12} />
+                        {t('Perimeter: {val} {unit}', {
+                          val: fmtDist(ringLen(ring) * k),
+                          unit: mapScale.unit
+                        })}
+                      </span>
                     </div>
                   )
-                // ponytail: outer ring only — no holed polygons are drawn
-                const ring = (g.coordinates as number[][][])[0]
-                return (
-                  <div className="panel-block scale-info">
-                    <div>
-                      📐{' '}
-                      {t('Area: {val} {unit}²', {
-                        val: fmtDist(ringArea(ring) * k * k),
-                        unit: mapScale.unit
-                      })}
-                    </div>
-                    <div>
-                      📏{' '}
-                      {t('Perimeter: {val} {unit}', {
-                        val: fmtDist(ringLen(ring) * k),
-                        unit: mapScale.unit
-                      })}
-                    </div>
-                  </div>
-                )
-              })()}
+                })()}
 
-            <div className="panel-block">
-              <label>{t('Time (blank = always; negative = before epoch):')}</label>
-              <div className="field-row">
-                <input
-                  type="number"
-                  placeholder={t('start')}
-                  defaultValue={selStyle.from ?? ''}
-                  key={`from-${selected.id}`}
-                  onBlur={(e) =>
-                    editSelectedStyle({
-                      from: e.target.value === '' ? undefined : Number(e.target.value)
-                    })
-                  }
-                />
-                <input
-                  type="number"
-                  placeholder={t('end')}
-                  defaultValue={selStyle.to ?? ''}
-                  key={`to-${selected.id}`}
-                  onBlur={(e) =>
-                    editSelectedStyle({
-                      to: e.target.value === '' ? undefined : Number(e.target.value)
-                    })
-                  }
-                />
-              </div>
-            </div>
-
-            {selected.entity_id ? (
-              <>
-                <button
-                  className="mini"
-                  onClick={async () => (
-                    await api.updateFeature(selected.id, { entity_id: null }),
-                    reloadFeatures(),
-                    setSelected({
-                      ...selected,
-                      entity_id: null,
-                      entity_name: null,
-                      entity_folder: null
-                    })
-                  )}
-                >
-                  {t('Unlink entity')}
-                </button>
-                <EntityPage
-                  id={selected.entity_id}
-                  folders={folders}
-                  compact
-                  onOpen={onOpenEntity}
-                  onChanged={() => (reloadFeatures(), onChanged())}
-                  onDeleted={() => (clearSel(), reloadFeatures())}
-                />
-              </>
-            ) : (
               <div className="panel-block">
-                <label>{t('Link to entity:')}</label>
-                <input
-                  list="entity-list-map"
-                  placeholder={t('search entity…')}
-                  value={linkName}
-                  onChange={(e) => setLinkName(e.target.value)}
-                />
-                <datalist id="entity-list-map">
-                  {allEntities
-                    .filter((en) => !(en.folder && personFolders.has(en.folder)))
-                    .map((en) => (
-                      <option key={en.id} value={en.name} />
-                    ))}
-                </datalist>
-                <button
-                  className="mini"
-                  onClick={async () => {
-                    if (!linkName.trim()) return
-                    const found = allEntities.find(
-                      (en) => en.name === linkName && !(en.folder && personFolders.has(en.folder))
-                    )
-                    if (found) return linkEntity(found.id)
-                    const { id: newId } = await api.createEntity({ name: linkName.trim() })
-                    setAllEntities(await api.listEntities())
-                    onChanged()
-                    await linkEntity(newId)
-                  }}
-                >
-                  {t('Link / Create')}
-                </button>
+                <label>{t('Time (blank = always; negative = before epoch):')}</label>
+                <div className="field-row">
+                  <input
+                    type="number"
+                    placeholder={t('start')}
+                    defaultValue={selStyle.from ?? ''}
+                    key={`from-${selected.id}`}
+                    onBlur={(e) =>
+                      editSelectedStyle({
+                        from: e.target.value === '' ? undefined : Number(e.target.value)
+                      })
+                    }
+                  />
+                  <input
+                    type="number"
+                    placeholder={t('end')}
+                    defaultValue={selStyle.to ?? ''}
+                    key={`to-${selected.id}`}
+                    onBlur={(e) =>
+                      editSelectedStyle({
+                        to: e.target.value === '' ? undefined : Number(e.target.value)
+                      })
+                    }
+                  />
+                </div>
               </div>
-            )}
 
-            <div className="panel-block">
-              <label>{t('Child map (door):')}</label>
-              <select
-                value={selStyle.childMapId ?? ''}
-                onChange={async (e) => {
-                  const childMapId = e.target.value ? Number(e.target.value) : undefined
-                  await api.updateFeature(selected.id, {
-                    style: JSON.stringify({ ...selStyle, childMapId })
-                  })
-                  if (childMapId) await api.updateMap(childMapId, { parent_map_id: id })
-                  onChanged()
-                  setSelected({ ...selected, style: JSON.stringify({ ...selStyle, childMapId }) })
-                }}
-              >
-                <option value="">{t('— none —')}</option>
-                {maps
-                  .filter((m) => m.id !== id)
-                  .map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-              </select>
-              {selStyle.childMapId && (
-                <button className="mini" onClick={() => onNavigate(selStyle.childMapId!)}>
-                  {t('Open map →')}
-                </button>
+              <div className="panel-block">
+                <label>{t('Child map (door):')}</label>
+                <Select
+                  value={selStyle.childMapId ? String(selStyle.childMapId) : ''}
+                  onChange={async (v) => {
+                    const childMapId = v ? Number(v) : undefined
+                    await api.updateFeature(selected.id, {
+                      style: JSON.stringify({ ...selStyle, childMapId })
+                    })
+                    if (childMapId) await api.updateMap(childMapId, { parent_map_id: id })
+                    onChanged()
+                    setSelected({ ...selected, style: JSON.stringify({ ...selStyle, childMapId }) })
+                  }}
+                  options={[
+                    { value: '', label: t('— none —') },
+                    ...maps
+                      .filter((m) => m.id !== id)
+                      .map((m) => ({ value: String(m.id), label: m.name }))
+                  ]}
+                />
+                {selStyle.childMapId && (
+                  <button className="mini" onClick={() => onNavigate(selStyle.childMapId!)}>
+                    {t('Open map →')}
+                  </button>
+                )}
+              </div>
+
+              {selected.entity_id ? (
+                <div className="panel-block">
+                  <button
+                    className="mini"
+                    onClick={async () => (
+                      await api.updateFeature(selected.id, { entity_id: null }),
+                      reloadFeatures(),
+                      setSelected({
+                        ...selected,
+                        entity_id: null,
+                        entity_name: null,
+                        entity_folder: null
+                      })
+                    )}
+                  >
+                    <Icon name="unlink" size={12} />
+                    {t('Unlink entity')}
+                  </button>
+                </div>
+              ) : (
+                <div className="panel-block">
+                  <label>{t('Link to entity:')}</label>
+                  <input
+                    list="entity-list-map"
+                    placeholder={t('search entity…')}
+                    value={linkName}
+                    onChange={(e) => setLinkName(e.target.value)}
+                  />
+                  <datalist id="entity-list-map">
+                    {allEntities
+                      .filter((en) => !(en.folder && personFolders.has(en.folder)))
+                      .map((en) => (
+                        <option key={en.id} value={en.name} />
+                      ))}
+                  </datalist>
+                  <button
+                    className="mini"
+                    onClick={async () => {
+                      if (!linkName.trim()) return
+                      const found = allEntities.find(
+                        (en) => en.name === linkName && !(en.folder && personFolders.has(en.folder))
+                      )
+                      if (found) return linkEntity(found.id)
+                      const { id: newId } = await api.createEntity({ name: linkName.trim() })
+                      setAllEntities(await api.listEntities())
+                      onChanged()
+                      await linkEntity(newId)
+                    }}
+                  >
+                    <Icon name="plus" size={12} />
+                    {t('Link / Create')}
+                  </button>
+                </div>
               )}
             </div>
+            {/* The bound article, shown as its identity RAIL — the same sections
+                the full page renders, so the inspector and the page are visibly
+                two views of one object rather than two interfaces. The document
+                (markdown, note tabs, relations) stays on the full page: it is
+                unusable at 380px, and "Open full page" sits in the rail header. */}
+            {selected.entity_id && (
+              <EntityPage
+                id={selected.entity_id}
+                folders={folders}
+                compact
+                onOpen={onOpenEntity}
+                onChanged={() => (reloadFeatures(), onChanged())}
+                onDeleted={() => (clearSel(), reloadFeatures())}
+              />
+            )}
           </div>
         )}
       </div>

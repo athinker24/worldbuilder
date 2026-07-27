@@ -2,54 +2,180 @@
   box-sizing: border-box;
 }
 
-/* Theme token layer: :root = dark (teal, default), [data-theme='light'] = light (turquoise).
-   App.tsx writes document.documentElement.dataset.theme (settings.theme). MAP CONTENT
-   (drawing colors, autoColor, color-picker spectrum, polygon-label white) is theme-independent. */
+/* ============================================================================
+   DESIGN TOKENS — :root = dark (default), [data-theme='light'] = light.
+   App.tsx writes document.documentElement.dataset.theme (prefs.json).
+
+   Tokens are named by ROLE, not by number: `--bg2` told you nothing about where
+   it belonged, which is how the sidebar ended up LIGHTER than the workspace it
+   frames. `--surface-sunken` cannot be misfiled.
+
+   The surface ramp, deepest → highest:
+     canvas  map void (the only surface the map image sits on)
+     sunken  sidebar and secondary chrome — RECESSED, below the workspace
+     base    the workspace / page background
+     raised  docked panels, the inspector, blocks inside a panel
+     float   popovers, menus, dialogs, floating map chrome
+   Each step is ~4 points of lightness — the old ramp stepped ~3 and leaned on a
+   1px border everywhere to compensate, which is what made the UI read as boxed-in.
+
+   MAP CONTENT (drawing colors, autoColor, color-picker spectrum, polygon-label
+   white, pin badge frame) is deliberately theme-independent — see updateOverlaySizes,
+   which runs every zoom frame and must never look a token up.
+   ============================================================================ */
 :root {
-  --bg0: #0f1416; /* deepest: map void, tree panel */
-  --bg: #151a1c;
-  --bg2: #1b2225;
-  --bg3: #242d30;
-  --text: #d5dcdc;
-  --muted: #84928f;
-  --accent: #3ec4ad;
-  --accent-soft: rgba(62, 196, 173, 0.14); /* selected background + focus ring */
-  --border: #323d40;
+  color-scheme: dark;
+
+  /* --- surfaces --- */
+  --surface-canvas: #0b1012;
+  --surface-sunken: #161e21;
+  --surface: #1a2225;
+  --surface-raised: #212a2e;
+  --surface-float: #2a353a;
+  /* Interaction states are TRANSLUCENT so they compose over whichever surface
+     they land on — a hover in the sidebar and a hover in a popover both read. */
+  --surface-hover: rgba(255, 255, 255, 0.055);
+  --surface-active: rgba(255, 255, 255, 0.09);
+  /* Controls (inputs, buttons, selects) — translucent for the same reason: a
+     control nested inside a raised panel must still sit above it. */
+  --control: rgba(255, 255, 255, 0.05);
+  --control-hover: rgba(255, 255, 255, 0.09);
+
+  /* --- text --- */
+  --text: #dde5e5;
+  --text-muted: #a6b4b3; /* secondary text, labels */
+  --text-faint: #879695; /* section headings, disabled */
+
+  /* --- accents ---
+     Teal = the APPLICATION talking (selection, active, focus, interaction).
+     Warm gold = the WORLD's own content (rulers, eras, year marks, templates) —
+     the family tree already used gold for rulers; this formalises that.
+     Neither ever paints user data: that stays autoColor(), theme-exempt. */
+  --accent: #3ec4ad; /* active/selected text and icons */
+  --accent-soft: rgba(62, 196, 173, 0.14); /* active/selected backgrounds */
+  --accent-strong: #3ec4ad; /* the one high-emphasis fill per view */
+  --accent-contrast: #08201c; /* text ON --accent-strong */
   --danger: #e06c75;
-  --gold: #d9a441; /* ruler / active-measurement highlight */
+  --danger-soft: rgba(224, 108, 117, 0.14);
   --male: #5b8fd6;
   --female: #d67ba8;
+
+  /* --- borders: subtle divides siblings, strong marks a real edge --- */
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
+
+  /* --- elevation. The hairline dark ring in shadow-2/3 replaces the border a
+     float used to carry: it defines the edge against a similar-luminance
+     backdrop without reading as an outline. --- */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 2px 10px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.35);
+  --shadow-3: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 0, 0, 0.45);
   --overlay: rgba(0, 0, 0, 0.55); /* modal backdrop */
-  --tint-1: rgba(255, 255, 255, 0.03); /* subtle surface tint */
+
+  /* --- geometry --- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --r-s: 4px; /* controls */
+  --r-m: 6px; /* panels, popovers */
+  --r-l: 10px; /* dialogs */
+  --h-sm: 24px;
+  --h-md: 28px;
+  --h-lg: 32px;
+
+  /* --- type --- */
+  --font-ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-title: 'Cinzel', Georgia, serif; /* workspace titles ONLY (bundled) */
+  --font-mono: Consolas, 'Cascadia Mono', monospace;
+  --fs-1: 12px;
+  --fs-2: 13px;
+  --fs-3: 14px;
+  --fs-4: 14px;
+  --fs-5: 16px;
+  --fs-6: 20px;
+  --fs-7: 26px;
+
+  /* --- motion --- */
+  --dur-fast: 100ms; /* hover, color, icon state */
+  --dur: 160ms; /* popover, menu, dialog, tab */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --focus-ring: 0 0 0 2px var(--accent-soft);
+
+  /* --- compatibility aliases ---
+     The rest of this file (and ~2000 lines of it) still speaks in --bg0..--bg3.
+     Aliasing rather than rewriting every rule means the ramp fix reaches the
+     whole app immediately; rules are migrated to role names as they are touched. */
+  --bg0: var(--surface-canvas);
+  --bg: var(--surface);
+  --bg2: var(--surface-raised);
+  --bg3: var(--control);
+  --muted: var(--text-muted);
+  --border: var(--border-strong);
+  --gold: #d9a441; /* ruler mark + active measurement — predates the redesign */
+  --tint-1: rgba(255, 255, 255, 0.03);
   --tint-2: rgba(255, 255, 255, 0.07);
-  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4); /* small element */
-  --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.4); /* floating panel */
-  --shadow-3: 0 12px 40px rgba(0, 0, 0, 0.55); /* diyalog / palet */
-  --r-s: 5px;
-  --r-m: 8px;
-  --r-l: 12px;
 }
 
+/* Light theme: the SAME role ordering, re-derived — not hand-tuned per token.
+   That is what fixes the old inversion, where --bg0 (the map void) was darker
+   than --bg2 and so became the darkest thing on a light screen.
+
+   The ramp was re-derived a second time because it was too bright, and the
+   measurement says why: every surface used to sit between L* 85 and 100, four
+   of the five above 93, with pure white on top and so no headroom left. The
+   steps collapsed to +2.9 and +1.9 where the dark theme has +3.8 and +5.0, so
+   panel, raised panel and popover were nearly the same tone and only shadows
+   told them apart. Lowering the floor to L* 78 and spacing the steps at ~4
+   both dims the screen and gives elevation somewhere to go; float stays white.
+   Scaled in LINEAR light so each token keeps its own teal tint rather than
+   drifting grey. Dark text loses contrast against lower surfaces, so the text,
+   danger and accent tokens below are re-derived with it — see their notes. */
 [data-theme='light'] {
-  --bg0: #d6e0e0;
-  --bg: #eef2f2;
-  --bg2: #ffffff;
-  --bg3: #e2eaea;
-  --text: #1d2a2a;
-  --muted: #5f7270;
-  --accent: #0d9488;
-  --accent-soft: rgba(13, 148, 136, 0.13);
-  --border: #c8d4d4;
-  --danger: #c4404b;
+  color-scheme: light;
   --gold: #a8761c;
+  --surface-canvas: #b8c3c3;
+  --surface-sunken: #d5dbdc;
+  --surface: #e2e6e6;
+  --surface-raised: #f1f3f3;
+  --surface-float: #ffffff;
+  --surface-hover: rgba(15, 40, 40, 0.055);
+  --surface-active: rgba(15, 40, 40, 0.09);
+  --control: rgba(15, 40, 40, 0.045);
+  --control-hover: rgba(15, 40, 40, 0.085);
+
+  /* Contrast against the new --surface (#e2e6e6): text 13.1:1, muted 5.6:1.
+     faint was 4.41 after the surfaces dropped — under the 4.5 floor — so it is
+     darkened just enough to clear it at 4.6:1. */
+  --text: #16211f;
+  --text-muted: #495c5a;
+  --text-faint: #576967;
+
+  /* Also re-derived against #e2e6e6: accent had fallen to 2.98:1, below the 3.0
+     non-text floor it needs as an icon and selection colour, and danger to 3.99.
+     Now 3.33:1 and 4.51:1 — where they were before the ramp moved. */
+  --accent: #0c8b80;
+  --accent-soft: rgba(12, 139, 128, 0.13);
+  --accent-strong: #0c8b80;
+  --accent-contrast: #ffffff;
+  --danger: #b63b45;
+  --danger-soft: rgba(182, 59, 69, 0.13);
   --male: #3c6cb4;
   --female: #b85583;
+
+  --border-subtle: rgba(15, 40, 40, 0.1);
+  --border-strong: rgba(15, 40, 40, 0.18);
+
+  --shadow-1: 0 1px 2px rgba(15, 40, 40, 0.12);
+  --shadow-2: 0 2px 10px rgba(15, 40, 40, 0.13), 0 0 0 1px rgba(15, 40, 40, 0.08);
+  --shadow-3: 0 16px 48px rgba(15, 40, 40, 0.2), 0 0 0 1px rgba(15, 40, 40, 0.1);
   --overlay: rgba(20, 40, 40, 0.35);
+
   --tint-1: rgba(15, 40, 40, 0.04);
   --tint-2: rgba(15, 40, 40, 0.08);
-  --shadow-1: 0 1px 3px rgba(15, 40, 40, 0.12);
-  --shadow-2: 0 4px 16px rgba(15, 40, 40, 0.14);
-  --shadow-3: 0 12px 40px rgba(15, 40, 40, 0.22);
 }
 
 html,
@@ -60,40 +186,82 @@ body,
 }
 
 body {
-  font-family: 'Segoe UI', system-ui, sans-serif;
-  background: var(--bg);
+  font-family: var(--font-ui);
+  background: var(--surface);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--fs-4);
   /* Desktop-app feel: no free text selection/dragging like a web page. */
   user-select: none;
   -webkit-user-drag: none;
 }
 
+/* Text you READ is selectable; chrome is not. Previously only inputs and the
+   markdown view opted back in, so an entity name, a computed area or a
+   coordinate could not be copied — all things a user genuinely wants to lift. */
 input,
 textarea,
 .content-view,
-.content-edit {
+.content-edit,
+.page-title,
+.row-value,
+.scale-info,
+.nav-total,
+.atlas-num,
+.kron-text,
+kbd {
   user-select: text;
 }
 
 /* --- typography hierarchy (one scale; local rules override through specificity) --- */
 h2 {
-  font-size: 20px;
+  font-size: var(--fs-6);
   font-weight: 650;
   letter-spacing: -0.01em;
 }
 
 h3 {
-  font-size: 16px;
+  font-size: var(--fs-5);
   font-weight: 600;
 }
 
+/* Section heading: quieter and smaller than before — a label over a group, not
+   a heading competing with content. */
 h4 {
-  font-size: 13px;
+  font-size: var(--fs-1);
   font-weight: 600;
-  color: var(--muted);
+  color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.06em;
+}
+
+/* Workspace titles — the one place the bundled display face appears outside the
+   map itself. Everything else stays --font-ui. */
+.page-title {
+  font-family: var(--font-title);
+  font-size: var(--fs-7);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+}
+
+/* Numbers that change in place must not change width: years, areas, percentages,
+   zoom, distances, coordinates. */
+.num,
+.zoom-pct,
+.atlas-num,
+.kron-year,
+.timeline-year,
+.cp-row input[type='number'] {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* --- scrollbar (desktop feel) --- */
@@ -161,28 +329,61 @@ h4 {
 }
 
 .sidebar-rail:hover {
-  background: var(--bg3);
+  background: var(--surface-hover);
   color: var(--accent);
 }
 
 /* --- sidebar --- */
 /* Width comes from App's inline style (drag-resizable, remembered in prefs.json); these are the
    fallback for the split second before prefs load. */
+/* SUNKEN, not raised. Persistent chrome sits BELOW the workspace it frames —
+   the single change that stops the app reading as a web page with a nav rail.
+   (It used to use --bg2, i.e. a raised level, and so was lighter than the page.) */
 .sidebar {
   width: 260px;
   min-width: 260px;
   flex-shrink: 0;
-  background: var(--bg2);
-  border-right: 1px solid var(--border);
+  background: var(--surface-sunken);
+  border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding: 8px;
-  gap: 8px;
+  padding: var(--sp-2);
+  gap: var(--sp-2);
+}
+
+/* Search reads as a search field rather than a bare text box. */
+.search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-field .icon {
+  position: absolute;
+  left: var(--sp-2);
+  color: var(--text-faint);
+  pointer-events: none;
 }
 
 .search {
   width: 100%;
+  padding-left: 28px;
+}
+
+/* Indent guide — what makes a 12px-step tree readable at this density. */
+.tree-children {
+  position: relative;
+}
+
+.tree-children::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--guide);
+  width: 1px;
+  background: var(--border-subtle);
 }
 
 .side-section.grow {
@@ -210,7 +411,7 @@ h4 {
   user-select: none;
 }
 .side-folder:hover {
-  background: var(--bg3);
+  background: var(--surface-hover);
 }
 .tree-caret {
   width: 12px;
@@ -219,15 +420,11 @@ h4 {
   font-size: 10px;
 }
 /* the folder's color swatch (replaces the old entity-type color) */
-.folder-color {
-  flex: 0 0 auto;
+/* Both classes are on the same button, so this must out-specify .cp-trigger's --h-md
+   sizing — that rule sits later in the file and would otherwise win the tie. */
+.cp-trigger.folder-color {
   width: 12px;
   height: 12px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: none;
-  cursor: pointer;
 }
 .folder-rename {
   flex: 1;
@@ -262,6 +459,71 @@ h4 {
   padding: 6px 4px 2px;
 }
 
+/* Map / board grouping in the tree. The two tiers are deliberately unequal: a map group is a
+   place you are not, so it carries a rule above it and reads as a division of the panel; a
+   board is a layer of the map you ARE on, so it is quieter and indented — a label over
+   articles you can already see, not a door. */
+.side-group + .side-group {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 2px;
+  padding-top: 2px;
+}
+
+.side-group-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 5px 6px;
+  min-height: 0;
+  background: none;
+  border: none;
+  border-radius: var(--r-s);
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.side-group-head:hover {
+  background: var(--control-hover);
+}
+
+.side-group-head .icon {
+  color: var(--text-faint);
+  flex: 0 0 auto;
+}
+
+.side-group-count {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The inner tier: no rule, smaller and muted, and stepped in so its articles sit under it. */
+.side-group.board + .side-group.board {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.side-group.board > .side-group-head {
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.side-group.board > .side-group-body {
+  padding-left: 10px;
+}
+
+.side-group-body .hint {
+  padding: 2px 8px 6px;
+  margin: 0;
+}
+
 .side-item {
   display: flex;
   align-items: center;
@@ -276,7 +538,7 @@ h4 {
 }
 
 .side-item:hover {
-  background: var(--bg3);
+  background: var(--surface-hover);
 }
 
 .side-label {
@@ -285,16 +547,55 @@ h4 {
   text-overflow: ellipsis;
 }
 
+/* Row actions live in a fixed slot so revealing them never shifts the label. */
 .side-item .locate {
-  visibility: hidden;
-  padding: 0 4px;
-  line-height: 1.2;
-  border: none;
-  background: transparent;
+  flex: none;
+  opacity: 0;
+  transition: opacity var(--dur-fast);
 }
 
-.side-item:hover .locate {
-  visibility: visible;
+.side-item:hover .locate,
+.side-item:focus-within .locate {
+  opacity: 1;
+}
+
+/* Workspace navigation: places you GO, distinct from the article rows above and
+   separated by a real boundary rather than sharing their styling. */
+.side-nav {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.side-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--sp-2);
+  min-height: var(--h-md);
+  padding: 0 var(--sp-2);
+  background: none;
+  border-color: transparent;
+  border-radius: var(--r-s);
+  color: var(--text-muted);
+  font-size: var(--fs-3);
+  text-align: left;
+}
+
+.side-nav-item:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
+  color: var(--text);
+}
+
+.side-nav-item.active {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .side-item.active {
@@ -351,28 +652,44 @@ h4 {
   flex-direction: column;
 }
 
+/* A chronology reads down, so width must not become line length: the text keeps a
+   readable measure and the era moves out into a right-hand column of its own. What the
+   page gains from the width is a scannable table — year, event, era — instead of one
+   long ragged line. */
 .kron-row {
   display: grid;
-  grid-template-columns: 90px 12px 1fr;
+  grid-template-columns: 110px 12px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 6px 4px;
 }
 
+.kron-text {
+  max-width: 90ch;
+}
+
+/* Right-hand column now, not a tail on the sentence. */
+.kron-period {
+  color: var(--text-faint);
+  white-space: nowrap;
+  text-align: right;
+}
+
 .kron-row + .kron-row {
-  border-top: 1px dashed var(--border);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .kron-year {
-  color: var(--muted);
-  font-size: 13px;
+  color: var(--text-muted);
+  font-size: var(--fs-2);
   text-align: right;
 }
 
 .kron-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+  width: 3px;
+  height: 100%;
+  min-height: 18px;
+  border-radius: 2px;
   justify-self: center;
 }
 
@@ -385,9 +702,7 @@ h4 {
 }
 
 .kron-period {
-  margin-left: 8px;
   font-size: 11px;
-  color: var(--muted);
 }
 
 /* --- Atlas --- */
@@ -407,6 +722,13 @@ h4 {
   margin-bottom: 22px;
 }
 
+.atlas-map h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
 .atlas-map h4 {
   margin: 10px 0 4px;
   color: var(--muted);
@@ -415,9 +737,26 @@ h4 {
   letter-spacing: 0.5px;
 }
 
+/* Each map's breakdowns as columns. auto-fit collapses to one column below ~340px of
+   available width, so the page still works narrow. align-items:start keeps a short list
+   from stretching to a tall neighbour's height. */
+.atlas-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 4px 28px;
+  align-items: start;
+}
+
+.atlas-col {
+  min-width: 0; /* grid items default to min-content: without this long names force overflow */
+}
+
+/* Fluid, because the row now lives inside a column of unknown width rather than a fixed
+   900px page. The name gets a share that can shrink, the bar takes the rest, the number
+   sizes to its own content. */
 .atlas-row {
   display: grid;
-  grid-template-columns: 180px 1fr 170px;
+  grid-template-columns: minmax(0, 8fr) minmax(40px, 9fr) auto;
   align-items: center;
   gap: 10px;
   padding: 2px 0;
@@ -441,7 +780,7 @@ h4 {
 }
 
 .atlas-bar-track {
-  background: var(--bg3);
+  background: var(--surface-sunken);
   border-radius: 4px;
   height: 14px;
   overflow: hidden;
@@ -484,9 +823,13 @@ h4 {
   opacity: 0.35;
 }
 
+/* The web is a circle, so it wants the largest SQUARE that fits — growing it wider than
+   tall would only add empty margins left and right. Bounded by the viewport height so the
+   diagram never runs off the bottom, and centred in whatever width is left over. */
 .diplo-svg {
   width: 100%;
-  max-width: 760px;
+  max-width: min(100%, calc(100vh - 210px));
+  margin-inline: auto;
   display: block;
 }
 
@@ -548,9 +891,8 @@ h4 {
   bottom: 16px;
   z-index: 1000;
   pointer-events: none;
-  background: var(--bg3);
+  background: var(--surface-float);
   color: var(--text);
-  border: 1px solid var(--border);
   border-radius: var(--r-m);
   box-shadow: var(--shadow-2);
   padding: 8px 14px;
@@ -565,8 +907,7 @@ h4 {
   max-width: 320px;
   max-height: 210px;
   overflow-y: auto;
-  background: var(--bg2);
-  border: 1px solid var(--border);
+  background: var(--surface-float);
   border-radius: var(--r-m);
   box-shadow: var(--shadow-2);
   padding: 4px;
@@ -604,14 +945,19 @@ h4 {
 .shortcut-table td:first-child {
   white-space: nowrap;
 }
+/* A key cap reads as a physical thing: raised surface, a hairline, and a bottom
+   edge that suggests depth. It borrowed the control background before, so it
+   looked like an input. */
 kbd {
-  font-family: inherit;
-  font-size: 12px;
-  background: var(--bg3);
-  border: 1px solid var(--border);
+  font-family: var(--font-ui);
+  font-size: var(--fs-2);
+  background: var(--surface-float);
+  border: 1px solid var(--border-subtle);
+  border-bottom-color: var(--border-strong);
   border-radius: var(--r-s);
   padding: 1px 6px;
   color: var(--text);
+  white-space: nowrap;
 }
 
 /* Start screen (Photoshop/Krita "home"): recently used .dunya files. */
@@ -691,6 +1037,14 @@ kbd {
   max-width: none;
 }
 
+/* Data views, not prose. The 900px cap above is a MEASURE cap — right for reading pages
+   like Preferences and Shortcuts, wrong for charts, tables and diagrams, which were being
+   squeezed into half the window. Each of the three Overview pages carries this and then
+   lays its own content out for the width it gets. */
+.page.wide {
+  max-width: none;
+}
+
 .page-head {
   display: flex;
   gap: 8px;
@@ -703,7 +1057,6 @@ kbd {
    .page scrolling and no .page ends up nested inside another. Padding matches .page's. */
 .overview-head {
   flex: 0 0 auto;
-  max-width: 900px;
   padding: 16px 24px 0;
 }
 
@@ -727,10 +1080,6 @@ kbd {
 }
 
 /* --- fields and rows --- */
-.fields {
-  margin-bottom: 12px;
-}
-
 .field-row {
   display: flex;
   gap: 6px;
@@ -743,7 +1092,7 @@ kbd {
   color: var(--muted);
 }
 
-.field-row input:not([type='color']) {
+.field-row input {
   flex: 1;
 }
 
@@ -773,58 +1122,21 @@ kbd {
 }
 
 /* --- sancak (banner) --- */
-.banner {
-  position: relative;
-  margin-bottom: 12px;
-}
-
-.banner img {
-  display: block;
-  width: 100%;
-  height: 200px;
-  object-fit: cover; /* accepts every image size; overflow is cropped */
-  border-radius: 8px;
-}
-
-.page.compact .banner img {
-  height: 100px;
-}
-
 /* Visible, clickable placeholder when no banner exists — discoverability. */
-.banner-placeholder {
-  display: block;
-  width: 100%;
-  padding: 10px;
-  margin-bottom: 12px;
-  background: transparent;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  color: var(--muted);
-  font-size: 13px;
-  cursor: pointer;
-  text-align: center;
-}
-
-.banner-placeholder:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.banner .banner-actions {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  display: flex;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.banner:hover .banner-actions {
-  opacity: 1;
-}
-
 /* --- note tabs --- */
+.notes-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-1);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.notes-head h4 {
+  flex: 1;
+  margin: 0;
+}
+
 .notes-region {
   margin-top: 12px;
   min-height: 28px; /* keep an area that can be right-clicked when there are no notes */
@@ -832,7 +1144,7 @@ kbd {
 
 .note-tab {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-m);
   margin-bottom: 8px;
 }
 
@@ -882,8 +1194,8 @@ kbd {
   padding: 32px;
 }
 .note-focus {
-  background: var(--bg1);
-  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--r-l);
   box-shadow: var(--shadow-3);
   width: min(900px, 100%);
@@ -933,8 +1245,8 @@ kbd {
 }
 
 .tree-panel {
-  background: var(--bg0);
-  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--r-l);
   width: 92vw;
   height: 86vh;
@@ -1052,7 +1364,7 @@ kbd {
   gap: 8px;
   padding: 7px 11px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   background: var(--tint-1);
   cursor: pointer;
   white-space: nowrap;
@@ -1075,6 +1387,49 @@ kbd {
   border: 1.5px solid rgba(255, 255, 255, 0.85);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
   box-sizing: border-box;
+}
+
+/* Abstract pin mark. Fills the icon box, which the zoom path already sizes, so the shape
+   scales with the map without a branch in updateOverlaySizes. The shadow replaces the badge's
+   box-shadow — a filter follows the actual silhouette, which a box-shadow cannot. */
+.pin-shape {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
+
+/* Shape picker: one row, wraps. Swatches preview in the pin's own colour. */
+.pin-shape-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pin-shape-opt {
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  padding: 3px;
+  background: var(--control);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-s);
+}
+
+.pin-shape-opt:hover {
+  background: var(--control-hover);
+}
+
+.pin-shape-opt.selected {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.pin-shape-opt svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 /* Custom image inside a badge: clipped to a circle (any aspect ratio accepted). */
@@ -1174,7 +1529,7 @@ kbd {
   padding: 4px;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-m);
   cursor: pointer;
 }
 
@@ -1297,23 +1652,6 @@ kbd {
 }
 
 /* --- relations --- */
-.links-section .hier-tabs {
-  margin-bottom: 10px;
-}
-
-.links-section {
-  margin-top: 20px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-}
-
-.links-section h3 {
-  font-size: 13px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
 .link-row {
   display: flex;
   gap: 8px;
@@ -1335,11 +1673,11 @@ kbd {
 }
 
 .map-toolbar {
-  padding: 8px 12px;
-  background: var(--bg2);
-  border-bottom: 1px solid var(--border);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
-  gap: 10px;
+  gap: var(--sp-2);
   align-items: center;
 }
 
@@ -1357,9 +1695,40 @@ kbd {
   min-width: 0;
 }
 
-.leaflet-host {
+/* THE MAP CANVAS. Double class on purpose: leaflet.css loads AFTER main.css (it
+   is imported from MapView.tsx, deep in the module graph) and declares
+   `.leaflet-container { background: #ddd }` on this very element — equal
+   specificity, later rule wins, which is why the void was a light grey slab
+   against a dark shell. `.leaflet-host.leaflet-container` outranks it.
+
+   Three deliberate steps: chrome → canvas → map. The canvas is the deepest
+   surface, carrying a very quiet FIXED grid (not zoom-reactive: that would mean
+   new work on updateOverlaySizes, the per-frame hot path) so it reads as a
+   drafting surface rather than an empty hole. */
+.leaflet-host,
+.leaflet-host.leaflet-container {
   flex: 1;
-  background: var(--bg0);
+  background-color: var(--surface-canvas);
+  background-image:
+    linear-gradient(var(--canvas-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--canvas-grid) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+:root {
+  --canvas-grid: rgba(255, 255, 255, 0.028);
+}
+
+[data-theme='light'] {
+  --canvas-grid: rgba(15, 40, 40, 0.045);
+}
+
+/* The map image reads as a lit object on a dark table, not a texture bleeding
+   into the void. Leaflet gives the base image its own <img> in the overlay pane. */
+.leaflet-image-layer {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.09),
+    0 8px 40px rgba(0, 0, 0, 0.55);
 }
 
 /* Selection highlight (single or Ctrl+click multi-select). A filter, not setStyle, preserves a
@@ -1368,56 +1737,71 @@ kbd {
   filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 5px #000);
 }
 
-/* Width is set inline by MapView (drag-resizable, remembered in prefs.json). */
+/* The contextual map inspector. RAISED, not floating: it is docked, and it keeps
+   exactly one border — the real edge where it meets the map. Width is set inline
+   by MapView (drag-resizable, remembered in prefs.json). */
 .map-panel {
   width: 380px;
   min-width: 380px;
   flex-shrink: 0;
-  background: var(--bg2);
-  border-left: 1px solid var(--border);
+  background: var(--surface-raised);
+  border-left: 1px solid var(--border-strong);
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
 }
 
-.map-panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
+/* A control group in the inspector. Label-over-control, not label-beside: at
+   380px a label column leaves the control too narrow to actually use.
+   Separated by a hairline only BETWEEN groups — no box around each one. */
 .panel-block {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
+  gap: var(--sp-1);
+  padding: var(--sp-2) 0;
+}
+
+.panel-block + .panel-block {
+  border-top: 1px solid var(--border-subtle);
 }
 
 .panel-block label {
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--text-muted);
+  font-size: var(--fs-2);
+  font-variant-numeric: tabular-nums;
 }
 
-/* --- form elements --- */
+/* A range immediately under its own label belongs to it — close the gap so the
+   pairing is unmistakable when six of them stack up. */
+.panel-block label + input[type='range'] {
+  margin-top: -2px;
+}
+
+/* --- form elements ---
+   Backgrounds are translucent so a control composes over whichever surface it
+   lands on: the same button reads correctly in the sunken sidebar, on the page,
+   and inside a raised inspector. A solid --bg3 could only ever suit one of them. */
 input,
 textarea,
 select,
 button {
-  background: var(--bg3);
+  background: var(--control);
   color: var(--text);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--r-s);
-  padding: 6px 10px;
+  padding: 0 var(--sp-2);
+  min-height: var(--h-md);
   font: inherit;
   transition:
-    background-color 0.1s,
-    border-color 0.1s,
-    color 0.1s,
-    box-shadow 0.1s;
+    background-color var(--dur-fast),
+    border-color var(--dur-fast),
+    color var(--dur-fast),
+    box-shadow var(--dur-fast);
+}
+
+textarea {
+  padding: var(--sp-2);
 }
 
 input:focus,
@@ -1425,38 +1809,140 @@ textarea:focus,
 select:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: var(--focus-ring);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-faint);
 }
 
 input[type='checkbox'],
-input[type='radio'],
-input[type='range'] {
+input[type='radio'] {
   accent-color: var(--accent);
+  min-height: 0;
+}
+
+input[type='range'] {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 0;
+  height: 18px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+
+input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px; /* centre the thumb on a 4px track */
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  box-shadow: var(--shadow-1);
+  transition:
+    transform var(--dur-fast),
+    background-color var(--dur-fast);
+}
+
+input[type='range']:hover::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+
+input[type='range']:active::-webkit-slider-thumb {
+  transform: scale(1.2);
+}
+
+input[type='range']:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--focus-ring);
+}
+
+input[type='range']:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* Controls that are a fixed glyph-sized square, not a text control: the shared
+   control height would blow their containers open (a --h-md tall × inside a chip
+   would make every chip 28px). */
+.tag-x,
+.pin-img-x,
+.locate,
+.map-row-btn,
+.recent-x,
+.cp-trigger,
+.cp-recent-sw,
+.tool-fbtn,
+.sidebar-rail {
+  min-height: 0;
 }
 
 button {
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  white-space: nowrap;
 }
 
 button:hover {
-  border-color: var(--accent);
-  /* Slightly lighter in dark mode and darker in light mode — one rule for both themes. */
-  background: color-mix(in srgb, var(--bg3), var(--text) 6%);
+  background: var(--control-hover);
+  border-color: var(--border-strong);
 }
 
-button:focus-visible {
+/* Focus is the ONE place a ring appears; hover never draws an accent border,
+   so "focused" and "hovered" stay distinguishable. */
+button:focus-visible,
+.side-item:focus-visible,
+.layers-row:focus-visible,
+.ctx-item:focus-visible,
+.palette-item:focus-visible,
+.tab:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: var(--focus-ring);
 }
 
 button.mini {
-  padding: 2px 8px;
-  font-size: 12px;
+  padding: 0 var(--sp-2);
+  min-height: var(--h-sm);
+  font-size: var(--fs-2);
+}
+
+/* The one high-emphasis fill per view. */
+button.primary {
+  background: var(--accent-strong);
+  border-color: transparent;
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+button.primary:hover {
+  background: var(--accent-strong);
+  border-color: transparent;
+  filter: brightness(1.08);
 }
 
 button.danger:hover {
-  border-color: var(--danger);
+  background: var(--danger-soft);
+  border-color: transparent;
   color: var(--danger);
 }
 
@@ -1479,8 +1965,7 @@ a {
 .palette {
   width: 480px;
   max-width: 90vw;
-  background: var(--bg2);
-  border: 1px solid var(--border);
+  background: var(--surface-float);
   border-radius: var(--r-l);
   padding: 10px;
   display: flex;
@@ -1553,14 +2038,116 @@ a {
   font-size: 12px;
 }
 
+/* --- select (our own; see Select.tsx for why the native popup had to go) --- */
+.select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: var(--h-md);
+  padding: 0 var(--sp-2);
+  background: var(--control);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-s);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.select-trigger:hover {
+  background: var(--control-hover);
+  border-color: var(--border-strong);
+}
+
+.select-trigger .icon {
+  color: var(--text-faint);
+}
+
+.select-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+}
+
+.select-list {
+  position: fixed;
+  z-index: 3001;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-1);
+  background: var(--surface-float);
+  border-radius: var(--r-m);
+  box-shadow: var(--shadow-3);
+}
+
+.select-option {
+  min-height: var(--h-md);
+  padding: 0 var(--sp-2);
+  background: none;
+  border: none;
+  border-radius: var(--r-s);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.select-option.active {
+  background: var(--surface-hover);
+}
+
+.select-option.selected {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* --- color picker --- */
-.cp-trigger {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
+/* Colour chips — one treatment for every swatch in the app. They were three different
+   shapes before (round trigger, round popup swatch, square presets, a 3px folder chip),
+   which made the same control read as four unrelated things. They are controls, so they
+   take the control radius and the control border like every input and button; only the
+   size varies with where they sit. The fill is user data, so the border must hold against
+   both white and black — hence --border rather than the subtle hairline. */
+.cp-trigger,
+.cp-swatch,
+.cp-recent-sw,
+.folder-color {
   padding: 0;
   flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+}
+
+.cp-trigger:hover,
+.cp-recent-sw:hover,
+.folder-color:hover {
+  border-color: var(--text-faint);
+}
+
+.cp-trigger:focus-visible,
+.cp-recent-sw:focus-visible,
+.folder-color:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Sits in rows beside inputs and selects, so it matches their height. */
+.cp-trigger {
+  width: var(--h-md);
+  height: var(--h-md);
 }
 
 .color-popup-overlay {
@@ -1575,9 +2162,8 @@ a {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  background: var(--surface-float);
+  border-radius: var(--r-m);
   padding: 10px;
   box-shadow: var(--shadow-2);
 }
@@ -1595,8 +2181,7 @@ a {
   border-radius: 4px;
   cursor: crosshair;
   background-image:
-    linear-gradient(to top, #000, transparent),
-    linear-gradient(to right, #fff, transparent);
+    linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent);
   background-blend-mode: normal;
 }
 
@@ -1638,12 +2223,10 @@ a {
   gap: 8px;
 }
 
+/* Popup head: pairs with the hex field beside it. */
 .cp-swatch {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  flex-shrink: 0;
+  width: var(--h-md);
+  height: var(--h-md);
 }
 
 .cp-hex {
@@ -1666,19 +2249,12 @@ a {
 .cp-recent-sw {
   width: 18px;
   height: 18px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
   cursor: pointer;
 }
 /* Selected preset color: outer ring that does not cover the swatch color. */
 .cp-recent-sw.active {
   border-color: var(--text);
   box-shadow: 0 0 0 2px var(--accent-soft);
-}
-/* Recent colors are CIRCLES, visually distinct from square preset colors. */
-.cp-recent-sw.round {
-  border-radius: 50%;
 }
 .cp-strip-label {
   font-size: 10px;
@@ -1743,8 +2319,7 @@ a {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
+  background: var(--surface-float);
   border-radius: 20px;
   padding: 6px 14px;
   box-shadow: var(--shadow-2);
@@ -1752,10 +2327,6 @@ a {
 
 .zoom-hud input[type='range'] {
   width: 160px;
-  padding: 0;
-  accent-color: var(--accent);
-  background: transparent;
-  border: none;
 }
 
 .zoom-pct {
@@ -1766,23 +2337,34 @@ a {
 }
 
 /* --- hierarchy (CK3-style bottom-right panel) --- */
-.hier-toggle {
+.hier-toggle,
+.timeline-toggle {
   position: absolute;
-  right: 12px;
-  bottom: 16px;
   z-index: 1500;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+  background: var(--surface-float);
+  border-color: transparent;
   border-radius: 16px;
   box-shadow: var(--shadow-2);
 }
 
+.hier-toggle:hover,
+.timeline-toggle:hover {
+  background: var(--surface-float);
+  border-color: transparent;
+  color: var(--accent);
+}
+
+.hier-toggle {
+  right: 12px;
+  bottom: 16px;
+}
+
 .timeline-toggle {
-  position: absolute;
   left: 50%;
   transform: translateX(-50%);
   top: 12px;
-  z-index: 1500;
-  border-radius: 16px;
-  box-shadow: var(--shadow-2);
 }
 
 /* width, not max-width: content width would shrink to the buttons and leave no room for the rail.
@@ -1799,9 +2381,8 @@ a {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--surface-float);
+  border-radius: var(--r-m);
   box-shadow: var(--shadow-2);
   padding: 8px 10px;
   box-sizing: border-box;
@@ -1832,6 +2413,14 @@ a {
 .timeline-rail input[type='range'] {
   width: 100%;
   margin: 0;
+}
+
+/* The year rail is the map's primary control, so its thumb is a size up. */
+.timeline-rail input[type='range']::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-color: var(--surface-float);
 }
 
 .timeline-bands {
@@ -1925,14 +2514,16 @@ a {
 }
 
 .link-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
   top: 56px;
   z-index: 1500;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--surface-float);
+  border-radius: var(--r-m);
   box-shadow: var(--shadow-2);
   padding: 6px 12px;
 }
@@ -1960,8 +2551,15 @@ a {
 }
 
 .scale-info {
-  font-size: 12px;
-  color: var(--muted);
+  font-size: var(--fs-2);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.scale-info span {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 
 /* Entity-template row (below the add-field form). */
@@ -2072,8 +2670,7 @@ a {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
+  background: var(--surface-float);
   border-radius: var(--r-m);
   padding: 4px;
   box-shadow: var(--shadow-2);
@@ -2106,7 +2703,7 @@ a {
 }
 
 .tool-fbtn:hover {
-  background: var(--bg3);
+  background: var(--surface-hover);
   border-color: var(--border);
 }
 
@@ -2125,8 +2722,7 @@ a {
   max-height: calc(100% - 24px);
   overflow-y: auto;
   overflow-x: hidden;
-  background: var(--bg2);
-  border: 1px solid var(--border);
+  background: var(--surface-float);
   border-radius: var(--r-m);
   box-shadow: var(--shadow-2);
 }
@@ -2141,9 +2737,8 @@ a {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--surface-float);
+  border-radius: var(--r-m);
   padding: 10px;
   box-shadow: var(--shadow-2);
 }
@@ -2362,9 +2957,8 @@ a {
   right: 0;
   z-index: 901;
   width: 260px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--surface-float);
+  border-radius: var(--r-m);
   box-shadow: var(--shadow-2);
   padding: 6px;
 }
@@ -2388,7 +2982,7 @@ a {
 }
 
 .layers-row:hover {
-  background: var(--bg3);
+  background: var(--surface-hover);
 }
 
 .layers-row input {
@@ -2442,9 +3036,8 @@ a {
 .ctx-menu {
   position: fixed;
   min-width: 170px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  background: var(--surface-float);
+  border-radius: var(--r-m);
   padding: 4px;
   box-shadow: var(--shadow-2);
 }
@@ -2463,8 +3056,7 @@ a {
 .dialog-box {
   min-width: 300px;
   max-width: 440px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
+  background: var(--surface-float);
   border-radius: var(--r-l);
   padding: 18px 20px 14px;
   box-shadow: var(--shadow-3);
@@ -2482,6 +3074,10 @@ a {
 }
 
 .ctx-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-muted);
   padding: 6px 10px;
   border-radius: var(--r-s);
   cursor: pointer;
@@ -2492,14 +3088,599 @@ a {
 }
 
 .ctx-item:hover {
-  background: var(--bg3);
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .ctx-item.danger:hover {
   color: var(--danger);
 }
 
-/* leaflet koyu tema uyumu */
-.leaflet-container {
+/* Leaflet dark-theme fit. Double class for the same reason as .leaflet-host
+   above: leaflet.css loads later and sets `font-family: "Helvetica Neue", Arial`
+   on .leaflet-container, so at equal specificity every control Leaflet owns was
+   silently rendering in Arial instead of the app face. */
+.leaflet-container.leaflet-container {
   font: inherit;
+}
+
+/* ============================================================================
+   PRIMITIVES — the small set every screen is built from. New screens compose
+   these rather than growing another one-off rule; that is what makes the system
+   propagate instead of each page being restyled by hand.
+   ============================================================================ */
+
+/* --- icons: one shared state rule, so no icon ever carries its own colour --- */
+.icon {
+  flex: none;
+  display: block;
+  color: inherit;
+}
+
+/* Icon-only button: a hit target around a glyph, invisible until approached. */
+.icon-btn {
+  width: var(--h-md);
+  height: var(--h-md);
+  min-height: 0;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.icon-btn:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
+  color: var(--text);
+}
+
+.icon-btn.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+.icon-btn.danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.icon-btn.sm {
+  width: var(--h-sm);
+  height: var(--h-sm);
+}
+
+/* --- tabs: NAVIGATION, and therefore deliberately not a chip ---
+   Chips were doing tab duty in five places, which is why nothing told you
+   whether you were looking at a tag, a toggle or a section switch. A sliding
+   underline is unmistakably navigation. */
+.tabs {
+  display: flex;
+  gap: var(--sp-4);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 var(--sp-1);
+}
+
+.tab {
+  position: relative;
+  appearance: none;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0 0 var(--sp-2);
+  min-height: var(--h-lg);
+  color: var(--text-muted);
+  font-size: var(--fs-3);
+  font-weight: 500;
+  cursor: pointer;
+  transition: color var(--dur-fast);
+}
+
+.tab:hover {
+  background: none;
+  color: var(--text);
+}
+
+.tab::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform var(--dur) var(--ease-out);
+}
+
+.tab.active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tab.active::after {
+  transform: scaleX(1);
+}
+
+/* --- section: a labelled group. Does the job a border used to do — heading,
+   consistent internal spacing and a shared background read as "these belong
+   together" without drawing a box around them. --- */
+.section + .section {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-3) 0 var(--sp-2);
+  background: none;
+  border: none;
+  border-radius: 0;
+  min-height: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.section-head:hover {
+  background: none;
+  border-color: transparent;
+  color: var(--text-muted);
+}
+
+.section-head .icon {
+  color: var(--text-faint);
+}
+
+.section-title {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The caret rotates rather than swapping glyphs — the same object, turned. */
+.section-caret {
+  transition: transform var(--dur) var(--ease-out);
+}
+
+.section.open > .section-head .section-caret {
+  transform: rotate(90deg);
+}
+
+.section-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding-bottom: var(--sp-3);
+}
+
+/* --- row: label / value / action. The workhorse of the rail and both
+   settings screens. --- */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--h-md);
+}
+
+.row-label {
+  flex: 0 0 96px;
+  color: var(--text-muted);
+  font-size: var(--fs-2);
+  line-height: 1.3;
+}
+
+.row-value {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.row-value > input,
+.row-value > select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Destructive actions stay out of sight until the row is approached — a live ×
+   on every row reads as an invitation to delete things. */
+.row-action {
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+}
+
+.row:hover .row-action,
+.row:focus-within .row-action {
+  opacity: 1;
+}
+
+/* --- empty state: the moment that teaches the screen, not a muted sentence --- */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.empty .icon {
+  color: var(--text-faint);
+  opacity: 0.6;
+}
+
+.empty-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.empty-hint {
+  font-size: var(--fs-2);
+  max-width: 46ch;
+  line-height: 1.5;
+}
+
+/* ============================================================================
+   ENTITY WORKSPACE — the full page and the map inspector are two presentations
+   of ONE object, so they share every class below. The full page adds the
+   document column; the inspector shows the rail alone.
+   ============================================================================ */
+
+.entity-page {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The banner CARRIES the title rather than pushing it below the fold — which is
+   what made the old 200px block a problem. Because the name now rides on the
+   image, height costs nothing structurally, so it gets room to actually read as
+   a picture. Scales with the window but never eats more than a third of it. */
+.entity-banner {
+  position: relative;
+  flex: none;
+  height: clamp(180px, 26vh, 300px);
+  background: var(--surface-sunken);
+}
+
+.entity-banner img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.entity-banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    transparent 45%,
+    color-mix(in srgb, var(--surface) 92%, transparent) 100%
+  );
+  pointer-events: none;
+}
+
+.entity-banner .banner-actions {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+  z-index: 1;
+  display: flex;
+  gap: var(--sp-1);
+  opacity: 0;
+  transition: opacity var(--dur);
+}
+
+.entity-banner:hover .banner-actions {
+  opacity: 1;
+}
+
+/* Without an image the banner collapses to a slim, clearly-clickable strip —
+   a 140px dashed rectangle would be a hole in the page. */
+.banner-add {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 0;
+  padding: var(--sp-2);
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: var(--fs-2);
+}
+
+.banner-add:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--accent);
+}
+
+.entity-head {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-5) var(--sp-3);
+}
+
+/* The title is the entity's name and edits in place: no border until you reach
+   for it, so the page reads as a document rather than a form. */
+.entity-title {
+  flex: 1;
+  min-width: 0;
+  padding: 2px var(--sp-1);
+  margin-left: calc(var(--sp-1) * -1);
+  font-family: var(--font-title);
+  font-size: var(--fs-7);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: transparent;
+  border-color: transparent;
+}
+
+.entity-title:hover {
+  border-color: var(--border-subtle);
+}
+
+/* When the banner exists the title sits over its lower edge. */
+.entity-banner + .entity-head {
+  margin-top: -46px;
+  position: relative;
+}
+
+/* Two columns: the document reads at a comfortable measure, the identity rail
+   holds everything that used to be buried behind bottom tabs. */
+/* Two columns, capped and centred. Uncapped, the document column reaches ~2100px
+   on a 2560px display and note tabs stretch with it; capping only the column
+   would instead open a gap between the document and the rail. Centring the whole
+   pair is what editors do, and it keeps the leftover space symmetric and
+   deliberate rather than a void on one side. */
+.entity-body {
+  flex: 1;
+  width: 100%;
+  max-width: 1320px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--sp-5);
+  align-items: start;
+  padding: 0 var(--sp-5) var(--sp-6);
+}
+
+/* The head follows the same measure so the title lines up with the document. */
+.entity-head {
+  width: 100%;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.entity-doc {
+  min-width: 0;
+}
+
+/* The measure belongs to running PROSE, not to the column: note tabs, relation
+   rows and the editor all want the full width, while a 2000px line of body text
+   is unreadable. */
+.entity-doc .content-view {
+  max-width: 74ch;
+}
+
+.entity-rail {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 var(--sp-2) var(--sp-5);
+  border-left: 1px solid var(--border-subtle);
+}
+
+/* Below this the rail cannot hold its measure beside the document, so it flows
+   underneath — but ABOVE the note tabs, so identity still precedes prose. */
+@media (max-width: 1100px) {
+  .entity-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .entity-doc {
+    max-width: none;
+  }
+
+  .entity-rail {
+    position: static;
+    order: -1;
+    padding: 0 0 var(--sp-3);
+    border-left: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+}
+
+/* The inspector shows the rail alone: same sections, same rows, same rhythm —
+   no card inside a card, because the panel already is the surface. */
+.map-panel .entity-rail {
+  position: static;
+  /* The panel edge is already the boundary here; the page's column rule would be
+     a second line saying the same thing. */
+  border-left: none;
+  padding: 0 var(--sp-3);
+}
+
+/* Where the feature's style controls end and the bound entity begins. */
+.entity-compact-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3) 0;
+  margin-top: var(--sp-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.entity-title.sm {
+  font-size: var(--fs-5);
+}
+
+/* At 320px a label COLUMN cannot work: "Government form" wrapped to two lines and
+   still left the input too narrow to read. The rail stacks label over control —
+   the same call the inspector already makes at 380px. */
+.entity-rail .row {
+  position: relative;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: var(--sp-1) 0;
+}
+
+.entity-rail .row-label {
+  flex: none;
+}
+
+.entity-rail .row-value > input,
+.entity-rail .row-value > select {
+  width: 100%;
+}
+
+/* Inline add-forms wrap instead of running past the rail edge. */
+.entity-rail .tag-add {
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.entity-rail .tag-add input {
+  flex: 1;
+  width: auto;
+  min-width: 90px;
+}
+
+/* The action sits with the row it belongs to now that rows are stacked. */
+.entity-rail .row-action {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+/* A chain (barony → county → duchy) is a sequence, not a bag of tags. */
+.rail-year {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A relation is a DIRECTED statement, so each item leads with its direction, names
+   the relation quietly and gives the entity the weight. Outgoing points away in the
+   accent; incoming and mentions point back, muted — one shape, three meanings. */
+.rel-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-1) 0;
+}
+
+.rel-item + .rel-item {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.rel-dir {
+  margin-top: 3px;
+  color: var(--text-faint);
+}
+
+.rel-dir.out {
+  color: var(--accent);
+}
+
+.rel-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+.rel-verb {
+  font-size: var(--fs-1);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.rel-text a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rel-action {
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+}
+
+.rel-item:hover .rel-action,
+.rel-item:focus-within .rel-action {
+  opacity: 1;
+}
+
+/* Teal is the application talking; the warm accent is the WORLD's own content —
+   reigns, eras, year marks, templates. Applied here so the split is visible rather
+   than merely declared in the token block. */
+/* --- inspector header: identity + the continuity gesture back to the page --- */
+.inspector-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.inspector-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.inspector-body {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--sp-3) var(--sp-2);
+}
+
+/* Stroke width as a MAP measurement, not a screen one. --w is each path's own weight
+   (written by the _updateStyle patch in MapView) and --mz is the zoom scale carried by
+   the pane, anchored at zoom 0 — so a weight of 3 is 3 MAP pixels, the same unit the
+   geometry is stored in, and a road keeps its width relative to the terrain instead of
+   becoming a band when you zoom out. Same reasoning that already scales labels and pins.
+   The floor keeps a hairline visible at the smallest zooms.
+
+   Polygons opt out by setting --mz: 1 on their own path (see the patch), because a border
+   is a pen stroke, not a thing on the ground — it stays screen-fixed like on a paper map.
+
+   non-scaling-stroke matters here too: Leaflet transforms the whole container while a
+   zoom animates (Renderer._updateTransform), which would otherwise scale the stroke a
+   SECOND time on top of --mz. */
+.leaflet-overlay-pane path {
+  stroke-width: max(0.75px, calc(var(--w, 3) * var(--mz, 1) * 1px));
+  vector-effect: non-scaling-stroke;
 }

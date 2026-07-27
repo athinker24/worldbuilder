@@ -13,6 +13,7 @@ import {
   packWorld,
   resetWorld,
   unpackWorld,
+  NOT_A_WORLD,
   api as dbApi
 } from './db'
 
@@ -162,6 +163,30 @@ function openWorldFile(path: string): void {
   updateTitle()
 }
 
+/** openWorldFile + the "that file is not a world" dialog. Returns false when nothing was opened.
+ *  unpackWorld validates before it touches anything, so a false here means the session the user
+ *  already had is still intact and open. */
+function openGuarded(path: string): boolean {
+  try {
+    openWorldFile(path)
+    return true
+  } catch (err) {
+    const notWorld = err instanceof Error && err.message === NOT_A_WORLD
+    // No parent at startup — the window does not exist yet when a double-clicked file fails.
+    const opts = {
+      type: 'error',
+      title: ml('Open Project…'),
+      message: notWorld
+        ? ml('That file is not a world file.')
+        : ml('That world file could not be opened.'),
+      detail: basename(path)
+    } as const
+    if (mainWindow) dialog.showMessageBoxSync(mainWindow, opts)
+    else dialog.showMessageBoxSync(opts)
+    return false
+  }
+}
+
 // "New": same path as the blank launch — the current working copy is packed into backups/ as a
 // .dunya, then the schema is emptied. The unsaved-changes confirm lives in the renderer.
 // File > Close Project runs this too: in this app there is no third state where a project is
@@ -193,6 +218,8 @@ const MENU_TR: Record<string, string> = {
   Help: 'Yardım',
   'New Project': 'Yeni Proje',
   'Open Project…': 'Proje Aç…',
+  'That file is not a world file.': 'Bu dosya bir dünya dosyası değil.',
+  'That world file could not be opened.': 'Bu dünya dosyası açılamadı.',
   'Open Recent': 'Son Kullanılanlar',
   '(empty)': '(boş)',
   Save: 'Kaydet',
@@ -326,8 +353,19 @@ function buildMenu(): void {
   )
 }
 
+// importAsset copies a path from disk into assets/, and it is the only method on the db surface
+// that takes a filesystem path from its caller. The renderer has no business naming that path:
+// the legitimate route is pickImage, where the USER chooses the file in a native dialog and main
+// passes it on. Left exposed, a compromised renderer could copy any image on the machine into
+// assets/, from where the next save would embed it in the .dunya and it would travel to whoever
+// the world is shared with. Nothing in the renderer calls it, so removing it costs no feature.
+// Deleted from the object rather than filtered in the dispatch — a method that is not there
+// cannot be reached by any spelling.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- discarding the key IS the point
+const { importAsset: _mainOnly, ...rendererDbApi } = dbApi
+
 const mainApi = {
-  ...dbApi,
+  ...rendererDbApi,
   // Dumps notes into the .txt tree + opens the folder for browsing (button-triggered, one-way)
   exportNotes: async (): Promise<{ path: string; files: number }> => {
     const r = dbApi.exportNotes()
@@ -345,7 +383,10 @@ const mainApi = {
       properties: ['openFile']
     })
     if (r.canceled || !r.filePaths[0]) return null
-    openWorldFile(r.filePaths[0])
+    // A file that is not one of our worlds is a normal thing for a user to pick (the filter is
+    // only a hint, and Windows lets any name end in .dunya). Say so and leave the open world
+    // alone — unpackWorld has already guaranteed nothing was touched.
+    if (!openGuarded(r.filePaths[0])) return null
     // Reload from MAIN: window.location.reload() in the renderer hit the will-navigate
     // security block and shipped the URL to the external browser (webContents.reload does not)
     mainWindow?.webContents.reload()
@@ -362,7 +403,7 @@ const mainApi = {
   // (the dialog-based openWorld is exempt: there the user picks the path, not the renderer).
   openRecent(path: string): boolean {
     if (!readRecent().includes(path) || !existsSync(path)) return false
-    openWorldFile(path)
+    if (!openGuarded(path)) return false // a recent entry can go bad on disk after it was listed
     mainWindow?.webContents.reload()
     return true
   },
@@ -497,7 +538,7 @@ app.on('second-instance', (_e, argv) => {
     })
     if (r !== 0) return
   }
-  openWorldFile(path)
+  if (!openGuarded(path)) return
   mainWindow.webContents.reload()
 })
 
@@ -521,7 +562,7 @@ app.whenReady().then(() => {
     backupIfNeeded() // daily dated copy of world.db — restore is manual (the backups/ folder)
     const arg = dunyaArg(process.argv)
     if (arg) {
-      openWorldFile(arg) // launch with the double-clicked file
+      openGuarded(arg) // launch with the double-clicked file; a bad one just starts blank
     } else if (hasContent()) {
       // Photoshop pattern: a normal launch is ALWAYS a blank document. The previous session's
       // working copy (images included) is packed into backups/ as a full .dunya — nothing is

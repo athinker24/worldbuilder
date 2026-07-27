@@ -112,6 +112,8 @@ export const api = {
     features: { entity_id: number; feature_id: number }[]
   ) => inv<void>('restoreEntities', rows, links, features),
   entityFeatureIds: (entityId: number) => inv<number[]>('entityFeatureIds', entityId),
+  entityPlacements: () =>
+    inv<{ entity_id: number; map_id: number; board: string | null }[]>('entityPlacements'),
   featuresByEntity: (entityId: number) =>
     inv<{ id: number; map_id: number; style: string; map_name: string }[]>(
       'featuresByEntity',

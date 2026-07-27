@@ -1,5 +1,10 @@
+import Icon, { IconName } from './icons'
+
 export interface MenuItem {
   label: string
+  /** Menu items carried their icon inside the label as an emoji, which made the
+      glyph part of the translation key and left the labels un-alignable. */
+  icon?: IconName
   danger?: boolean
   onClick: () => void
 }
@@ -40,7 +45,8 @@ export default function ContextMenu({ menu, onClose }: Props): React.JSX.Element
               onClose()
             }}
           >
-            {it.label}
+            {it.icon && <Icon name={it.icon} size={14} />}
+            <span>{it.label}</span>
           </div>
         ))}
       </div>

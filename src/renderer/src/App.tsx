@@ -1,18 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   api,
+  BoardDef,
   EntityRow,
   FolderDef,
   folderColor,
   getEntityFolders,
   getLanguage,
+  getMapBoards,
   getTheme,
   Lang,
   MapRow,
   saveEntityFolders,
   Theme
 } from './api'
+import ColorPicker from './ColorPicker'
 import ContextMenu, { MenuState } from './ContextMenu'
+import Icon from './icons'
+import Select from './Select'
+import { IconButton } from './ui'
 import { alertDialog, confirmDialog, DialogHost } from './dialog'
 import EntityPage from './EntityPage'
 import { deleteEntitiesWithUndo, deleteEntityWithUndo } from './entityOps'
@@ -55,6 +61,19 @@ export default function App(): React.JSX.Element {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<'az' | 'za' | 'created' | 'modified'>('az')
+  // Which article is drawn on which map/board. Derived from features (see db.entityPlacements),
+  // so the sidebar's map grouping needs no field on the entity and cannot fall out of sync.
+  const [placements, setPlacements] = useState<
+    { entity_id: number; map_id: number; board: string | null }[]
+  >([])
+  const [boards, setBoards] = useState<BoardDef[]>([])
+  // Open/closed accordions, by group key. Session state on purpose: it follows which map you
+  // are on, and persisting it would fight that.
+  // The two tiers default opposite ways, and that asymmetry IS the difference between them:
+  // a map group is somewhere you are NOT (closed unless listed here), while a board is a layer
+  // of the map you ARE on, so it only labels its articles (open unless listed in closedBoards).
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set())
+  const [closedBoards, setClosedBoards] = useState<Set<string>>(new Set())
   const dragItem = useRef<{ kind: 'entity' | 'folder'; id: number | string } | null>(null)
   const histRef = useRef<{ stack: View[]; idx: number }>({ stack: [], idx: -1 })
   // Read the current selection/view for the Del shortcut without a stale closure
@@ -72,6 +91,13 @@ export default function App(): React.JSX.Element {
   // whichever one hid it — that is how Photoshop behaves.
   // Deliberately NOT persisted (widths are): launching into a chrome-less window would read as a
   // broken app. This is a temporary view mode, not a layout preference.
+  // The last map opened stays MOUNTED behind the other workspaces. Unmounting it
+  // rebuilt Leaflet, refetched every feature and re-fitted the view on each return,
+  // so coming back from an article threw away where you were on the map.
+  const [mapId, setMapId] = useState<number | null>(null)
+  useEffect(() => {
+    if (view.kind === 'map') setMapId(view.id)
+  }, [view])
   const [hidden, setHidden] = useState<null | 'panels' | 'all'>(null)
   const [sidebarW, setSidebarW] = useState(260)
 
@@ -94,15 +120,32 @@ export default function App(): React.JSX.Element {
   }, [theme])
 
   const refresh = useCallback(async () => {
-    const [e, m, f] = await Promise.all([
+    const [e, m, f, p] = await Promise.all([
       api.listEntities(search),
       api.listMaps(),
-      getEntityFolders()
+      getEntityFolders(),
+      api.entityPlacements()
     ])
     setEntities(e)
     setMaps(m)
     setFolders(f)
+    setPlacements(p)
   }, [search])
+
+  // The open map's boards, for the second grouping tier. Empty list = the map has no boards,
+  // and then the tier does not appear at all. Re-read on placements too: a board created in
+  // MapView reaches the sidebar when something is drawn on it, which is also the first moment
+  // it has anything to group.
+  useEffect(() => {
+    if (mapId === null) return setBoards([])
+    getMapBoards(mapId).then((b) => setBoards(b.list))
+  }, [mapId, placements])
+
+  // Landing on a map opens that map's group and closes the rest — the point of the grouping is
+  // that the map you are on is the list, and the others are put away.
+  useEffect(() => {
+    setOpenGroups(new Set(mapId === null ? [] : [`map:${mapId}`]))
+  }, [mapId])
 
   useEffect(() => {
     refresh()
@@ -281,7 +324,7 @@ export default function App(): React.JSX.Element {
         case 'file.exportMap':
           // ponytail: enabled even off a map view — greying it out would mean rebuilding the
           // native menu on every view change. Swap to a menu rebuild if that ever grates.
-          return exportMapRef.current
+          return exportMapRef.current && viewRef.current.kind === 'map'
             ? exportMapRef.current()
             : showToast(translate(lang, 'Open a map first.'))
         case 'file.exportNotes':
@@ -403,13 +446,72 @@ export default function App(): React.JSX.Element {
       .sort((a, b) =>
         sortKey === 'za' ? b.name.localeCompare(a.name, 'tr') : a.name.localeCompare(b.name, 'tr')
       )
-  const entitiesOf = (folderId: string | null): EntityRow[] =>
-    entities
-      .filter((e) => {
-        const f = e.folder && folderIds.has(e.folder) ? e.folder : null // orphan → root
-        return f === folderId
-      })
-      .sort(entSort)
+  const folderOf = (e: EntityRow): string | null =>
+    e.folder && folderIds.has(e.folder) ? e.folder : null // orphan → root
+  // allow = the map/board group being drawn (null outside grouping: the whole tree).
+  const entitiesOf = (folderId: string | null, allow: Set<number> | null): EntityRow[] =>
+    entities.filter((e) => folderOf(e) === folderId && (!allow || allow.has(e.id))).sort(entSort)
+  // A folder is drawn in a group only if the group actually holds something inside it —
+  // otherwise every group would repeat the entire folder tree with most branches empty.
+  const folderShown = (id: string, allow: Set<number> | null): boolean =>
+    !allow ||
+    entities.some((e) => folderOf(e) === id && allow.has(e.id)) ||
+    folders.some((f) => f.parent === id && folderShown(f.id, allow))
+
+  // Which maps each article is drawn on. An article drawn on several maps appears under each,
+  // because it genuinely is on all of them — this is a view of the drawings, not an assignment.
+  const entityMaps = useMemo(() => {
+    const m = new Map<number, Set<number>>()
+    for (const p of placements) {
+      let s = m.get(p.entity_id)
+      if (!s) m.set(p.entity_id, (s = new Set()))
+      s.add(p.map_id)
+    }
+    return m
+  }, [placements])
+
+  // The sidebar's top tier once a map is open: this map expanded, the others put away, and
+  // everything with no drawing at all in its own group at the bottom. Null before any map has
+  // been opened — then the tree is the plain folder tree it has always been.
+  const groups = useMemo(() => {
+    if (mapId === null) return null
+    const onMap = (id: number): Set<number> =>
+      new Set(entities.filter((e) => entityMaps.get(e.id)?.has(id)).map((e) => e.id))
+    const here = maps.find((m) => m.id === mapId)
+    const out = here
+      ? [{ key: `map:${here.id}`, name: here.name, kind: 'map' as const, allow: onMap(here.id) }]
+      : []
+    for (const m of maps) {
+      if (m.id === mapId) continue
+      const allow = onMap(m.id)
+      // A map with nothing drawn on it would be an empty accordion, which is only noise.
+      if (allow.size) out.push({ key: `map:${m.id}`, name: m.name, kind: 'map' as const, allow })
+    }
+    return [
+      ...out,
+      {
+        key: 'unplaced',
+        name: '', // labelled at render: keeping t() out of here keeps lang out of the deps
+        kind: 'unplaced' as const,
+        allow: new Set(entities.filter((e) => !entityMaps.has(e.id)).map((e) => e.id))
+      }
+    ]
+  }, [mapId, maps, entities, entityMaps])
+
+  // Second tier, inside the open map only. Mirrors MapView's resolveBoard: a missing or orphan
+  // board id falls to the first board, so a renamed or deleted board never hides an article.
+  const boardMembers = useMemo(() => {
+    const m = new Map<string, Set<number>>()
+    if (mapId === null || !boards.length) return m
+    for (const p of placements) {
+      if (p.map_id !== mapId) continue
+      const b = p.board && boards.some((x) => x.id === p.board) ? p.board : boards[0].id
+      let s = m.get(b)
+      if (!s) m.set(b, (s = new Set()))
+      s.add(p.entity_id)
+    }
+    return m
+  }, [placements, mapId, boards])
   // Every descendant folder id (cycle-guard for moves + promote-children on delete)
   const descendantFolders = (id: string): Set<string> => {
     const out = new Set<string>()
@@ -501,10 +603,13 @@ export default function App(): React.JSX.Element {
       await setEntityFolder(e.id, parent)
     refresh()
   }
-  const createNote = async (folderId: string | null = null): Promise<void> => {
+  const addEntity = async (folderId: string | null = null): Promise<void> => {
     const { id } = await api.createEntity({ name: t('New Entity') })
     if (folderId) await setEntityFolder(id, folderId)
     await refresh()
+    // A new article has no drawing yet, so it lands in the unplaced group — which is closed by
+    // default. Without this it would look like the button did nothing.
+    setOpenGroups((prev) => new Set(prev).add('unplaced'))
     openEntity(id)
   }
   const dropOn = (target: string | null): void => {
@@ -521,19 +626,21 @@ export default function App(): React.JSX.Element {
       x: ev.clientX,
       y: ev.clientY,
       items: [
-        { label: t('🗒 New note'), onClick: () => createNote(folder.id) },
-        { label: t('📁 New folder'), onClick: () => addFolder(folder.id) },
-        { label: t('✎ Rename'), onClick: () => setRenamingFolder(folder.id) },
+        { icon: 'file-text', label: t('New Entity'), onClick: () => addEntity(folder.id) },
+        { icon: 'folder', label: t('New folder'), onClick: () => addFolder(folder.id) },
+        { icon: 'pencil', label: t('Rename'), onClick: () => setRenamingFolder(folder.id) },
         {
           // People live in folders now (the old "Person" entity type): family/dynasty pickers
           // only suggest articles from these, and they cannot be bound to the map.
-          label: folder.isPerson ? t('👤 Person folder ✓') : t('👤 Person folder'),
+          // The icon carries the on/off state, so the label stays one stable key.
+          icon: folder.isPerson ? 'check' : 'user',
+          label: t('Person folder'),
           onClick: () =>
             writeFolders(
               folders.map((f) => (f.id === folder.id ? { ...f, isPerson: !f.isPerson } : f))
             )
         },
-        { label: t('🗑 Delete'), danger: true, onClick: () => deleteFolder(folder) }
+        { icon: 'trash', label: t('Delete'), danger: true, onClick: () => deleteFolder(folder) }
       ]
     })
   }
@@ -556,10 +663,11 @@ export default function App(): React.JSX.Element {
           x: ev.clientX,
           y: ev.clientY,
           items: [
-            { label: t('📖 Open'), onClick: () => openEntity(e.id) },
-            { label: t('📍 Show on map'), onClick: () => locateEntity(e.id) },
+            { icon: 'file-text', label: t('Open'), onClick: () => openEntity(e.id) },
+            { icon: 'map-pin', label: t('Show on map'), onClick: () => locateEntity(e.id) },
             {
-              label: t('🗑 Delete'),
+              icon: 'trash',
+              label: t('Delete'),
               danger: true,
               onClick: async () => {
                 if (await deleteEntityWithUndo(e.id)) {
@@ -579,25 +687,35 @@ export default function App(): React.JSX.Element {
         onClick={(ev) => ev.stopPropagation()}
         onChange={() => toggleOne(e.id)}
       />
-      <span
-        className="dot"
-        style={{ background: folderColor(folders, e.folder ?? null) }}
-        title={folders.find((f) => f.id === e.folder)?.name ?? ''}
-      />
+      {/* The colour is the FOLDER's, which the row's position under its folder already
+          states — a dot on every row is noise. In search the list is flat and that
+          context is gone, so the dot earns its place there and only there. */}
+      {search.trim() && (
+        <span
+          className="dot"
+          style={{ background: folderColor(folders, e.folder ?? null) }}
+          title={folders.find((f) => f.id === e.folder)?.name ?? ''}
+        />
+      )}
       <span className="side-label">{e.name}</span>
-      <button
-        className="mini locate"
-        title={t('Show on map')}
-        onClick={(ev) => {
-          ev.stopPropagation()
-          locateEntity(e.id)
-        }}
-      >
-        📍
-      </button>
+      <span className="locate">
+        <IconButton
+          icon="map-pin"
+          label={t('Show on map')}
+          small
+          onClick={(ev) => {
+            ev.stopPropagation()
+            locateEntity(e.id)
+          }}
+        />
+      </span>
     </div>
   )
-  const renderFolderRow = (folder: FolderDef, depth: number): React.JSX.Element => {
+  const renderFolderRow = (
+    folder: FolderDef,
+    depth: number,
+    allow: Set<number> | null
+  ): React.JSX.Element => {
     const open = !collapsed.has(folder.id)
     return (
       <div key={`f-${folder.id}`}>
@@ -621,18 +739,17 @@ export default function App(): React.JSX.Element {
           <span className="tree-caret">{open ? '▾' : '▸'}</span>
           {/* The folder's color (the old entity-type color, re-homed): also the default color of
               map drawings whose article lives in this folder. */}
-          <input
-            type="color"
-            className="folder-color"
-            title={t('Folder color')}
-            value={folder.color ?? '#7bb3ff'}
-            onClick={(ev) => ev.stopPropagation()}
-            onChange={(ev) =>
-              writeFolders(
-                folders.map((f) => (f.id === folder.id ? { ...f, color: ev.target.value } : f))
-              )
-            }
-          />
+          {/* stopPropagation: the row itself toggles the folder open, and the picker sits inside it */}
+          <span onClick={(ev) => ev.stopPropagation()}>
+            <ColorPicker
+              className="folder-color"
+              title={t('Folder color')}
+              value={folder.color ?? '#7bb3ff'}
+              onChange={(hex) =>
+                writeFolders(folders.map((f) => (f.id === folder.id ? { ...f, color: hex } : f)))
+              }
+            />
+          </span>
           {renamingFolder === folder.id ? (
             <input
               className="folder-rename"
@@ -657,13 +774,91 @@ export default function App(): React.JSX.Element {
             </span>
           )}
         </div>
-        {open && renderChildren(folder.id, depth + 1)}
+        {/* Indent guide. The wrapper only draws a line via ::before, so rows keep
+            the padding they already compute and nothing shifts. */}
+        {open && (
+          <div
+            className="tree-children"
+            style={{ ['--guide']: `${11 + depth * 12}px` } as React.CSSProperties}
+          >
+            {renderChildren(folder.id, depth + 1, allow)}
+          </div>
+        )}
       </div>
     )
   }
-  const renderChildren = (parent: string | null, depth: number): React.JSX.Element[] => [
-    ...foldersOf(parent).map((f) => renderFolderRow(f, depth)),
-    ...entitiesOf(parent).map((e) => renderEntityRow(e, depth))
+  const toggle = (set: Set<string>, key: string): Set<string> => {
+    const next = new Set(set)
+    if (!next.delete(key)) next.add(key)
+    return next
+  }
+  // A board group: the lighter, inner tier. Same shape as a map group, but it starts open and
+  // sits one level in, so it reads as a label on articles you can already see.
+  const renderBoardGroup = (b: BoardDef, mapAllow: Set<number>): React.JSX.Element => {
+    const open = !closedBoards.has(b.id)
+    const allow = new Set([...(boardMembers.get(b.id) ?? [])].filter((id) => mapAllow.has(id)))
+    return (
+      <div className="side-group board" key={b.id}>
+        <button
+          className="side-group-head"
+          onClick={() => setClosedBoards((prev) => toggle(prev, b.id))}
+        >
+          <span className="tree-caret">{open ? '▾' : '▸'}</span>
+          <Icon name="board" size={12} />
+          <span className="side-label">{b.name}</span>
+          <span className="side-group-count">{allow.size}</span>
+        </button>
+        {open && <div className="side-group-body">{renderChildren(null, 0, allow)}</div>}
+      </div>
+    )
+  }
+  const renderGroup = (g: {
+    key: string
+    name: string
+    kind: 'map' | 'unplaced'
+    allow: Set<number>
+  }): React.JSX.Element => {
+    const open = openGroups.has(g.key)
+    // Boards subdivide the map you are on; on the other maps' groups they would be noise.
+    const withBoards = g.key === `map:${mapId}` && boards.length > 0
+    return (
+      <div className="side-group" key={g.key}>
+        <button
+          className="side-group-head"
+          onClick={() => setOpenGroups((prev) => toggle(prev, g.key))}
+        >
+          <span className="tree-caret">{open ? '▾' : '▸'}</span>
+          <Icon name={g.kind === 'map' ? 'map' : 'file-text'} size={13} />
+          <span className="side-label">{g.kind === 'map' ? g.name : t('Not on a map')}</span>
+          <span className="side-group-count">{g.allow.size}</span>
+        </button>
+        {open && (
+          <div className="side-group-body">
+            {g.allow.size === 0 ? (
+              <p className="hint">
+                {g.kind === 'map'
+                  ? t('Nothing drawn on this map yet.')
+                  : t('Every article is on a map.')}
+              </p>
+            ) : withBoards ? (
+              boards.map((b) => renderBoardGroup(b, g.allow))
+            ) : (
+              renderChildren(null, 0, g.allow)
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+  const renderChildren = (
+    parent: string | null,
+    depth: number,
+    allow: Set<number> | null
+  ): React.JSX.Element[] => [
+    ...foldersOf(parent)
+      .filter((f) => folderShown(f.id, allow))
+      .map((f) => renderFolderRow(f, depth, allow)),
+    ...entitiesOf(parent, allow).map((e) => renderEntityRow(e, depth))
   ]
 
   return (
@@ -691,12 +886,15 @@ export default function App(): React.JSX.Element {
             display: hidden ? 'none' : undefined
           }}
         >
-          <input
-            className="search"
-            placeholder={t('Search…  (Ctrl+K)')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <div className="search-field">
+            <Icon name="search" size={14} />
+            <input
+              className="search"
+              placeholder={t('Search…  (Ctrl+K)')}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
 
           <div className="side-section grow">
             <div className="side-head">
@@ -705,7 +903,7 @@ export default function App(): React.JSX.Element {
             {selected.size > 0 && (
               <div className="bulk-bar">
                 <button className="mini danger" onClick={deleteSelected}>
-                  🗑 {t('Delete selected ({n})', { n: selected.size })}
+                  <Icon name="trash" size={12} /> {t('Delete selected ({n})', { n: selected.size })}
                 </button>
                 <button className="mini" onClick={() => setSelected(new Set())}>
                   {t('Clear')}
@@ -725,53 +923,66 @@ export default function App(): React.JSX.Element {
                 ? entities
                     .slice()
                     .sort(entSort)
-                    .map((e) => renderEntityRow(e, 0)) // search = flat
-                : renderChildren(null, 0)}
+                    .map((e) => renderEntityRow(e, 0)) // search = flat: grouping would hide hits
+                : groups
+                  ? groups.map(renderGroup)
+                  : renderChildren(null, 0, null)}
             </div>
             {/* Create + sort at the bottom of the column (Obsidian) */}
             <div className="side-foot">
-              <button className="mini" title={t('New note')} onClick={() => createNote()}>
-                {t('＋ Note')}
+              <button className="mini" title={t('New Entity')} onClick={() => addEntity()}>
+                {t('＋ Entity')}
               </button>
               <button className="mini" title={t('New folder')} onClick={() => addFolder()}>
                 {t('＋ Folder')}
               </button>
               <span className="side-foot-spacer" />
-              <select
+              <Select
                 className="side-sort"
                 title={t('Sort')}
                 value={sortKey}
-                onChange={(ev) => setSortKey(ev.target.value as typeof sortKey)}
-              >
-                <option value="az">A–Z</option>
-                <option value="za">Z–A</option>
-                <option value="created">{t('Created')}</option>
-                <option value="modified">{t('Modified')}</option>
-              </select>
+                onChange={(v) => setSortKey(v as typeof sortKey)}
+                options={[
+                  { value: 'az', label: 'A–Z' },
+                  { value: 'za', label: 'Z–A' },
+                  { value: 'created', label: t('Created') },
+                  { value: 'modified', label: t('Modified') }
+                ]}
+              />
             </div>
           </div>
 
           {/* Workspaces only. Project commands (save/open/export/backup) live in the File menu,
               application preferences in Edit, and Shortcuts in Help — the sidebar is for places
-              you go, not things you do. */}
-          <div
-            className={`side-item kron-btn ${view.kind === 'map' ? 'active' : ''}`}
-            onClick={openMaps}
-          >
-            🗺 {t('Maps')}
-          </div>
-          <div
-            className={`side-item settings-btn ${view.kind === 'overview' ? 'active' : ''}`}
-            onClick={() => setView({ kind: 'overview', tab: 'atlas' })}
-          >
-            {t('📊 Overview')}
-          </div>
-          <div
-            className={`side-item settings-btn ${view.kind === 'projectPrefs' ? 'active' : ''}`}
-            onClick={() => setView({ kind: 'projectPrefs' })}
-          >
-            {t('⚙ Project Preferences')}
-          </div>
+              you go, not things you do.
+              These are a DIFFERENT kind of thing from the article rows above, so they get their
+              own block above a real boundary: rendered as plain .side-item they were
+              indistinguishable from an entity that happened to start with an emoji. */}
+          <nav className="side-nav">
+            {/* Written out rather than mapped over a tuple list: the lint rule guarding
+                ref access during render false-positives on the `as const` array. */}
+            <button
+              className={`side-nav-item ${view.kind === 'map' ? 'active' : ''}`}
+              onClick={openMaps}
+            >
+              <Icon name="map" size={14} />
+              {t('Maps')}
+            </button>
+            <button
+              className={`side-nav-item ${view.kind === 'overview' ? 'active' : ''}`}
+              onClick={() => setView({ kind: 'overview', tab: 'atlas' })}
+            >
+              <Icon name="landmark" size={14} />
+              {t('Overview')}
+            </button>
+            <button
+              className={`side-nav-item ${view.kind === 'projectPrefs' ? 'active' : ''}`}
+              onClick={() => setView({ kind: 'projectPrefs' })}
+            >
+              <Icon name="template" size={14} />
+              {t('Project Preferences')}
+            </button>
+          </nav>
         </div>
         {!hidden && (
           <div
@@ -798,7 +1009,9 @@ export default function App(): React.JSX.Element {
                 <>
                   <div className="start-actions">
                     <button onClick={newWorld}>{t('＋ New world')}</button>
-                    <button onClick={openWorld}>{t('📂 Open…')}</button>
+                    <button onClick={openWorld}>
+                      <Icon name="folder" size={14} /> {t('Open…')}
+                    </button>
                   </div>
                   <h4>{t('Recent')}</h4>
                   {recent.length === 0 ? (
@@ -830,7 +1043,7 @@ export default function App(): React.JSX.Element {
                   )}
                 </>
               )}
-              <p>{t('Pick an entity or 🗺 Maps from the left, or search with Ctrl+K.')}</p>
+              <p>{t('Pick an entity or a map from the left, or search with Ctrl+K.')}</p>
             </div>
           )}
           {view.kind === 'entity' && (
@@ -847,21 +1060,26 @@ export default function App(): React.JSX.Element {
               }}
             />
           )}
-          {view.kind === 'map' && (
-            <MapView
-              key={`m-${view.id}`}
-              focus={focus}
-              reloadToken={bump}
-              id={view.id}
-              maps={maps}
-              folders={folders}
-              onNavigate={openMap}
-              onOpenEntity={openEntity}
-              onChanged={refresh}
-              onExportReady={handleExportReady}
-              hidePanels={hidden !== null}
-              hideTools={hidden === 'all'}
-            />
+          {/* display:none, not unmounted — see mapId above. `contents` while visible so
+              the wrapper never becomes a layout box of its own. */}
+          {mapId !== null && (
+            <div style={{ display: view.kind === 'map' ? 'contents' : 'none' }}>
+              <MapView
+                key={`m-${mapId}`}
+                active={view.kind === 'map'}
+                focus={focus}
+                reloadToken={bump}
+                id={mapId}
+                maps={maps}
+                folders={folders}
+                onNavigate={openMap}
+                onOpenEntity={openEntity}
+                onChanged={refresh}
+                onExportReady={handleExportReady}
+                hidePanels={hidden !== null}
+                hideTools={hidden === 'all'}
+              />
+            </div>
           )}
           {view.kind === 'preferences' && (
             <Preferences

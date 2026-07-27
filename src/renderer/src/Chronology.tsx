@@ -9,6 +9,7 @@ import {
   TimelineConfig
 } from './api'
 import { useT } from './i18n'
+import { EmptyState } from './ui'
 
 interface Props {
   onOpenEntity: (id: number) => void
@@ -71,20 +72,22 @@ export default function Kronoloji({ onOpenEntity, onLocateFeature }: Props): Rea
     return list.sort((a, b) => a.year - b.year)
   }, [cfg, ents, t, onLocateFeature, onOpenEntity])
 
-  if (!cfg) return <div className="page" />
+  if (!cfg) return <div className="page wide" />
 
   const periodAt = (year: number): { name: string; from: number; to: number } | undefined =>
     cfg.periods.find((p) => year >= p.from && year <= p.to)
 
   return (
-    <div className="page kron-page">
+    <div className="page wide kron-page">
       {/* No <h2> — Overview's tab bar already names this view. */}
       {moments.length === 0 && (
-        <p className="hint">
-          {t(
-            'No events or reigns recorded yet. Add events from the map timeline, or ruler reigns from an entity page.'
+        <EmptyState
+          icon="calendar"
+          title={t('Nothing recorded yet')}
+          hint={t(
+            'Add events from the map timeline, or a ruler’s reign from an entity page — both land here.'
           )}
-        </p>
+        />
       )}
       <div className="kron-list">
         {moments.map((m, i) => {
@@ -98,8 +101,10 @@ export default function Kronoloji({ onOpenEntity, onLocateFeature }: Props): Rea
               />
               <div className={`kron-text ${m.onClick ? 'clickable' : ''}`} onClick={m.onClick}>
                 {m.text}
-                {p && <span className="kron-period">{p.name}</span>}
               </div>
+              {/* Always rendered, empty or not: an omitted cell would shift the grid and the
+                  era column would stop lining up down the page. */}
+              <span className="kron-period">{p?.name ?? ''}</span>
             </div>
           )
         })}

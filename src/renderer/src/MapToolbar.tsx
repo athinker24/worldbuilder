@@ -1,3 +1,4 @@
+import Icon from './icons'
 import { useT } from './i18n'
 import { Tool, TOOLS } from './ToolPanel'
 
@@ -35,7 +36,9 @@ export default function MapToolbar({ active, onTool }: Props): React.JSX.Element
                 aria-pressed={active === key}
                 onClick={() => onTool(key)}
               >
-                {def.icon}
+                {/* 20px at a slightly heavier stroke: the toolbar sits over map
+                    imagery, where a 16px hairline glyph disappears. */}
+                <Icon name={def.icon} size={20} />
               </button>
             )
           })}
