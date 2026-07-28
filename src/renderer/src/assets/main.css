@@ -897,6 +897,9 @@ h4 {
   box-shadow: var(--shadow-2);
   padding: 8px 14px;
   font-size: 13px;
+  /* Save/auto-save messages are one short line; the error toast now runs a full sentence plus
+     the log pointer. Unbounded width let a long one stretch edge to edge; this wraps it instead. */
+  max-width: 340px;
 }
 
 /* [[ entity-name completion suggestions (EntityPage note/content text areas) */

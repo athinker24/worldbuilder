@@ -222,10 +222,10 @@ export default function App(): React.JSX.Element {
   // that Ctrl+S actually wrote; auto-save reports through the same channel.
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const showToast = useCallback((msg: string): void => {
+  const showToast = useCallback((msg: string, ms = 2200): void => {
     setToast(msg)
     clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setToast(null), 2200)
+    toastTimer.current = setTimeout(() => setToast(null), ms)
   }, [])
 
   // A command that fails must SAY so. Without this the app answers a failed click with nothing
@@ -240,7 +240,15 @@ export default function App(): React.JSX.Element {
         /^Error invoking remote method '\w+': /,
         ''
       )
-      showToast(translate(lang, 'Something went wrong: {msg}', { msg: msg.slice(0, 120) }))
+      // Longer than the default 2.2s and pointing at the log: an alpha tester has no reason to
+      // know that folder exists otherwise, and the whole point of writing it was for them to be
+      // able to hand it back.
+      showToast(
+        translate(lang, 'Something went wrong: {msg}', { msg: msg.slice(0, 120) }) +
+          ' ' +
+          translate(lang, 'Details are in Help ▸ Open Error Log.'),
+        6000
+      )
     }
     window.addEventListener('unhandledrejection', onReject)
     return () => window.removeEventListener('unhandledrejection', onReject)
