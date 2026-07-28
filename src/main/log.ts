@@ -110,17 +110,32 @@ export function logError(where: string, err: unknown, extra: Record<string, unkn
     }
     const e = err as { message?: string; stack?: string; name?: string }
     const msg = typeof err === 'string' ? err : (e?.message ?? String(err))
+    const stackLines = e?.stack
+      ? clip(e.stack, 4000)
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean)
+      : []
+    // V8's own first stack line is always "Name: message". A hand-built error (renderer IPC
+    // failures arrive as {message, stack}, name lost crossing the bridge) has no e.name, so
+    // that line is the only place the TYPE survives — read it from there rather than lose it.
+    const name = e?.name ?? stackLines[0]?.match(/^(\w+Error):/)?.[1]
+    const headline = `${name ? name + ': ' : ''}${msg}`
     lines.push(`--- ${stamp()} ${sessionId} ${where}`)
-    lines.push(`    error   ${e?.name ? e.name + ': ' : ''}${clip(msg, 500)}`)
+    lines.push(`    error   ${clip(headline, 500)}`)
     const ctx = kv({ ...context(), ...extra })
     if (ctx) lines.push(`    state   ${clip(ctx, 800)}`)
     if (trail.length)
       lines.push(
         `    doing   ${trail.map((c) => (c.n > 1 ? `${c.name} ×${c.n}` : c.name)).join(' → ')}`
       )
-    if (e?.stack) {
+    if (stackLines.length) {
       lines.push('    stack')
-      for (const l of clip(e.stack, 4000).split('\n').slice(0, 25)) lines.push('      ' + l.trim())
+      // Drop the first line only once it is CONFIRMED redundant with what `error` already
+      // printed — otherwise a stack shaped differently than V8's would silently lose its
+      // first frame.
+      const body = stackLines[0] === headline ? stackLines.slice(1) : stackLines
+      for (const l of body.slice(0, 25)) lines.push('      ' + l)
     }
     lines.push('')
     appendFileSync(file, lines.join('\r\n') + '\r\n', 'utf8')

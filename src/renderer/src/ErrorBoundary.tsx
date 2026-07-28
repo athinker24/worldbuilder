@@ -25,7 +25,15 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
     // The component stack is the point of logging here: a render crash's own stack is minified
     // build output, while the component stack names the actual screen that broke.
     void api.logError('ErrorBoundary', error.message, error.stack ?? '', {
-      component: (info.componentStack ?? '').split('\n').slice(0, 6).join(' < ').trim()
+      // Each raw line already reads "    at Foo (...)" and the stack starts with a blank line —
+      // trim + filter before joining, or the printed trail opens with a stray '<' and doubled
+      // indentation (seen in the first real crash this caught).
+      component: (info.componentStack ?? '')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .slice(0, 6)
+        .join(' < ')
     })
     // The language lives in the working copy's settings, which may itself be broken →
     // errors are swallowed and English stays
