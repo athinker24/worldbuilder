@@ -314,9 +314,6 @@ const LABEL_MIN = 5
 // The text is user input embedded into an html string → must be escaped (no XSS from a shared
 // world.db; same rationale as blocking raw HTML in markdown).
 const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
-// Polygon label content. The span is what `.poly-label` centres with a CSS transform — the
-// tooltip container itself is 0x0 so Leaflet never measures the text (see main.css for why).
-const polyLabelHtml = (name: string): string => `<span>${escapeHtml(name)}</span>`
 // A textPath href resolves document-wide → every label's path id must be unique
 let labelSeq = 0
 // Feature clipboard (Ctrl+C/V). MODULE level: MapView remounts on map switch (App keys it
@@ -652,8 +649,13 @@ export default function MapView({
   const mapRef = useRef<L.Map | null>(null)
   const featureGroupRef = useRef<L.FeatureGroup | null>(null)
   const imageLayerRef = useRef<L.ImageOverlay | null>(null)
-  // Label base sizes in map units (zoom-0 pixels); converted to pixels on every zoom
-  const labelMeta = useRef(new Map<number, { base: number; font: string }>())
+  // Polygon name labels: independent markers, NOT Leaflet tooltips — see their creation site for
+  // why. Live on the map like derivedLabels, keyed by feature id (unlike derivedLabels' flat
+  // array) because a single-feature geometry edit needs to reposition exactly one without a
+  // full reload. labelFont remembers each one's font across the year-tick content swap (the
+  // root-view carrier), since the marker's own icon gets replaced wholesale then.
+  const polyLabels = useRef(new Map<number, L.Marker>())
+  const labelFont = useRef(new Map<number, string>())
   // Which features are free text labels — size/font live baked in the icon, so zoom only needs
   // to know WHICH icons take the `--lz` scale write (pins take a different branch)
   const labelText = useRef(new Set<number>())
@@ -1256,28 +1258,30 @@ export default function MapView({
     applyDrawStyle()
   }
 
-  // "Glue" labels and pins to the map: screen size = base (map units) × zoom scale.
-  // reposition=true only on setting/content changes (with no map movement); FALSE on the zoom
-  // hot path — Leaflet already repositions every tooltip on 'zoom' (DivOverlay.getEvents →
-  // _updatePosition), and our map handler runs before those, so the font write lands before
-  // Leaflet reads offsetWidth. Calling tooltip.update() per label per tick meant hundreds of
-  // synchronous reflows = serious lag.
-  const updateOverlaySizes = (reposition = false): void => {
+  // "Glue" labels and pins to the map: screen size = base (map units) × zoom scale. Runs every
+  // zoom frame — see the wheel-loop call site.
+  //
+  // Polygon names used to be PERMANENT Leaflet tooltips, on the theory that Leaflet repositions
+  // them on 'zoom' anyway (DivOverlay.getEvents → _updatePosition) so our own font write just
+  // had to land first in the same tick. Measured with DevTools on a 16-polygon map: that
+  // "free" Leaflet reposition reads container.offsetWidth/offsetHeight inside
+  // Tooltip.prototype._setPosition — a forced synchronous layout — for EVERY permanent tooltip,
+  // on EVERY animation frame of the app's own wheel-zoom easing loop. That was 65-68% of total
+  // frame time (Layout, Chrome's own profiler), not the polygon redraw anyone suspected, and it
+  // scales with how many named polygons are on screen — worse on a fuller map, not better.
+  // direction:'center' does not avoid it either: Tooltip._setPosition reads tooltipWidth/Height
+  // in every direction branch, center included.
+  //
+  // Polygon names are now `polyLabels` markers — the exact divIcon/textPath mechanism already
+  // used for derived region labels and free-text labels (see labelDivIcon), positioned and
+  // resized entirely by OUR OWN writes, with no Leaflet-internal read-after-write in the loop.
+  const updateOverlaySizes = (): void => {
     const map = mapRef.current
     if (!map || !featureGroupRef.current) return
     const scale = 2 ** map.getZoom()
     featureGroupRef.current.eachLayer((l) => {
       const fl = l as FeatureLayer
       if (fl.featureId === undefined) return
-      // poligon etiketi
-      const meta = labelMeta.current.get(fl.featureId)
-      const tooltip = l.getTooltip()
-      const el = tooltip?.getElement()
-      if (meta && el) {
-        el.style.fontSize = `${meta.base * scale}px`
-        el.style.fontFamily = `'${meta.font}', serif`
-        if (reposition) tooltip!.update()
-      }
       // location pin: scale the badge divIcon by zoom (centre anchor; without recreating the DOM)
       const ms = markerSize.current.get(fl.featureId)
       const pinEl = (l as unknown as { _icon?: HTMLElement })._icon
@@ -1308,6 +1312,11 @@ export default function MapView({
     for (const m of derivedLabels.current) {
       const el = (m as unknown as { _icon?: HTMLElement })._icon
       if (el) el.style.setProperty('--lz', String(scale)) // base is baked; see labelDivIcon
+    }
+    // Polygon name labels: identical scaling, identical reason.
+    for (const m of polyLabels.current.values()) {
+      const el = (m as unknown as { _icon?: HTMLElement })._icon
+      if (el) el.style.setProperty('--lz', String(scale))
     }
     // Stroke widths (see patch 3): one property on the pane, inherited by every path, instead
     // of a setStyle per feature per frame. Anchored at zoom 0, so a weight of 3 means 3 MAP
@@ -1524,8 +1533,13 @@ export default function MapView({
     worldMapRef.current = wm
     if (!wm || !featureGroupRef.current) return
     const fg = featureGroupRef.current
+    const map = mapRef.current! // set alongside featureGroupRef in the same setup effect
     fg.clearLayers()
-    labelMeta.current.clear()
+    // Polygon labels live on the map, not in featureGroup — fg.clearLayers() won't remove them
+    // (same reasoning as derivedLabels below).
+    for (const m of polyLabels.current.values()) m.remove()
+    polyLabels.current.clear()
+    labelFont.current.clear()
     labelText.current.clear()
     markerSize.current.clear()
     layerYears.current.clear()
@@ -1730,22 +1744,27 @@ export default function MapView({
         if (isLabel) labelText.current.add(f.id)
         // No tooltip on a label — its text is already visible
         if (f.entity_name && !derived && !isLabel) {
-          // On a polygon the name sits centred, sized with the polygon; on a marker it shows
-          // on hover. escapeHtml is REQUIRED: Leaflet renders string tooltips via innerHTML
-          // (DivOverlay._updateContent) — an entity NAMED `<img onerror=…>` in a shared .dunya
-          // would run code with no click.
+          // escapeHtml is REQUIRED (both branches): a string tooltip/label renders via innerHTML
+          // — an entity NAMED `<img onerror=…>` in a shared .dunya would run code with no click.
           if (isPolygon) {
-            layer.bindTooltip(polyLabelHtml(f.entity_name), {
-              permanent: true,
-              direction: 'center',
-              className: 'poly-label'
-            })
+            // A marker, not a bound tooltip — see the note in updateOverlaySizes for why
+            // (Leaflet's own tooltip auto-reposition on zoom was the app's single biggest cost).
+            // getCenter() is the polygon's true area-weighted centroid (Leaflet's own tooltip
+            // anchor for a Path source, per _prepareOpen) — getBounds().getCenter() would drift
+            // off-shape for an irregular coastline like these.
+            const font = style.font ?? 'Cinzel'
+            labelFont.current.set(f.id, font)
             const b = (layer as L.Polygon).getBounds()
             const base = Math.min(
               200,
               Math.max(8, (b.getEast() - b.getWest()) / Math.max(4, f.entity_name.length))
             )
-            labelMeta.current.set(f.id, { base, font: style.font ?? 'Cinzel' })
+            const m = L.marker((layer as L.Polygon).getCenter(), {
+              icon: labelDivIcon({ text: f.entity_name, color: '#ffffff', font }, base),
+              interactive: false,
+              pmIgnore: true
+            } as L.MarkerOptions).addTo(map)
+            polyLabels.current.set(f.id, m)
           } else {
             layer.bindTooltip(escapeHtml(f.entity_name), { sticky: true })
           }
@@ -1855,7 +1874,15 @@ export default function MapView({
             }
           })
           for (const u of updates) await api.updateFeature(u.id, { geometry: u.next })
-          if (updates.length > 1) await reloadFeatures() // redraw the welded neighbours
+          if (updates.length > 1) {
+            await reloadFeatures() // redraw the welded neighbours (recreates every label too)
+          } else {
+            // No reload here (see snapshotUpdates), so a moved/reshaped polygon's own label —
+            // now an independent marker, not a Leaflet tooltip bound to the layer — would
+            // otherwise sit at its pre-edit position until something else forces a reload.
+            const marker = polyLabels.current.get(f.id)
+            if (marker && isPolygon) marker.setLatLng((layer as L.Polygon).getCenter())
+          }
         }
         // Snapshot synchronous, commit on the serial chain — reloads never clobber each other.
         // .catch is mandatory: one rejected commit would poison the chain for good and every
@@ -1988,9 +2015,7 @@ export default function MapView({
       })
     }
     setChangeYears([...chYears].sort((a, b) => a - b))
-    // reposition=true: features were just built and tooltips positioned at the base font; after
-    // the font scales they need one recentre (label drift on setting changes came from this). Rare path.
-    applyYear(yearRef.current, true)
+    applyYear(yearRef.current)
     // The full rebuild recreated the layers → reopen edit on the selected feature's NEW layers
     // (selected only; not global — that was where the lag came from)
     syncEditMode()
@@ -2134,7 +2159,7 @@ export default function MapView({
     for (const fid of selIdsRef.current) cls(fid, true)
   }
 
-  const applyYear = (year: number, reposition = false): void => {
+  const applyYear = (year: number): void => {
     yearRef.current = year
     const fg = featureGroupRef.current
     if (!fg) return
@@ -2266,34 +2291,38 @@ export default function MapView({
           const el = (l as L.Path).getElement?.() as SVGElement | null
           el?.setAttribute('marker-end', 'url(#worldArrow)')
         }
-        // Permanent labels: all hidden when the layers panel says so; in the root view the
-        // carrier bears the root's name, other base labels stay hidden
+        // Polygon name labels: all hidden when the layers panel says so; in the root view the
+        // carrier bears the root's name, other base labels stay hidden. Once per year-tick, not
+        // per zoom frame — a full icon swap (setIcon) here is the same cost class as
+        // rebuildDerivedLabels doing the same on a signature change, not the per-frame hot path.
         if (visible) {
-          const tt = l.getTooltip?.()
-          const el = tt?.getElement()
-          if (tt && el && tt.options.permanent) {
-            if (!layersRef.current.label || labelRoot === -1) el.style.display = 'none'
-            else {
+          const marker = polyLabels.current.get(fid)
+          if (marker) {
+            if (!layersRef.current.label || labelRoot === -1) {
+              const el = (marker as unknown as { _icon?: HTMLElement })._icon
+              if (el) el.style.display = 'none'
+            } else {
               if (labelRoot !== null) {
                 const name = entNames.current.get(labelRoot) ?? ''
-                tt.setContent(polyLabelHtml(name)) // a string tooltip = innerHTML (same as bindTooltip)
                 const b = (l as L.Polygon).getBounds()
-                labelMeta.current.set(fid, {
-                  base: Math.min(
-                    200,
-                    Math.max(8, (b.getEast() - b.getWest()) / Math.max(4, name.length))
-                  ),
-                  font: labelMeta.current.get(fid)?.font ?? 'Cinzel'
-                })
+                const base = Math.min(
+                  200,
+                  Math.max(8, (b.getEast() - b.getWest()) / Math.max(4, name.length))
+                )
+                const font = labelFont.current.get(fid) ?? 'Cinzel'
+                // setIcon REPLACES _icon with a fresh element — the display write below must
+                // read it back afterward, or it lands on the detached old one.
+                marker.setIcon(labelDivIcon({ text: name, color: '#ffffff', font }, base))
               }
-              el.style.display = ''
+              const el = (marker as unknown as { _icon?: HTMLElement })._icon
+              if (el) el.style.display = ''
             }
           }
         }
       }
     }
     rebuildDerivedLabels(year, rungOwnerAt) // mod yoksa kendini temizler
-    updateOverlaySizes(reposition) // re-added label/pin sizes settle onto the current zoom
+    updateOverlaySizes() // re-added label/pin sizes settle onto the current zoom
     markSelection() // layers were rebuilt → rewrite the selection highlight
   }
 
