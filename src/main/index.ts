@@ -14,6 +14,7 @@ import {
   resetWorld,
   unpackWorld,
   NOT_A_WORLD,
+  WORLD_TOO_LARGE,
   api as dbApi
 } from './db'
 
@@ -171,14 +172,17 @@ function openGuarded(path: string): boolean {
     openWorldFile(path)
     return true
   } catch (err) {
-    const notWorld = err instanceof Error && err.message === NOT_A_WORLD
+    const code = err instanceof Error ? err.message : ''
+    const notWorld = code === NOT_A_WORLD
     // No parent at startup — the window does not exist yet when a double-clicked file fails.
     const opts = {
       type: 'error',
       title: ml('Open Project…'),
       message: notWorld
         ? ml('That file is not a world file.')
-        : ml('That world file could not be opened.'),
+        : code === WORLD_TOO_LARGE
+          ? ml('That world file carries far more images than a world should.')
+          : ml('That world file could not be opened.'),
       detail: basename(path)
     } as const
     if (mainWindow) dialog.showMessageBoxSync(mainWindow, opts)
@@ -220,6 +224,8 @@ const MENU_TR: Record<string, string> = {
   'Open Project…': 'Proje Aç…',
   'That file is not a world file.': 'Bu dosya bir dünya dosyası değil.',
   'That world file could not be opened.': 'Bu dünya dosyası açılamadı.',
+  'That world file carries far more images than a world should.':
+    'Bu dünya dosyası bir dünyada olması gerekenden çok daha fazla görsel taşıyor.',
   'Open Recent': 'Son Kullanılanlar',
   '(empty)': '(boş)',
   Save: 'Kaydet',

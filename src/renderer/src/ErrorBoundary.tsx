@@ -43,8 +43,14 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
             <Icon name="folder" size={14} /> {t('Open…')}
           </button>
         </div>
-        <h4>{t('Details')}</h4>
-        <pre className="error-detail">{String(error?.stack ?? error)}</pre>
+        {/* Collapsed, not removed. A stack trace names internal files and functions, and this
+            screen is reached by opening someone else's world — the moment a screenshot is most
+            likely to be shared. It still has to be reachable, because this is also the only
+            diagnostic the user can send back when a real bug puts them here. */}
+        <details className="error-details">
+          <summary>{t('Details')}</summary>
+          <pre className="error-detail">{String(error?.stack ?? error)}</pre>
+        </details>
       </div>
     )
   }

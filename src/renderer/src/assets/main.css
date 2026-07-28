@@ -3684,3 +3684,12 @@ a {
   stroke-width: max(0.75px, calc(var(--w, 3) * var(--mz, 1) * 1px));
   vector-effect: non-scaling-stroke;
 }
+
+/* Error screen: the stack is collapsed by default (see ErrorBoundary for why) but must not
+   look disabled — this screen is also where a real bug report starts. */
+.error-details summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--fs-2);
+  margin-bottom: var(--sp-2);
+}

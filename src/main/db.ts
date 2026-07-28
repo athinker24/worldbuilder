@@ -186,6 +186,13 @@ export function packWorld(targetPath: string): void {
  *  rather than a crash, so the code is a stable string and not prose. */
 export const NOT_A_WORLD = 'NOT_A_WORLD'
 
+/** Thrown when a file's embedded images exceed what any real world carries. Separate from
+ *  NOT_A_WORLD because the file is well-formed — it is the size that is refused, and the user
+ *  deserves to be told which of the two happened. */
+export const WORLD_TOO_LARGE = 'WORLD_TOO_LARGE'
+const MAX_ASSETS = 10_000
+const MAX_ASSET_BYTES = 4 * 1024 * 1024 * 1024
+
 /** Is this file a world we can open? Checked BEFORE anything is overwritten.
  *
  *  Opening used to copy the file straight over world.db and only then try to open it. A file
@@ -287,6 +294,18 @@ export function unpackWorld(sourcePath: string): void {
     .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assets'`)
     .get()
   if (hasAssets) {
+    // Bounds on what a file may unpack, checked BEFORE a single byte is written so the rescue
+    // path above can still put the old world back. Measured: 20 000 tiny images inside a 2.1 MB
+    // file froze the main process for 22 seconds and left 20 000 files behind — a ~10x
+    // amplification from a small download, with no privilege gained but the app unusable.
+    // Both limits sit far above any real world: a large project runs to a few hundred images.
+    const tally = db
+      .prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(data)), 0) AS b FROM assets`)
+      .get() as {
+      n: number
+      b: number
+    }
+    if (tally.n > MAX_ASSETS || tally.b > MAX_ASSET_BYTES) throw new Error(WORLD_TOO_LARGE)
     for (const row of db.prepare(`SELECT name, data FROM assets`).all() as {
       name: string
       data: Uint8Array
@@ -313,7 +332,36 @@ export function unpackWorld(sourcePath: string): void {
  *  the gate where it enters the app. Rows are NEVER deleted — only the bad column is reset. */
 function repairImportedJson(): number {
   let fixed = 0
+  // Nesting depth, counted by scanning rather than parsing.
+  //
+  // Whether a deeply nested value parses at all depends on how much STACK is left, so the gate
+  // and the consumer can disagree: `{"a":{"a":…}}` 10000 deep parses fine here in main and then
+  // throws RangeError in the renderer, underneath React's own call stack. Measured with a 208 KB
+  // file — it opened cleanly and left the map and the entity page unable to render. Parsing to
+  // find out is therefore the wrong test; the depth has to be bounded before anyone parses.
+  //
+  // 64 is far above anything this app writes: notes are an array of flat objects (3), the parent
+  // history is an array of pairs (2), a GeoJSON polygon is 4. Quote-aware, because a brace inside
+  // a string is not nesting; backslash skips the next character so an escaped quote does not end
+  // the string early.
+  const MAX_JSON_DEPTH = 64
+  const depthOk = (v: string): boolean => {
+    let depth = 0
+    let inStr = false
+    for (let i = 0; i < v.length; i++) {
+      const c = v[i]
+      if (inStr) {
+        if (c === '\\') i++
+        else if (c === '"') inStr = false
+      } else if (c === '"') inStr = true
+      else if (c === '{' || c === '[') {
+        if (++depth > MAX_JSON_DEPTH) return false
+      } else if (c === '}' || c === ']') depth--
+    }
+    return true
+  }
   const isPlainObject = (v: string): boolean => {
+    if (!depthOk(v)) return false
     try {
       const p: unknown = JSON.parse(v)
       return typeof p === 'object' && p !== null && !Array.isArray(p)
@@ -322,6 +370,7 @@ function repairImportedJson(): number {
     }
   }
   const isArray = (v: string): boolean => {
+    if (!depthOk(v)) return false
     try {
       return Array.isArray(JSON.parse(v))
     } catch {
@@ -1333,6 +1382,54 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       !(api.listEntities() as { name: string }[]).some((e) => e.name === 'OWNED'),
       'a planted trigger must not fire on the user later'
     )
+  }
+  // Depth: whether a deeply nested value parses depends on the stack left, so main can accept
+  // what the renderer then cannot read. Measured with a 208 KB file that opened cleanly and left
+  // the map unrenderable. The gate bounds depth WITHOUT parsing, so both sides agree.
+  {
+    const deep = join(dir, 'deep.dunya')
+    copyFileSync(dunya, deep)
+    const nest = (n: number): string => '{"a":'.repeat(n) + '1' + '}'.repeat(n)
+    const dp = new DatabaseSync(deep)
+    dp.prepare(`UPDATE entities SET fields = ?`).run(nest(10000))
+    dp.prepare(`UPDATE features SET style = ?, geometry = ?`).run(nest(10000), nest(10000))
+    dp.close()
+    unpackWorld(deep)
+    const dm = api.getMap(m.id) as { features: { style: string; geometry: string }[] }
+    assert.equal((api.getEntity(a.id) as { fields: string }).fields, '{}', 'deep fields reset')
+    assert.equal(dm.features[0].style, '{}', 'deep style reset')
+    assert.equal(
+      dm.features[0].geometry,
+      '{"type":"Point","coordinates":[0,0]}',
+      'deep geometry reset'
+    )
+    // A normally nested world must be untouched — the limit is a ceiling, not a filter
+    const okDepth = JSON.stringify({ notes: JSON.stringify([{ title: 't', content: 'c' }]) })
+    api.updateEntity(a.id, { fields: okDepth })
+    packWorld(join(dir, 'ok.dunya'))
+    unpackWorld(join(dir, 'ok.dunya'))
+    assert.equal(
+      (api.getEntity(a.id) as { fields: string }).fields,
+      okDepth,
+      'normal depth survives'
+    )
+  }
+  // Count: 20 000 tiny embedded images inside a 2 MB file froze the process for 22 seconds and
+  // wrote 20 000 files. Refused before a byte is written, so the open world survives.
+  {
+    const many = join(dir, 'many.dunya')
+    copyFileSync(dunya, many)
+    const mn = new DatabaseSync(many)
+    mn.exec(`CREATE TABLE IF NOT EXISTS assets (name TEXT PRIMARY KEY, data BLOB NOT NULL)`)
+    mn.exec('BEGIN')
+    const st = mn.prepare(`INSERT OR REPLACE INTO assets (name, data) VALUES (?, ?)`)
+    for (let i = 0; i <= 10_000; i++) st.run(`i${i}.png`, Buffer.from([1]))
+    mn.exec('COMMIT')
+    mn.close()
+    const filesBefore = readdirSync(join(dir, 'assets')).length
+    assert.throws(() => unpackWorld(many), /WORLD_TOO_LARGE/, 'too many embedded images')
+    assert.equal(readdirSync(join(dir, 'assets')).length, filesBefore, 'nothing written on refusal')
+    assert.ok(api.getEntity(a.id), 'the open world must survive the refusal')
   }
   // Blank launch: content is detected; after reset both db and assets are empty
   assert.ok(hasContent())
