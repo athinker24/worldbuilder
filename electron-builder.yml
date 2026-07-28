@@ -14,6 +14,23 @@ files:
   - '!{CLAUDE.md,DURUM.md,HANDOFF.md,AGENTS.md,TANITIM.md}'
 asarUnpack:
   - resources/**
+# Electron fuses: flags flipped in the binary itself, so they cannot be turned back on by an
+# environment variable or a command line. Each closes a way to make OUR signed-looking exe run
+# somebody else's code.
+#   runAsNode / nodeOptions / nodeCliInspect — without these, ELECTRON_RUN_AS_NODE turns the app
+#     into a general Node interpreter, NODE_OPTIONS injects a require at startup, and --inspect
+#     attaches a debugger to the main process, which is the one with filesystem access.
+#   onlyLoadAppFromAsar + embeddedAsarIntegrityValidation — the app may only run from the asar,
+#     and the asar's hash is embedded in the exe, so editing app.asar makes the app refuse to
+#     start instead of running the edit. This is the answer to "anyone who can write to the
+#     install folder owns the app", which matters most for the portable build, since it lives
+#     wherever the user dropped it rather than behind an admin prompt.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  onlyLoadAppFromAsar: true
+  enableEmbeddedAsarIntegrityValidation: true
 win:
   executableName: Worldbuilder
   # Artifact names stay ASCII: non-ASCII characters turn into percent-encoding in GitHub download links.
