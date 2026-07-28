@@ -112,6 +112,11 @@ export const api = {
     features: { entity_id: number; feature_id: number }[]
   ) => inv<void>('restoreEntities', rows, links, features),
   entityFeatureIds: (entityId: number) => inv<number[]>('entityFeatureIds', entityId),
+  // Error reporting. Deliberately fire-and-forget: a failure to report must never turn into a
+  // second failure on top of the first.
+  logError: (where: string, message: string, stack: string, ctx: Record<string, unknown>) =>
+    inv<void>('logRendererError', where, message, stack, ctx).catch(() => {}),
+  openLogFolder: () => inv<void>('openLogFolder'),
   entityPlacements: () =>
     inv<{ entity_id: number; map_id: number; board: string | null }[]>('entityPlacements'),
   featuresByEntity: (entityId: number) =>

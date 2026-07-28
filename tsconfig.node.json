@@ -3,6 +3,9 @@
   "include": ["electron.vite.config.*", "src/main/**/*", "src/preload/**/*"],
   "compilerOptions": {
     "composite": true,
+    // db.ts is run directly by node for the self-check, and node's ESM resolver needs the
+    // extension on a relative import. Vite rewrites it at build time; this lets tsc accept it.
+    "allowImportingTsExtensions": true,
     "types": ["electron-vite/node"]
   }
 }

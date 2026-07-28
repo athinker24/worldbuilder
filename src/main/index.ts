@@ -17,6 +17,7 @@ import {
   WORLD_TOO_LARGE,
   api as dbApi
 } from './db'
+import { initLog, logError, noteCall, logPath } from './log'
 
 // The product name in ONE place: window title, dialog filter label and the data folder all read
 // it, so renaming the app later is a one-line change here plus productName/executableName in
@@ -247,7 +248,8 @@ const MENU_TR: Record<string, string> = {
   Chronology: 'Kronoloji',
   Relations: 'İlişkiler',
   'Project Preferences': 'Proje Tercihleri',
-  'Keyboard Shortcuts': 'Klavye Kısayolları'
+  'Keyboard Shortcuts': 'Klavye Kısayolları',
+  'Open Error Log': 'Hata Kaydını Aç'
 }
 const ml = (s: string): string => (readPrefs().language === 'tr' ? (MENU_TR[s] ?? s) : s)
 
@@ -352,7 +354,9 @@ function buildMenu(): void {
             label: ml('Keyboard Shortcuts'),
             accelerator: 'F1',
             click: () => send('help.shortcuts')
-          }
+          },
+          { type: 'separator' },
+          { label: ml('Open Error Log'), click: () => void shell.openPath(logPath()) }
         ]
       }
     ])
@@ -419,6 +423,17 @@ const mainApi = {
   closeWorld: newProject,
   // Application preferences, per-machine. The 'save' prefix is deliberate: 'set*' would match the
   // dirty-flag regex in the IPC dispatch below, so switching theme would mark the world unsaved.
+  // The renderer's channel into the same file. Named 'log*' on purpose: it must not match the
+  // dirty-flag regex above — reporting an error is not a change to the world.
+  logRendererError(
+    where: string,
+    message: string,
+    stack: string,
+    ctx: Record<string, unknown>
+  ): void {
+    logError(`renderer:${String(where).slice(0, 60)}`, { message, stack }, ctx)
+  },
+  openLogFolder: async (): Promise<void> => void (await shell.openPath(logPath())),
   getPrefs: (): Prefs => readPrefs(),
   savePrefs(patch: Prefs): void {
     writePrefs({ ...readPrefs(), ...patch })
@@ -556,6 +571,15 @@ app.whenReady().then(() => {
   })
 
   adoptLegacyDataDir() // adopt the old Documents\D\u00fcnya folder (BEFORE initDb)
+  // Before initDb, so a failure inside it is already reportable.
+  initLog(DATA_DIR, app.getVersion(), () => ({
+    file: currentFile ? basename(currentFile) : null,
+    dirty
+  }))
+  // Last resort: anything that escapes every handler still reaches the file rather than a
+  // console nobody is watching in a packaged app.
+  process.on('uncaughtException', (err) => logError('main:uncaught', err))
+  process.on('unhandledRejection', (err) => logError('main:unhandledRejection', err))
   initDb(DATA_DIR)
   adoptLegacyPrefs() // language/theme out of the settings table — BEFORE the resetWorld() below
   // Everything from here to createWindow() is best-effort. A throw used to escape into the
@@ -620,13 +644,27 @@ app.whenReady().then(() => {
     // hasOwn: prototype members like 'constructor' must not count as methods
     if (!Object.hasOwn(mainApi, method)) throw new Error(`Bilinmeyen api metodu: ${method}`)
     const fn = (mainApi as Record<string, (...a: unknown[]) => unknown>)[method]
+    noteCall(method) // the trail that turns a stack into a reproduction
     // Dirty flag: mutation methods mean changes since the last save (ponytail: a method-name
     // heuristic — get/list/search/export do not match, save/open manage themselves)
     if (/^(create|update|delete|add|set|restore|retype|import|pick)/.test(method)) {
       dirty = true
       updateTitle()
     }
-    return fn(...args)
+    // Logged AND rethrown: the renderer still gets its rejection and decides what to show,
+    // the file gets the detail the user cannot be expected to relay.
+    try {
+      const out = fn(...args)
+      return out instanceof Promise
+        ? (out as Promise<unknown>).catch((err: unknown) => {
+            logError(`ipc:${method}`, err)
+            throw err
+          })
+        : out
+    } catch (err) {
+      logError(`ipc:${method}`, err)
+      throw err
+    }
   })
 
   createWindow()

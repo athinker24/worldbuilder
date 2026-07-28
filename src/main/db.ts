@@ -15,6 +15,7 @@ import {
 } from 'fs'
 import { tmpdir } from 'os'
 import assert from 'assert'
+import { initLog, logError, noteCall } from './log.ts'
 
 // Kept free of Electron imports so `node src/main/db.ts` can run the self-check standalone.
 let db!: DatabaseSync
@@ -1513,5 +1514,32 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
 
   db.close()
   rmSync(dir, { recursive: true, force: true })
+  // Error log. Not a database concern, but this file is the project's only test harness and the
+  // logger is the one thing that has to work while everything else is failing.
+  {
+    const ldir = join(dir, 'logtest')
+    mkdirSync(ldir, { recursive: true })
+    initLog(ldir, '9.9.9', () => ({ file: 'w.dunya', dirty: true }))
+    noteCall('getMap')
+    noteCall('updateFeature')
+    logError('ipc:updateFeature', new TypeError('boom'), { extra: 'x'.repeat(2000) })
+    const lf = join(ldir, 'logs', 'error.log')
+    const txt = readFileSync(lf, 'utf8')
+    assert.ok(txt.includes('version=9.9.9'), 'session header')
+    assert.ok(txt.includes('TypeError: boom'), 'the error itself')
+    assert.ok(txt.includes('file=w.dunya dirty=true'), 'context from the app')
+    assert.ok(txt.includes('getMap → updateFeature'), 'the call trail — how it got there')
+    assert.ok(txt.includes('chars]'), 'oversized fields are clipped, not written whole')
+    // A logger that throws while reporting is worse than none: unwritable directory, no crash.
+    initLog(join(dir, 'nope', ' bad'), '1', () => ({}))
+    logError('main:uncaught', new Error('during a broken log dir'))
+    // Rotation keeps one previous file rather than growing without bound.
+    initLog(ldir, '9.9.9', () => ({}))
+    writeFileSync(lf, 'x'.repeat(1024 * 1024 + 10))
+    logError('main:uncaught', new Error('after the cap'))
+    assert.ok(existsSync(join(ldir, 'logs', 'error.log.1')), 'rotated')
+    assert.ok(readFileSync(lf, 'utf8').includes('after the cap'), 'new file has the new record')
+  }
+
   console.log('db self-check OK')
 }

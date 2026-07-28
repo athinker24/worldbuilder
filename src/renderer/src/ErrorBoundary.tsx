@@ -20,8 +20,13 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
     return { error }
   }
 
-  componentDidCatch(error: Error): void {
+  componentDidCatch(error: Error, info: { componentStack?: string | null }): void {
     console.error('Caught render error:', error)
+    // The component stack is the point of logging here: a render crash's own stack is minified
+    // build output, while the component stack names the actual screen that broke.
+    void api.logError('ErrorBoundary', error.message, error.stack ?? '', {
+      component: (info.componentStack ?? '').split('\n').slice(0, 6).join(' < ').trim()
+    })
     // The language lives in the working copy's settings, which may itself be broken →
     // errors are swallowed and English stays
     getLanguage()
