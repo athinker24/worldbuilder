@@ -399,6 +399,29 @@ const ringCentroid = (ring: number[][]): [number, number] => {
   }
   return [sx / ring.length, sy / ring.length]
 }
+// True area-weighted (shoelace) centroid, matching what Leaflet's own Polygon.getCenter() would
+// return. Needed specifically because getCenter() throws until the layer is added to the map
+// ("Must add layer to map before using getCenter()"), and polygon labels are created BEFORE
+// that point in reloadFeatures — this works straight off the raw GeoJSON ring instead. Unlike
+// ringCentroid (vertex average, fine for a derived-label anchor spanning several polygons), a
+// vertex average pulls toward whichever edge has more points — exactly the failure mode a
+// detailed, many-vertex coastline invites, which is the shape a per-polygon name label sits on.
+const ringAreaCentroid = (ring: number[][]): [number, number] => {
+  let a = 0
+  let cx = 0
+  let cy = 0
+  for (let i = 0; i < ring.length; i++) {
+    const [x0, y0] = ring[i]
+    const [x1, y1] = ring[(i + 1) % ring.length]
+    const cross = x0 * y1 - x1 * y0
+    a += cross
+    cx += (x0 + x1) * cross
+    cy += (y0 + y1) * cross
+  }
+  a *= 0.5
+  if (Math.abs(a) < 1e-9) return ringCentroid(ring) // degenerate ring — fall back rather than divide by ~0
+  return [cx / (6 * a), cy / (6 * a)]
+}
 // PCA main axis: long-axis angle (radians) from the vertex cloud's covariance + width along it.
 // CK3/cartography use medial axis; PCA is enough at personal scale (ponytail: medial axis is overkill).
 const pcaAxis = (verts: number[][]): { theta: number; extent: number } => {
@@ -1749,9 +1772,11 @@ export default function MapView({
           if (isPolygon) {
             // A marker, not a bound tooltip — see the note in updateOverlaySizes for why
             // (Leaflet's own tooltip auto-reposition on zoom was the app's single biggest cost).
-            // getCenter() is the polygon's true area-weighted centroid (Leaflet's own tooltip
-            // anchor for a Path source, per _prepareOpen) — getBounds().getCenter() would drift
-            // off-shape for an irregular coastline like these.
+            // The true area-weighted centroid (ringAreaCentroid, matching what Leaflet's own
+            // Polygon.getCenter() would give — NOT getBounds().getCenter(), which drifts off-
+            // shape for an irregular coastline like these) computed off the raw ring: the layer
+            // is not added to the map yet at this point in the loop, and getCenter() throws
+            // until it is.
             const font = style.font ?? 'Cinzel'
             labelFont.current.set(f.id, font)
             const b = (layer as L.Polygon).getBounds()
@@ -1759,7 +1784,9 @@ export default function MapView({
               200,
               Math.max(8, (b.getEast() - b.getWest()) / Math.max(4, f.entity_name.length))
             )
-            const m = L.marker((layer as L.Polygon).getCenter(), {
+            const ring = (JSON.parse(f.geometry) as { coordinates: number[][][] }).coordinates[0]
+            const [cx, cy] = ringAreaCentroid(ring)
+            const m = L.marker([cy, cx], {
               icon: labelDivIcon({ text: f.entity_name, color: '#ffffff', font }, base),
               interactive: false,
               pmIgnore: true
