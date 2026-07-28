@@ -165,6 +165,22 @@ function openWorldFile(path: string): void {
   updateTitle()
 }
 
+/** Help > Open Error Log. The folder only exists once something has failed, which is the
+ *  NORMAL state — so without this the healthiest possible install answers a menu click with a
+ *  raw Windows "folder not found" error. Say the true thing instead. */
+function openLogs(): void {
+  if (existsSync(logPath())) {
+    void shell.openPath(logPath())
+    return
+  }
+  dialog.showMessageBoxSync(mainWindow!, {
+    type: 'info',
+    title: ml('Open Error Log'),
+    message: ml('No errors have been recorded.'),
+    detail: ml('This file appears the first time something goes wrong.')
+  })
+}
+
 /** openWorldFile + the "that file is not a world" dialog. Returns false when nothing was opened.
  *  unpackWorld validates before it touches anything, so a false here means the session the user
  *  already had is still intact and open. */
@@ -249,7 +265,10 @@ const MENU_TR: Record<string, string> = {
   Relations: 'İlişkiler',
   'Project Preferences': 'Proje Tercihleri',
   'Keyboard Shortcuts': 'Klavye Kısayolları',
-  'Open Error Log': 'Hata Kaydını Aç'
+  'Open Error Log': 'Hata Kaydını Aç',
+  'No errors have been recorded.': 'Hiç hata kaydedilmedi.',
+  'This file appears the first time something goes wrong.':
+    'Bu dosya ilk hata oluştuğunda kendiliğinden oluşur.'
 }
 const ml = (s: string): string => (readPrefs().language === 'tr' ? (MENU_TR[s] ?? s) : s)
 
@@ -356,7 +375,7 @@ function buildMenu(): void {
             click: () => send('help.shortcuts')
           },
           { type: 'separator' },
-          { label: ml('Open Error Log'), click: () => void shell.openPath(logPath()) }
+          { label: ml('Open Error Log'), click: openLogs }
         ]
       }
     ])
@@ -433,7 +452,7 @@ const mainApi = {
   ): void {
     logError(`renderer:${String(where).slice(0, 60)}`, { message, stack }, ctx)
   },
-  openLogFolder: async (): Promise<void> => void (await shell.openPath(logPath())),
+  openLogFolder: (): void => openLogs(),
   getPrefs: (): Prefs => readPrefs(),
   savePrefs(patch: Prefs): void {
     writePrefs({ ...readPrefs(), ...patch })

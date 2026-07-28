@@ -337,6 +337,8 @@ const TR: Record<string, string> = {
   '(no folder)': '(klasörsüz)',
   '＋ Entity': '＋ Madde',
   'Not on a map': 'Haritada değil',
+  'Something went wrong: {msg}': 'Bir şeyler ters gitti: {msg}',
+  'Details are in Help ▸ Open Error Log.': 'Ayrıntılar Yardım ▸ Hata Kaydını Aç içinde.',
   Shape: 'Şekil',
   Disc: 'Daire',
   Ring: 'İçi boş daire',

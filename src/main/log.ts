@@ -27,7 +27,7 @@ const MAX_BYTES = 1024 * 1024 // one rotation, then the old file is replaced
 // The last IPC calls, oldest first. Names only — arguments can hold the user's world content
 // and this file is meant to be shareable.
 const TRAIL_MAX = 25
-const trail: string[] = []
+const trail: { name: string; n: number }[] = []
 
 /** Context main can answer for itself; the renderer sends its own with each report. */
 let context: () => Record<string, unknown> = () => ({})
@@ -48,7 +48,18 @@ export function initLog(
 }
 
 export function noteCall(method: string): void {
-  trail.push(method)
+  // Reporting an error is not something the app was DOING when it broke — without this the act
+  // of logging appears in the trail it is writing.
+  if (method === 'logRendererError') return
+  // Collapse repeats into a count. The renderer polls, so a raw trail is the same handful of
+  // reads three times over and the distinct actions — the part that explains anything — scroll
+  // off the end. Measured on the first real log this produced: 25 entries carrying 8 events.
+  const last = trail[trail.length - 1]
+  if (last && last.name === method) {
+    last.n++
+    return
+  }
+  trail.push({ name: method, n: 1 })
   if (trail.length > TRAIL_MAX) trail.shift()
 }
 
@@ -103,7 +114,10 @@ export function logError(where: string, err: unknown, extra: Record<string, unkn
     lines.push(`    error   ${e?.name ? e.name + ': ' : ''}${clip(msg, 500)}`)
     const ctx = kv({ ...context(), ...extra })
     if (ctx) lines.push(`    state   ${clip(ctx, 800)}`)
-    if (trail.length) lines.push(`    doing   ${trail.join(' → ')}`)
+    if (trail.length)
+      lines.push(
+        `    doing   ${trail.map((c) => (c.n > 1 ? `${c.name} ×${c.n}` : c.name)).join(' → ')}`
+      )
     if (e?.stack) {
       lines.push('    stack')
       for (const l of clip(e.stack, 4000).split('\n').slice(0, 25)) lines.push('      ' + l.trim())

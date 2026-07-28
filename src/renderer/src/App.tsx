@@ -228,6 +228,24 @@ export default function App(): React.JSX.Element {
     toastTimer.current = setTimeout(() => setToast(null), 2200)
   }, [])
 
+  // A command that fails must SAY so. Without this the app answers a failed click with nothing
+  // at all — which is how the error log's own test went: the backup threw, the file recorded it
+  // in full, and the user was left with no reason to ever go and look. main.tsx keeps its own
+  // listener for the RECORD (it works even before React mounts); this one is for the PERSON.
+  useEffect(() => {
+    const onReject = (e: PromiseRejectionEvent): void => {
+      const r = e.reason as { message?: string }
+      // Strip Electron's IPC wrapper — the user does not need to read 'invoking remote method'.
+      const msg = (r?.message ?? String(e.reason)).replace(
+        /^Error invoking remote method '\w+': /,
+        ''
+      )
+      showToast(translate(lang, 'Something went wrong: {msg}', { msg: msg.slice(0, 120) }))
+    }
+    window.addEventListener('unhandledrejection', onReject)
+    return () => window.removeEventListener('unhandledrejection', onReject)
+  }, [showToast, lang])
+
   const saveWorld = useCallback(
     async (as = false): Promise<string | null> => {
       const p = as ? await api.saveWorldAs() : await api.saveWorld()
