@@ -1,3 +1,11 @@
+// MUST come before anything touches a renderer. Pixi builds its uniform and shader plumbing with
+// `new Function()` by default, which this app's CSP (`script-src 'self'`, no unsafe-eval) refuses
+// — WebGL init fails outright with "Current environment does not allow unsafe-eval". This is
+// Pixi's own supported answer: it swaps those code paths for interpreted equivalents. Slightly
+// slower to build a shader, identical once built, and it keeps the CSP intact — relaxing that to
+// suit a rendering library would trade a real security property for a startup micro-optimisation,
+// and a .dunya is treated as hostile input (see the security contract in CLAUDE.md).
+import 'pixi.js/unsafe-eval'
 import { Application, Container, Text, TextStyle } from 'pixi.js'
 
 // Map labels, drawn in WebGL rather than as DOM elements.
