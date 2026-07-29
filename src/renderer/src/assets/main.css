@@ -1530,14 +1530,21 @@ kbd {
   text-rendering: geometricPrecision;
   /* The halo (see .map-label-svg for why it is not a shadow). paint-order draws the stroke
      FIRST and the fill over it, so only the outer half of the stroke shows and the glyph shape
-     stays intact — the same thing Mapbox calls text-halo. It costs nothing: one paint pass, no
-     filter, no separate layer, no re-raster when the label scales. The width is in `em`, which
-     on this element resolves against the text's own font-size="100" design space, so the halo
-     scales with the label exactly like the glyphs do. round linejoin keeps sharp glyph corners
-     from growing spikes. */
+     stays intact — the same thing Mapbox calls text-halo. One paint pass, no filter, no
+     separate layer. The width is in `em`, which on this element resolves against the text's own
+     font-size="100" design space, so the halo scales with the label exactly like the glyphs do.
+     round linejoin keeps sharp glyph corners from growing spikes.
+
+     KEEP THIS THIN. A halo is not free the way a plain glyph is: stroked text cannot use the
+     glyph raster cache, so every letter is re-outlined and stroked as a path on every frame,
+     and the cost scales with the stroked AREA. The first version of this used 0.16em — roughly
+     double what Mapbox uses — and rasterisation went from 2.15 to 5.17 ms per frame, enough to
+     saturate the raster thread and leave the main thread blocking in Commit (92 % of Commit's
+     wall time was waiting, not working). These labels are large and there can be dozens
+     on screen at low zoom, which is exactly when it hurt. 0.06-0.12em is the usable range. */
   paint-order: stroke;
   stroke: rgba(0, 0, 0, 0.85);
-  stroke-width: 0.16em;
+  stroke-width: 0.08em;
   stroke-linejoin: round;
 }
 
