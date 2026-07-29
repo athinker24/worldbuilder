@@ -49,8 +49,30 @@ export type LabelSpec = {
   curve: number
 }
 
-/** Screen-space box of a drawn label, for hit testing (see LabelLayer.hitTest). */
-type Placed = { spec: LabelSpec; halfW: number; halfH: number }
+/**
+ * A label that has been built. `texts` is every Text inside it (one for a straight run, one per
+ * glyph for a curved one) and `res` is the pixel density those textures were actually drawn at,
+ * which lags the layer's target while the reconcile in draw() catches up.
+ */
+type Placed = {
+  spec: LabelSpec
+  view: Container
+  texts: Text[]
+  halfW: number
+  halfH: number
+  res: number
+}
+
+/**
+ * How many labels may have their textures regenerated in a single frame.
+ *
+ * Regenerating one means drawing its glyphs to a canvas and uploading a texture, and doing the
+ * whole set at once is a visible stall — which is what a fast scroll used to trigger, since every
+ * wheel tick nudged the resolution up another notch. Spreading it over frames turns one hitch
+ * into a few frames of slightly soft text, and on-screen labels are reconciled first so the soft
+ * ones are usually the ones nobody is looking at.
+ */
+const RES_BUDGET = 3
 
 const HALO = 0.16 // stroke width as a fraction of font size — matches the CSS halo it replaces
 
@@ -116,6 +138,7 @@ export class LabelLayer {
       app.renderer.resize(width, height)
     this.root.scale.set(scale)
     this.root.position.set(-originX, -originY)
+    this.reconcile(originX, originY, scale, width, height)
     app.renderer.render(app.stage)
   }
 
@@ -130,11 +153,17 @@ export class LabelLayer {
    * (a factor of ~2.8) that the memory is no longer worth it.
    */
   setResolution(scale: number): void {
-    const want = Math.min(MAX_RES, Math.max(MIN_RES, scale))
-    const d = Math.log2(want / this.res)
-    if (d < 0.15 && d > -1.5) return
+    // Quantised to powers of two, and rounded UP so the textures are never coarser than what is
+    // on screen. A wheel tick moves the zoom by about 0.15 of a level, so tracking the scale
+    // continuously stepped the resolution — and regenerated every texture — on nearly every tick
+    // of a fast scroll. Whole steps mean a gesture crosses one or two boundaries instead of
+    // twenty, and rounding up means the gap between them is spent over-resolved, which is free
+    // to look at.
+    const want = Math.min(MAX_RES, Math.max(MIN_RES, 2 ** Math.ceil(Math.log2(scale))))
+    // Ratchet: rise as soon as it is needed, release only after the view has pulled back two
+    // whole steps, so drifting around one boundary does not thrash.
+    if (want <= this.res && want > this.res / 4) return
     this.res = want
-    this.reresolve()
   }
 
   /**
@@ -179,19 +208,27 @@ export class LabelLayer {
   }
 
   /**
-   * Re-sharpen what is already built. A resolution change does not move a single glyph — it only
-   * needs each texture drawn at a different pixel density — so measuring the text again and
-   * rebuilding the scene graph would be work for nothing. Setting `resolution` on a Text
-   * regenerates just its texture, which is the part that actually has to happen.
+   * Bring a few labels up to the current resolution, on-screen ones first, and stop when the
+   * frame's budget is spent. A resolution change moves no glyph and changes no layout — only the
+   * pixel density each texture is drawn at — so this sets `resolution` on the existing Text
+   * objects rather than re-measuring the text and rebuilding the scene graph.
    */
-  private reresolve(): void {
-    const walk = (c: Container): void => {
-      for (const child of c.children) {
-        if (child instanceof Text) child.resolution = this.res
-        else if (child instanceof Container) walk(child)
+  private reconcile(originX: number, originY: number, scale: number, w: number, h: number): void {
+    let budget = RES_BUDGET
+    // Two passes so that what the user can see is sharpened first, whatever the draw order.
+    for (const onScreen of [true, false]) {
+      for (const p of this.placed) {
+        if (budget === 0) return
+        if (p.res === this.res) continue
+        const sx = p.spec.x * scale - originX
+        const sy = p.spec.y * scale - originY
+        const visible = sx > -w * 0.25 && sx < w * 1.25 && sy > -h * 0.25 && sy < h * 1.25
+        if (visible !== onScreen) continue
+        for (const t of p.texts) t.resolution = this.res
+        p.res = this.res
+        budget--
       }
     }
-    walk(this.root)
   }
 
   private rebuild(): void {
@@ -202,16 +239,16 @@ export class LabelLayer {
       const node = s.curve === 0 ? this.straight(s) : this.curved(s)
       if (!node) continue
       this.root.addChild(node.view)
-      this.placed.push({ spec: s, halfW: node.halfW, halfH: node.halfH })
+      this.placed.push({ spec: s, res: this.res, ...node })
     }
   }
 
-  private straight(s: LabelSpec): { view: Container; halfW: number; halfH: number } | null {
+  private straight(s: LabelSpec): Omit<Placed, 'spec' | 'res'> | null {
     const t = new Text({ text: s.text, style: this.styleFor(s), resolution: this.res })
     t.anchor.set(0.5)
     t.position.set(s.x, s.y)
     t.rotation = (s.angle * Math.PI) / 180
-    return { view: t, halfW: t.width / 2, halfH: t.height / 2 }
+    return { view: t, texts: [t], halfW: t.width / 2, halfH: t.height / 2 }
   }
 
   /**
@@ -219,7 +256,7 @@ export class LabelLayer {
    * derived region labels keep their arc. Sampled into a cumulative-length table first: stepping
    * the Bézier by its parameter would bunch letters up where the curve is tight.
    */
-  private curved(s: LabelSpec): { view: Container; halfW: number; halfH: number } | null {
+  private curved(s: LabelSpec): Omit<Placed, 'spec' | 'res'> | null {
     const style = this.styleFor(s)
     const chars = [...s.text]
     if (!chars.length) return null
@@ -260,6 +297,7 @@ export class LabelLayer {
       }
     }
     const group = new Container()
+    const texts: Text[] = []
     let d = (arc - total) / 2 // centre the run on the arc
     for (let i = 0; i < chars.length; i++) {
       const p = along(d + widths[i] / 2)
@@ -268,10 +306,11 @@ export class LabelLayer {
       g.position.set(p.x, p.y)
       g.rotation = p.a
       group.addChild(g)
+      texts.push(g)
       d += widths[i]
     }
     group.position.set(s.x, s.y)
     group.rotation = (s.angle * Math.PI) / 180
-    return { view: group, halfW: total / 2, halfH: (s.size + Math.abs(sag)) / 2 }
+    return { view: group, texts, halfW: total / 2, halfH: (s.size + Math.abs(sag)) / 2 }
   }
 }
