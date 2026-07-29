@@ -2938,6 +2938,12 @@ export default function MapView({
       }
       const base = wheelTarget ?? map.getZoom()
       wheelTarget = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), base - e.deltaY * 0.0015))
+      // Build the label textures for where the zoom is GOING, not where it is. Sizing them to the
+      // current zoom means every frame of a zoom-in displays them larger than they were drawn —
+      // magnifying a texture, which is exactly what looks blurry. Taking the larger of the two
+      // ends instead means the gesture only ever shrinks them, and minification stays sharp.
+      // One rebuild per gesture, at the start, rather than a chase.
+      labelLayer.current?.setResolution(2 ** Math.max(map.getZoom(), wheelTarget), 0.15)
       // NOT map.mouseEventToContainerPoint(e): that calls Leaflet's DomUtil.getScale(container),
       // which reads container.getBoundingClientRect() — a forced synchronous layout, EVERY wheel
       // DOM event (a continuous scroll can fire dozens/sec, each one landing right after this
@@ -2994,10 +3000,6 @@ export default function MapView({
     map.on('zoom zoomend', () => {
       refreshZoomVis() // toggle zoom-limited pins/labels for the current zoom (before sizing)
       updateOverlaySizes() // DOM: every frame (smooth zoom) — labels/pins scale in sync
-      // Mid-gesture sharpness floor. Textures are stretched by the compositor between rebuilds,
-      // which is what makes a long continuous scroll go soft; a loose tolerance re-renders a
-      // couple of times across one and never per frame.
-      labelLayer.current?.setResolution(2 ** map.getZoom(), 0.7)
       // React state (HUD + scale bar) immediately only OUTSIDE wheel zoom; on wheel, at settle (above)
       if (!wheelZooming) {
         showHud(map.getZoom())
