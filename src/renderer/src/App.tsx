@@ -136,9 +136,21 @@ export default function App(): React.JSX.Element {
   // and then the tier does not appear at all. Re-read on placements too: a board created in
   // MapView reaches the sidebar when something is drawn on it, which is also the first moment
   // it has anything to group.
+  //
+  // Keeping the SAME array when the list is unchanged is what makes this cheap, and it is the
+  // reason the updater form is used rather than a plain setBoards(b.list). `placements` is a
+  // fresh array out of refresh() every time, so this effect re-runs after every onChanged();
+  // writing a new (equal) boards array there re-rendered the whole entity tree A SECOND TIME.
+  // Measured in a DevTools trace before the fix: every long task came in a pair, the second
+  // starting exactly when the first ended (204 ms task at 424.24 s → 125 ms task at 424.46 s),
+  // ~440 ms of frozen UI after every draw/create/rename/undo. Returning `prev` unchanged makes
+  // React bail out of that second render entirely. Boards lists are a handful of rows, so
+  // stringify is cheaper than the render it prevents by orders of magnitude.
   useEffect(() => {
-    if (mapId === null) return setBoards([])
-    getMapBoards(mapId).then((b) => setBoards(b.list))
+    if (mapId === null) return setBoards((prev) => (prev.length ? [] : prev))
+    getMapBoards(mapId).then((b) =>
+      setBoards((prev) => (JSON.stringify(prev) === JSON.stringify(b.list) ? prev : b.list))
+    )
   }, [mapId, placements])
 
   // Landing on a map opens that map's group and closes the rest — the point of the grouping is
