@@ -1346,10 +1346,19 @@ export default function MapView({
     const map = mapRef.current
     const layer = labelLayer.current
     if (!map || !layer) return
-    const o = map.getPixelOrigin()
-    const p = L.DomUtil.getPosition(map.getPanes().mapPane) ?? new L.Point(0, 0)
+    const zoom = map.getZoom()
     const size = map.getSize()
-    layer.draw(o.x - p.x, o.y - p.y, 2 ** map.getZoom(), size.x, size.y)
+    // Deliberately NOT map.getPixelOrigin(): Leaflet's _getNewPixelOrigin ends in ._round(), so
+    // that value snaps to whole pixels and re-snaps as the zoom eases — which drags the entire
+    // label layer back and forth by up to a pixel every frame and reads as the text shaking. It
+    // is the same 1px rounding this file already patches out of latLngToLayerPoint (patch 1).
+    //
+    // Deriving the origin instead keeps it fractional, and the map pane's position cancels out on
+    // the way: container = project(ll, zoom) - pixelOrigin + panePos, and pixelOrigin is
+    // project(center, zoom) - size/2 + panePos, so the two panePos terms fall away and what is
+    // left is exact. getCenter() already accounts for panning, so this stays right while dragging.
+    const c = map.project(map.getCenter(), zoom)
+    layer.draw(c.x - size.x / 2, c.y - size.y / 2, 2 ** zoom, size.x, size.y)
   }
 
   const updateOverlaySizes = (): void => {
@@ -2913,7 +2922,8 @@ export default function MapView({
         wheelZooming = false
         showHud(map.getZoom()) // on settle, one React update for HUD + scale bar
         setBarZoom(map.getZoom())
-        labelLayer.current?.setResolution(2 ** map.getZoom()) // crisp again now the gesture is over
+        // Tight tolerance: the gesture is over, so buy the sharpness.
+        labelLayer.current?.setResolution(2 ** map.getZoom(), 0.08)
         drawLabels()
         return
       }
@@ -2984,13 +2994,17 @@ export default function MapView({
     map.on('zoom zoomend', () => {
       refreshZoomVis() // toggle zoom-limited pins/labels for the current zoom (before sizing)
       updateOverlaySizes() // DOM: every frame (smooth zoom) — labels/pins scale in sync
+      // Mid-gesture sharpness floor. Textures are stretched by the compositor between rebuilds,
+      // which is what makes a long continuous scroll go soft; a loose tolerance re-renders a
+      // couple of times across one and never per frame.
+      labelLayer.current?.setResolution(2 ** map.getZoom(), 0.7)
       // React state (HUD + scale bar) immediately only OUTSIDE wheel zoom; on wheel, at settle (above)
       if (!wheelZooming) {
         showHud(map.getZoom())
         setBarZoom(map.getZoom())
         // Re-rasterise glyphs for the zoom we landed on. Only once the movement is over: doing it
         // per frame is precisely the cost the WebGL layer exists to avoid.
-        labelLayer.current?.setResolution(2 ** map.getZoom())
+        labelLayer.current?.setResolution(2 ** map.getZoom(), 0.08)
         drawLabels()
       }
     })

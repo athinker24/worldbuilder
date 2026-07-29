@@ -120,14 +120,18 @@ export class LabelLayer {
   }
 
   /**
-   * Re-rasterise glyphs for the given zoom scale. Call ONLY when the zoom has settled: this is
-   * the expensive path, and calling it per frame would reintroduce the problem being solved.
+   * Re-rasterise glyphs for the given zoom scale, if it has drifted far enough from what the
+   * current textures were built for. This is the expensive path — every label's glyphs are drawn
+   * again — so `tolerance` (in zoom levels) is how the caller buys sharpness with work.
+   *
+   * A settled view asks for a tight tolerance and gets crisp text. A gesture in flight asks for a
+   * loose one: letting the scale wander unbounded is what makes zooming look soft, but chasing it
+   * every frame is the exact cost this class exists to avoid, so it re-renders a couple of times
+   * across a long scroll instead of sixty times a second.
    */
-  setResolution(scale: number): void {
+  setResolution(scale: number, tolerance = 0.25): void {
     const res = Math.min(MAX_RES, Math.max(MIN_RES, scale))
-    // Texture memory is not free and the eye cannot see a 4 % sharpness step — only re-render
-    // when the change is worth the work.
-    if (Math.abs(Math.log2(res / this.res)) < 0.25) return
+    if (Math.abs(Math.log2(res / this.res)) < tolerance) return
     this.res = res
     this.rebuild()
   }
