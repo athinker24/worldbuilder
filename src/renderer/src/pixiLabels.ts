@@ -120,20 +120,21 @@ export class LabelLayer {
   }
 
   /**
-   * Re-rasterise glyphs for the given zoom scale, if it has drifted far enough from what the
-   * current textures were built for. This is the expensive path — every label's glyphs are drawn
-   * again — so `tolerance` (in zoom levels) is how the caller buys sharpness with work.
+   * Point the glyph textures at a zoom scale. Ratchets UP readily and lets go only reluctantly.
    *
-   * A settled view asks for a tight tolerance and gets crisp text. A gesture in flight asks for a
-   * loose one: letting the scale wander unbounded is what makes zooming look soft, but chasing it
-   * every frame is the exact cost this class exists to avoid, so it re-renders a couple of times
-   * across a long scroll instead of sixty times a second.
+   * The asymmetry is the whole point. Re-rasterising is the expensive thing this class does, and
+   * the worst possible moment to do it is the instant a gesture ends — the screen holds the last
+   * frame until it finishes, which reads as the text staying blurry for a beat after you stop.
+   * Being over-resolved costs a little texture memory and looks perfect, so once a label has been
+   * drawn sharply enough for some zoom it keeps that until the view has pulled far enough back
+   * (a factor of ~2.8) that the memory is no longer worth it.
    */
-  setResolution(scale: number, tolerance = 0.25): void {
-    const res = Math.min(MAX_RES, Math.max(MIN_RES, scale))
-    if (Math.abs(Math.log2(res / this.res)) < tolerance) return
-    this.res = res
-    this.rebuild()
+  setResolution(scale: number): void {
+    const want = Math.min(MAX_RES, Math.max(MIN_RES, scale))
+    const d = Math.log2(want / this.res)
+    if (d < 0.15 && d > -1.5) return
+    this.res = want
+    this.reresolve()
   }
 
   /**
@@ -175,6 +176,22 @@ export class LabelLayer {
       stroke: { color: '#000000', width: s.size * HALO, join: 'round' },
       align: 'center'
     })
+  }
+
+  /**
+   * Re-sharpen what is already built. A resolution change does not move a single glyph — it only
+   * needs each texture drawn at a different pixel density — so measuring the text again and
+   * rebuilding the scene graph would be work for nothing. Setting `resolution` on a Text
+   * regenerates just its texture, which is the part that actually has to happen.
+   */
+  private reresolve(): void {
+    const walk = (c: Container): void => {
+      for (const child of c.children) {
+        if (child instanceof Text) child.resolution = this.res
+        else if (child instanceof Container) walk(child)
+      }
+    }
+    walk(this.root)
   }
 
   private rebuild(): void {

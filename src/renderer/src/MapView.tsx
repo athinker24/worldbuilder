@@ -2922,8 +2922,9 @@ export default function MapView({
         wheelZooming = false
         showHud(map.getZoom()) // on settle, one React update for HUD + scale bar
         setBarZoom(map.getZoom())
-        // Tight tolerance: the gesture is over, so buy the sharpness.
-        labelLayer.current?.setResolution(2 ** map.getZoom(), 0.08)
+        // Almost always a no-op: onWheel already built the textures for this zoom. It stays as
+        // the backstop for the paths that reach a zoom without a wheel gesture.
+        labelLayer.current?.setResolution(2 ** map.getZoom())
         drawLabels()
         return
       }
@@ -2943,7 +2944,7 @@ export default function MapView({
       // magnifying a texture, which is exactly what looks blurry. Taking the larger of the two
       // ends instead means the gesture only ever shrinks them, and minification stays sharp.
       // One rebuild per gesture, at the start, rather than a chase.
-      labelLayer.current?.setResolution(2 ** Math.max(map.getZoom(), wheelTarget), 0.15)
+      labelLayer.current?.setResolution(2 ** Math.max(map.getZoom(), wheelTarget))
       // NOT map.mouseEventToContainerPoint(e): that calls Leaflet's DomUtil.getScale(container),
       // which reads container.getBoundingClientRect() — a forced synchronous layout, EVERY wheel
       // DOM event (a continuous scroll can fire dozens/sec, each one landing right after this
@@ -3006,7 +3007,7 @@ export default function MapView({
         setBarZoom(map.getZoom())
         // Re-rasterise glyphs for the zoom we landed on. Only once the movement is over: doing it
         // per frame is precisely the cost the WebGL layer exists to avoid.
-        labelLayer.current?.setResolution(2 ** map.getZoom(), 0.08)
+        labelLayer.current?.setResolution(2 ** map.getZoom())
         drawLabels()
       }
     })
