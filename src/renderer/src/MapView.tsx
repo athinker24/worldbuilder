@@ -669,6 +669,9 @@ export default function MapView({
 }: Props): React.JSX.Element {
   const t = useT()
   const divRef = useRef<HTMLDivElement>(null)
+  // Cached host rect for onWheel's point conversion — see that call site for why this exists
+  // instead of just calling map.mouseEventToContainerPoint(e) every wheel tick.
+  const hostRectRef = useRef<DOMRect | null>(null)
   const mapRef = useRef<L.Map | null>(null)
   const featureGroupRef = useRef<L.FeatureGroup | null>(null)
   const imageLayerRef = useRef<L.ImageOverlay | null>(null)
@@ -715,8 +718,10 @@ export default function MapView({
   useEffect(() => {
     const host = divRef.current
     if (!host) return
+    hostRectRef.current = host.getBoundingClientRect()
     let frame = 0
     const ro = new ResizeObserver(() => {
+      hostRectRef.current = host.getBoundingClientRect()
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() =>
         mapRef.current?.invalidateSize({ animate: false, pan: false })
@@ -1302,13 +1307,25 @@ export default function MapView({
     const map = mapRef.current
     if (!map || !featureGroupRef.current) return
     const scale = 2 ** map.getZoom()
+    // Viewport cull: writing --lz/size is a per-element style write, and the browser's own
+    // "Recalculate Style" cost after it scales with how many elements got touched THIS FRAME —
+    // measured at ~5ms/123 elements on a fuller map (DevTools, "First invalidated" traced back
+    // to this loop). Most of those elements sit off-screen during a zoomed-in pan/zoom, so
+    // skipping them is free correctness: a marker that's off-screen doesn't need to look right
+    // this frame. Padded so markers don't visibly pop as they cross the edge. The moveend
+    // listener below (not a hot path — fires once per pan gesture) catches up anything that
+    // panned into view carrying a stale scale from the last time it was on-screen.
+    const bounds = map.getBounds().pad(0.25)
     featureGroupRef.current.eachLayer((l) => {
       const fl = l as FeatureLayer
       if (fl.featureId === undefined) return
+      const pinEl = (l as unknown as { _icon?: HTMLElement })._icon
+      if (!pinEl) return
+      const latlng = (l as unknown as Partial<L.Marker>).getLatLng?.()
+      if (latlng && !bounds.contains(latlng)) return
       // location pin: scale the badge divIcon by zoom (centre anchor; without recreating the DOM)
       const ms = markerSize.current.get(fl.featureId)
-      const pinEl = (l as unknown as { _icon?: HTMLElement })._icon
-      if (ms !== undefined && pinEl) {
+      if (ms !== undefined) {
         const w = PIN_BASE * ms.size * scale
         if (ms.ar) {
           // free custom image: the box is 0×0, the img carries its own size (centred via CSS transform)
@@ -1327,17 +1344,18 @@ export default function MapView({
       // Free text label: size and font are baked into the icon; zoom only writes `--lz`, which
       // the svg's transform reads (see labelDivIcon for why a transform and not a font size).
       // A custom property INHERITS, so writing it here on _icon reaches the svg — no lookup.
-      if (labelText.current.has(fl.featureId) && pinEl)
-        pinEl.style.setProperty('--lz', String(scale))
+      if (labelText.current.has(fl.featureId)) pinEl.style.setProperty('--lz', String(scale))
     })
     // Derived-mode labels (on the map, outside the featureGroup): same pattern as free labels
     // — one fontSize write, no DOM measuring (SVG em sizing scales text + arc together)
     for (const m of derivedLabels.current) {
+      if (!bounds.contains(m.getLatLng())) continue
       const el = (m as unknown as { _icon?: HTMLElement })._icon
       if (el) el.style.setProperty('--lz', String(scale)) // base is baked; see labelDivIcon
     }
     // Polygon name labels: identical scaling, identical reason.
     for (const m of polyLabels.current.values()) {
+      if (!bounds.contains(m.getLatLng())) continue
       const el = (m as unknown as { _icon?: HTMLElement })._icon
       if (el) el.style.setProperty('--lz', String(scale))
     }
@@ -2734,13 +2752,42 @@ export default function MapView({
         last = [e.clientX, e.clientY]
       }
     }
+    // Panning is throttled to the FRAME, not the mouse. A mouse reports at 125-1000 Hz while the
+    // screen draws at 60, and every panBy(animate:false) fires a synchronous moveend, which is
+    // Leaflet's full Renderer._update — re-clip and re-path every polygon. Driving that straight
+    // off mousemove meant doing a whole frame's rendering work several times per frame and
+    // throwing most of it away: measured 6407 mousemove dispatches costing 10.1 s of main-thread
+    // time in a 112 s recording. Deltas accumulate and are applied once per rAF (panBy is a
+    // relative translation, so summing them is exact, not an approximation).
+    let panDx = 0
+    let panDy = 0
+    let panRaf: number | null = null
+    const panStep = (): void => {
+      panRaf = null
+      if (panDx === 0 && panDy === 0) return
+      map.panBy([panDx, panDy], { animate: false })
+      panDx = 0
+      panDy = 0
+    }
     const onMove = (e: MouseEvent): void => {
       if (!panning) return
-      map.panBy([last[0] - e.clientX, last[1] - e.clientY], { animate: false })
+      panDx += last[0] - e.clientX
+      panDy += last[1] - e.clientY
       last = [e.clientX, e.clientY]
+      if (panRaf === null) panRaf = requestAnimationFrame(panStep)
     }
     const onUp = (): void => {
+      if (!panning) return
       panning = false
+      // Flush whatever the last frame did not get to, so the map lands exactly where the cursor
+      // left it rather than a few pixels behind.
+      if (panRaf !== null) cancelAnimationFrame(panRaf)
+      panStep()
+      // Catch up culled markers that panned into view. NOT map.on('moveend'): panBy runs with
+      // animate:false, so Leaflet fires a full synchronous moveend on EVERY pan step (not once
+      // per gesture) — hooking moveend directly reran the (real, ~5ms) style-recalc cost
+      // throughout the drag instead of once at release.
+      updateOverlaySizes()
     }
     // Continuous/SMOOTH wheel zoom: each tick adds to a TARGET zoom and a rAF loop eases the
     // current zoom toward it. Every frame animate:false setZoomAround → 'zoom' event → labels/
@@ -2781,7 +2828,15 @@ export default function MapView({
       }
       const base = wheelTarget ?? map.getZoom()
       wheelTarget = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), base - e.deltaY * 0.0015))
-      wheelPt = map.mouseEventToContainerPoint(e)
+      // NOT map.mouseEventToContainerPoint(e): that calls Leaflet's DomUtil.getScale(container),
+      // which reads container.getBoundingClientRect() — a forced synchronous layout, EVERY wheel
+      // DOM event (a continuous scroll can fire dozens/sec, each one landing right after this
+      // same loop's own style writes from updateOverlaySizes, so the read can't be satisfied from
+      // a cached layout — DevTools' "Forced reflow" Insight named exactly this stack). The host
+      // never has a CSS transform/zoom applied, so container scale is always 1:1 — a plain
+      // offset against the cached rect (kept fresh by the ResizeObserver above) is equivalent.
+      const r = hostRectRef.current ?? host.getBoundingClientRect()
+      wheelPt = L.point(e.clientX - r.left, e.clientY - r.top)
       wheelZooming = true
       if (wheelRaf === null) wheelRaf = requestAnimationFrame(wheelStep)
     }
@@ -2808,6 +2863,10 @@ export default function MapView({
         setBarZoom(map.getZoom())
       }
     })
+    // updateOverlaySizes now culls to the viewport (see its own comment) — a marker panned into
+    // view may carry a stale --lz/size from the last time IT was on-screen. The catch-up call
+    // for middle-mouse panning lives in onUp below (map.on('moveend') fires on every mousemove
+    // tick of that drag, not once per gesture — see onUp's comment for why).
 
     // Measure session clicks: calib switches to the form at 2 points; dist/area accumulate points
     map.on('click', (e: L.LeafletMouseEvent) => {
@@ -3006,6 +3065,7 @@ export default function MapView({
       setMeasure(null)
       setNav(null)
       if (wheelRaf !== null) cancelAnimationFrame(wheelRaf)
+      if (panRaf !== null) cancelAnimationFrame(panRaf)
       host.removeEventListener('mousedown', onDown)
       host.removeEventListener('wheel', onWheel)
       window.removeEventListener('mousemove', onMove)
