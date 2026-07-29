@@ -1503,17 +1503,18 @@ kbd {
   position: absolute;
   overflow: visible;
   pointer-events: none;
-  /* Rasterise once, then let the GPU scale the texture, instead of re-rendering the text at a
-     new size on every zoom frame. These labels are the single most expensive thing on the map
-     and it is not close: toggling labels off in the layers panel, same gesture, same viewport,
-     dropped rasterisation from 605 ms/s to 40 ms/s — 93 % of all raster work, against 2 % for
-     every pin and 5 % for every polygon plus the base image combined. Nothing about them can be
-     cached by the text pipeline: textPath positions each glyph individually along a curve,
-     geometricPrecision disables hinting and subpixel snapping (see below), and the halo strokes
-     each glyph as a path — then the whole thing is drawn again at a slightly different scale
-     16 ms later. will-change moves that scaling to the compositor, which is what the label
-     wants anyway: it is a picture being zoomed, not text being re-typeset. */
-  will-change: transform;
+  /* These labels are the single most expensive thing on the map and it is not close. Measured by
+     toggling layers off mid-recording, same viewport and same wheel-zoom gesture in each segment:
+     rasterisation ran at 605 ms/s with labels on and 40 ms/s with them off — 93 % of all raster
+     work, against 2 % for every pin and 5 % for every polygon plus the base image combined.
+
+     Do NOT reach for `will-change: transform` here. It looks like the right answer (rasterise
+     once, let the GPU scale the texture) and it was tried: rasterisation got WORSE, 605 -> 850
+     ms/s, frame rate 67 -> 15, and the text turned visibly blurry when zoomed out. The box this
+     factory builds is roughly 944x300 units per label, so promoting forty of them asks for tens
+     of megabytes of texture, and the zoom scale keeps moving far enough that Chromium
+     re-rasterises them anyway — paying the layer bookkeeping on top of the work it was meant to
+     avoid. */
   /* Legibility comes from a stroke halo on the text below, NOT filter: drop-shadow(). Two
      chained drop-shadows used to live here, and they were the single most expensive thing on
      the map. Chromium promotes any filtered element to its own compositing layer, and only

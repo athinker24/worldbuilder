@@ -365,8 +365,32 @@ const labelDivIcon = (
   const W = w + 2 * pad
   const H = 3 * F + 2 * Math.abs(sag)
   const cy = H / 2 + sag
-  const id = `lblp${++labelSeq}`
-  const html = `<svg class="map-label-svg" viewBox="0 0 ${W} ${H}" style="width:${W / F}em;height:${H / F}em;font-size:${basePx}px;font-family:'${font}',serif;transform:translate(-50%,-50%) scale(var(--lz,1)) rotate(${angle}deg)"><defs><path id="${id}" fill="none" d="M ${pad},${cy} Q ${W / 2},${cy - 2 * sag} ${W - pad},${cy}"/></defs><text font-size="${F}" fill="${color}" text-anchor="middle" dominant-baseline="central"><textPath href="#${id}" startOffset="50%">${text}</textPath></text></svg>`
+  // A textPath is only built when the label is actually CURVED. It used to render every label,
+  // straight ones included, for a single code path — but a textPath places, rotates and fills
+  // each glyph as its own path, so nothing the text pipeline caches applies and the whole run is
+  // re-outlined on every zoom frame. Labels turned out to be 93 % of all rasterisation on a
+  // realistic map (605 ms/s with them on, 40 ms/s with them off, same gesture), so that was not
+  // a free abstraction. A straight run is a plain <text>, which Skia can render as a cached
+  // glyph blob. The click behaviour that motivated using SVG in the first place is unchanged:
+  // it comes from `pointer-events: visiblePainted` on the text (main.css), which makes only the
+  // painted letters clickable, and that is true of <text> with or without a textPath.
+  //
+  // Geometry is deliberately identical between the two branches: the straight path ran from
+  // (pad, cy) to (W - pad, cy) and startOffset 50 % put the midpoint at ((pad + W - pad) / 2, cy)
+  // = (W / 2, cy), which is exactly where the plain <text> anchor sits. Same position, same
+  // width, no visual change.
+  const body =
+    curve === 0
+      ? `<text x="${W / 2}" y="${cy}" font-size="${F}" fill="${color}" text-anchor="middle" dominant-baseline="central">${text}</text>`
+      : (() => {
+          const id = `lblp${++labelSeq}`
+          return (
+            `<defs><path id="${id}" fill="none" d="M ${pad},${cy} Q ${W / 2},${cy - 2 * sag} ${W - pad},${cy}"/></defs>` +
+            `<text font-size="${F}" fill="${color}" text-anchor="middle" dominant-baseline="central">` +
+            `<textPath href="#${id}" startOffset="50%">${text}</textPath></text>`
+          )
+        })()
+  const html = `<svg class="map-label-svg" viewBox="0 0 ${W} ${H}" style="width:${W / F}em;height:${H / F}em;font-size:${basePx}px;font-family:'${font}',serif;transform:translate(-50%,-50%) scale(var(--lz,1)) rotate(${angle}deg)">${body}</svg>`
   return L.divIcon({ className: 'map-label', html, iconSize: [0, 0], iconAnchor: [0, 0] })
 }
 
