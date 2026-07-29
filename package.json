@@ -27,7 +27,8 @@
     "@fontsource/uncial-antiqua": "^5.2.7",
     "@geoman-io/leaflet-geoman-free": "^2.20.0",
     "leaflet": "^1.9.4",
-    "marked": "^18.0.5"
+    "marked": "^18.0.5",
+    "pixi.js": "^8.19.0"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",

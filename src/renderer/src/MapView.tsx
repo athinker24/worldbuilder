@@ -39,6 +39,7 @@ import {
 import ColorPicker from './ColorPicker'
 import ContextMenu, { MenuItem, MenuState } from './ContextMenu'
 import { ImageStrip, PinShape, PinShapePicker, pinShapeBody } from './pinIcons'
+import { LabelLayer, type LabelSpec } from './pixiLabels'
 import EntityPage from './EntityPage'
 import HierarchyPanel, { ActiveMode } from './HierarchyPanel'
 import { alertDialog, confirmDialog } from './dialog'
@@ -704,7 +705,11 @@ export default function MapView({
   // array) because a single-feature geometry edit needs to reposition exactly one without a
   // full reload. labelFont remembers each one's font across the year-tick content swap (the
   // root-view carrier), since the marker's own icon gets replaced wholesale then.
-  const polyLabels = useRef(new Map<number, L.Marker>())
+  // Polygon name labels live in a WebGL layer, not the DOM — see pixiLabels.ts for the
+  // measurements that forced it. `polySpec` is the label each polygon WOULD draw; applyYear
+  // decides which of them are actually visible this year and hands that subset to the layer.
+  const polySpec = useRef(new Map<number, LabelSpec>())
+  const labelLayer = useRef<LabelLayer | null>(null)
   const labelFont = useRef(new Map<number, string>())
   // Which features are free text labels — size/font live baked in the icon, so zoom only needs
   // to know WHICH icons take the `--lz` scale write (pins take a different branch)
@@ -1327,6 +1332,19 @@ export default function MapView({
   // Polygon names are now `polyLabels` markers — the exact divIcon/textPath mechanism already
   // used for derived region labels and free-text labels (see labelDivIcon), positioned and
   // resized entirely by OUR OWN writes, with no Leaflet-internal read-after-write in the loop.
+  // Push the current view into the WebGL label layer and draw one frame. The canvas sits over the
+  // map container rather than inside a Leaflet pane, so the origin is the pixel origin corrected
+  // by wherever Leaflet has currently parked the map pane. One draw call, whatever the label count.
+  const drawLabels = (): void => {
+    const map = mapRef.current
+    const layer = labelLayer.current
+    if (!map || !layer) return
+    const o = map.getPixelOrigin()
+    const p = L.DomUtil.getPosition(map.getPanes().mapPane) ?? new L.Point(0, 0)
+    const size = map.getSize()
+    layer.draw(o.x - p.x, o.y - p.y, 2 ** map.getZoom(), size.x, size.y)
+  }
+
   const updateOverlaySizes = (): void => {
     const map = mapRef.current
     if (!map || !featureGroupRef.current) return
@@ -1377,12 +1395,8 @@ export default function MapView({
       const el = (m as unknown as { _icon?: HTMLElement })._icon
       if (el) el.style.setProperty('--lz', String(scale)) // base is baked; see labelDivIcon
     }
-    // Polygon name labels: identical scaling, identical reason.
-    for (const m of polyLabels.current.values()) {
-      if (!bounds.contains(m.getLatLng())) continue
-      const el = (m as unknown as { _icon?: HTMLElement })._icon
-      if (el) el.style.setProperty('--lz', String(scale))
-    }
+    // Polygon name labels need nothing here: they are drawn in WebGL and the whole set follows
+    // the zoom from one container matrix (see drawLabels / pixiLabels.ts).
     // Stroke widths (see patch 3): one property on the pane, inherited by every path, instead
     // of a setStyle per feature per frame. Anchored at zoom 0, so a weight of 3 means 3 MAP
     // pixels — the unit the geometry itself is in.
@@ -1600,10 +1614,9 @@ export default function MapView({
     const fg = featureGroupRef.current
     const map = mapRef.current! // set alongside featureGroupRef in the same setup effect
     fg.clearLayers()
-    // Polygon labels live on the map, not in featureGroup — fg.clearLayers() won't remove them
-    // (same reasoning as derivedLabels below).
-    for (const m of polyLabels.current.values()) m.remove()
-    polyLabels.current.clear()
+    // Polygon labels are not Leaflet layers at all — fg.clearLayers() never saw them. The WebGL
+    // layer is refilled at the end of applyYear, which is what decides visibility.
+    polySpec.current.clear()
     labelFont.current.clear()
     labelText.current.clear()
     markerSize.current.clear()
@@ -1828,12 +1841,20 @@ export default function MapView({
             )
             const ring = (JSON.parse(f.geometry) as { coordinates: number[][][] }).coordinates[0]
             const [cx, cy] = ringAreaCentroid(ring)
-            const m = L.marker([cy, cx], {
-              icon: labelDivIcon({ text: f.entity_name, color: '#ffffff', font }, base),
-              interactive: false,
-              pmIgnore: true
-            } as L.MarkerOptions).addTo(map)
-            polyLabels.current.set(f.id, m)
+            // Stored in zoom-0 layer space, which is what the WebGL layer draws in — so a zoom
+            // moves the whole label set by changing two numbers, not by touching any of them.
+            const at = map.project(L.latLng(cy, cx), 0)
+            polySpec.current.set(f.id, {
+              id: f.id,
+              x: at.x,
+              y: at.y,
+              text: f.entity_name,
+              color: '#ffffff',
+              font,
+              size: base,
+              angle: 0,
+              curve: 0
+            })
           } else {
             layer.bindTooltip(escapeHtml(f.entity_name), { sticky: true })
           }
@@ -1946,11 +1967,16 @@ export default function MapView({
           if (updates.length > 1) {
             await reloadFeatures() // redraw the welded neighbours (recreates every label too)
           } else {
-            // No reload here (see snapshotUpdates), so a moved/reshaped polygon's own label —
-            // now an independent marker, not a Leaflet tooltip bound to the layer — would
-            // otherwise sit at its pre-edit position until something else forces a reload.
-            const marker = polyLabels.current.get(f.id)
-            if (marker && isPolygon) marker.setLatLng((layer as L.Polygon).getCenter())
+            // No reload here (see snapshotUpdates), so a moved or reshaped polygon's own label —
+            // drawn independently of the layer now, not bound to it — would otherwise sit at its
+            // pre-edit position until something else forced a reload.
+            const spec = polySpec.current.get(f.id)
+            if (spec && isPolygon) {
+              const c = (layer as L.Polygon).getCenter()
+              const at = map.project(c, 0)
+              polySpec.current.set(f.id, { ...spec, x: at.x, y: at.y })
+              applyYear(yearRef.current)
+            }
           }
         }
         // Snapshot synchronous, commit on the serial chain — reloads never clobber each other.
@@ -2232,6 +2258,9 @@ export default function MapView({
     yearRef.current = year
     const fg = featureGroupRef.current
     if (!fg) return
+    // The polygon labels this year actually shows, gathered as the gate below decides each
+    // feature's fate and handed to the WebGL layer in one go at the end.
+    const shownLabels: LabelSpec[] = []
     const rankOn = activeModeRef.current?.kind === 'rank'
     // Default (root) view: base polygons painted in the color of the entity at the TOP of
     // that year's chain (no parent = top); the root's name becomes one label over its largest piece.
@@ -2361,35 +2390,29 @@ export default function MapView({
           el?.setAttribute('marker-end', 'url(#worldArrow)')
         }
         // Polygon name labels: all hidden when the layers panel says so; in the root view the
-        // carrier bears the root's name, other base labels stay hidden. Once per year-tick, not
-        // per zoom frame — a full icon swap (setIcon) here is the same cost class as
-        // rebuildDerivedLabels doing the same on a signature change, not the per-frame hot path.
-        if (visible) {
-          const marker = polyLabels.current.get(fid)
-          if (marker) {
-            if (!layersRef.current.label || labelRoot === -1) {
-              const el = (marker as unknown as { _icon?: HTMLElement })._icon
-              if (el) el.style.display = 'none'
-            } else {
-              if (labelRoot !== null) {
-                const name = entNames.current.get(labelRoot) ?? ''
-                const b = (l as L.Polygon).getBounds()
-                const base = Math.min(
-                  200,
-                  Math.max(8, (b.getEast() - b.getWest()) / Math.max(4, name.length))
-                )
-                const font = labelFont.current.get(fid) ?? 'Cinzel'
-                // setIcon REPLACES _icon with a fresh element — the display write below must
-                // read it back afterward, or it lands on the detached old one.
-                marker.setIcon(labelDivIcon({ text: name, color: '#ffffff', font }, base))
-              }
-              const el = (marker as unknown as { _icon?: HTMLElement })._icon
-              if (el) el.style.display = ''
-            }
-          }
+        // carrier bears the root's name, other base labels stay hidden. A label that is not
+        // pushed here is simply not drawn — there is no element to hide.
+        if (visible && layersRef.current.label && labelRoot !== -1) {
+          const spec = polySpec.current.get(fid)
+          if (spec && labelRoot !== null) {
+            // The carrier speaks for the whole realm, so it takes the root's name and is sized
+            // to it rather than to the piece it happens to sit on.
+            const name = entNames.current.get(labelRoot) ?? ''
+            const b = (l as L.Polygon).getBounds()
+            shownLabels.push({
+              ...spec,
+              text: name,
+              size: Math.min(
+                200,
+                Math.max(8, (b.getEast() - b.getWest()) / Math.max(4, name.length))
+              )
+            })
+          } else if (spec) shownLabels.push(spec)
         }
       }
     }
+    labelLayer.current?.setLabels(shownLabels)
+    drawLabels()
     rebuildDerivedLabels(year, rungOwnerAt) // mod yoksa kendini temizler
     updateOverlaySizes() // re-added label/pin sizes settle onto the current zoom
     markSelection() // layers were rebuilt → rewrite the selection highlight
@@ -2839,6 +2862,8 @@ export default function MapView({
         wheelZooming = false
         showHud(map.getZoom()) // on settle, one React update for HUD + scale bar
         setBarZoom(map.getZoom())
+        labelLayer.current?.setResolution(2 ** map.getZoom()) // crisp again now the gesture is over
+        drawLabels()
         return
       }
       map.setZoomAround(wheelPt!, cur + diff * 0.2, { animate: false })
@@ -2868,6 +2893,33 @@ export default function MapView({
     host.addEventListener('wheel', onWheel, { passive: false })
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
+    // The WebGL label canvas. Deliberately NOT a Leaflet pane: panes are transformed by Leaflet
+    // on every zoom and pan, and the whole point here is that the layer positions itself from two
+    // numbers instead of being moved around. z-index sits above the marker pane (600) and below
+    // the controls (800). pointer-events stays off — hit testing goes through LabelLayer.hitTest
+    // so the canvas never swallows a click meant for the map.
+    const lc = document.createElement('canvas')
+    lc.style.cssText =
+      'position:absolute;inset:0;width:100%;height:100%;z-index:650;pointer-events:none'
+    host.appendChild(lc)
+    const layer = new LabelLayer(lc)
+    labelLayer.current = layer
+    // WebGL can fail to come up (a driver blacklist, a headless session). Say so once and carry
+    // on: the map still works, it just has no name labels.
+    layer.ready
+      .then(() => drawLabels())
+      .catch((err) => {
+        labelLayer.current = null
+        lc.remove()
+        void api.logError(
+          'MapView.labelLayer',
+          String(err?.message ?? err),
+          String(err?.stack ?? ''),
+          { detail: 'WebGL label layer failed to start; map labels are off' }
+        )
+      })
+    map.on('move', drawLabels)
+
     const fg = new L.FeatureGroup()
     featureGroupRef.current = fg
     map.addLayer(fg)
@@ -2885,6 +2937,10 @@ export default function MapView({
       if (!wheelZooming) {
         showHud(map.getZoom())
         setBarZoom(map.getZoom())
+        // Re-rasterise glyphs for the zoom we landed on. Only once the movement is over: doing it
+        // per frame is precisely the cost the WebGL layer exists to avoid.
+        labelLayer.current?.setResolution(2 ** map.getZoom())
+        drawLabels()
       }
     })
     // updateOverlaySizes now culls to the viewport (see its own comment) — a marker panned into
@@ -3088,6 +3144,9 @@ export default function MapView({
       navTemp.current = null
       setMeasure(null)
       setNav(null)
+      labelLayer.current?.destroy()
+      labelLayer.current = null
+      lc.remove()
       if (wheelRaf !== null) cancelAnimationFrame(wheelRaf)
       if (panRaf !== null) cancelAnimationFrame(panRaf)
       host.removeEventListener('mousedown', onDown)
