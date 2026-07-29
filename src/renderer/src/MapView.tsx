@@ -709,6 +709,13 @@ export default function MapView({
   // measurements that forced it. `polySpec` is the label each polygon WOULD draw; applyYear
   // decides which of them are actually visible this year and hands that subset to the layer.
   const polySpec = useRef(new Map<number, LabelSpec>())
+  // Free text labels: the same WebGL treatment, but they are selectable and draggable, so the
+  // Leaflet marker stays and only its LOOK moves. Its icon becomes an empty transparent box that
+  // exists purely to be clicked and grabbed — no glyphs in it, so it costs what a pin costs.
+  // This is the "display in Pixi, interact as a real Leaflet layer" split CLAUDE.md describes.
+  const freeSpec = useRef(new Map<number, LabelSpec>())
+  // Hit-box size in zoom-0 units, scaled onto the transparent icon by updateOverlaySizes.
+  const labelHit = useRef(new Map<number, { w: number; h: number }>())
   const labelLayer = useRef<LabelLayer | null>(null)
   const labelFont = useRef(new Map<number, string>())
   // Which features are free text labels — size/font live baked in the icon, so zoom only needs
@@ -1383,10 +1390,18 @@ export default function MapView({
           pinEl.style.marginTop = `${-w / 2}px`
         }
       }
-      // Free text label: size and font are baked into the icon; zoom only writes `--lz`, which
-      // the svg's transform reads (see labelDivIcon for why a transform and not a font size).
-      // A custom property INHERITS, so writing it here on _icon reaches the svg — no lookup.
-      if (labelText.current.has(fl.featureId)) pinEl.style.setProperty('--lz', String(scale))
+      // Free text label: the text is drawn in WebGL, so all that is sized here is the transparent
+      // box that catches clicks and drags. An empty div, so this is a box-model write with no
+      // glyphs behind it — the cheap half of what a label used to cost on every frame.
+      const hit = labelHit.current.get(fl.featureId)
+      if (hit) {
+        const w = hit.w * scale
+        const h = hit.h * scale
+        pinEl.style.width = `${w}px`
+        pinEl.style.height = `${h}px`
+        pinEl.style.marginLeft = `${-w / 2}px`
+        pinEl.style.marginTop = `${-h / 2}px`
+      }
     })
     // Derived-mode labels (on the map, outside the featureGroup): same pattern as free labels
     // — one fontSize write, no DOM measuring (SVG em sizing scales text + arc together)
@@ -1617,6 +1632,8 @@ export default function MapView({
     // Polygon labels are not Leaflet layers at all — fg.clearLayers() never saw them. The WebGL
     // layer is refilled at the end of applyYear, which is what decides visibility.
     polySpec.current.clear()
+    freeSpec.current.clear()
+    labelHit.current.clear()
     labelFont.current.clear()
     labelText.current.clear()
     markerSize.current.clear()
@@ -1739,10 +1756,38 @@ export default function MapView({
           // the bbox fixed, the image glued. (Unclipped render cost is negligible at personal scale.)
           noClip: fillColor !== color
         } as L.PolylineOptions,
-        pointToLayer: (_gf, latlng) =>
-          L.marker(latlng, {
-            icon: isLabel ? labelDivIcon(style, LABEL_BASE * (style.size ?? 1)) : pinDivIcon(style)
+        pointToLayer: (_gf, latlng) => {
+          if (!isLabel) return L.marker(latlng, { icon: pinDivIcon(style) })
+          // The glyphs go to the WebGL layer; what stays here is an empty box to click and drag.
+          const size = LABEL_BASE * (style.size ?? 1)
+          const text = style.text ?? ''
+          const at = map.project(latlng, 0)
+          freeSpec.current.set(f.id, {
+            id: f.id,
+            x: at.x,
+            y: at.y,
+            text,
+            color: style.color ?? '#ffffff',
+            font: style.font ?? 'Cinzel',
+            size,
+            angle: Number(style.angle) || 0,
+            curve: Number(style.curve) || 0
           })
+          // ~0.62em per letter is the same estimate labelDivIcon used to lay the text out, so the
+          // grab area matches what the user sees closely enough to feel exact.
+          labelHit.current.set(f.id, {
+            w: Math.max(text.length * size * 0.62, size),
+            h: size * 1.2
+          })
+          return L.marker(latlng, {
+            icon: L.divIcon({
+              className: 'map-label',
+              html: '',
+              iconSize: [0, 0],
+              iconAnchor: [0, 0]
+            })
+          })
+        }
       })
       featKind.current.set(
         f.id,
@@ -2358,6 +2403,12 @@ export default function MapView({
       // reads it), then hide when outside the zoom range
       baseVisible.current.set(fid, visible)
       if (!zoomOk(fid)) visible = false
+      // Free text: the marker below is only the grab handle, so the WebGL layer has to be told
+      // separately that this one is on screen — every gate above already applies to it.
+      if (visible) {
+        const fs = freeSpec.current.get(fid)
+        if (fs) shownLabels.push(fs)
+      }
       const arrow = featArrow.current.get(fid)
       for (const l of layers) {
         if (visible && !fg.hasLayer(l)) {
