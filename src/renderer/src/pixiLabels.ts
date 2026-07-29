@@ -85,6 +85,20 @@ const HALO = 0.16 // stroke width as a fraction of font size — matches the CSS
 const MIN_RES = 0.25
 const MAX_RES = 8
 
+/**
+ * Hard ceiling on how tall a label's glyphs are ever rasterised, in texture pixels.
+ *
+ * Font sizes here are in MAP units and a big region's name can reach 200 of them, so tying the
+ * texture purely to the zoom meant a label being drawn 200 x 8 = 1600 px tall and, for a ten
+ * letter name, something like twelve thousand px wide — millions of pixels for one word, built
+ * and uploaded to the GPU. That is what made zooming a long way in go heavy.
+ *
+ * Past this the sprite is magnified instead, which costs nothing and softens text that is already
+ * hundreds of pixels tall on screen — the case where a little softness is least noticeable and
+ * the only alternative is a texture nobody can afford.
+ */
+const MAX_GLYPH_PX = 256
+
 export class LabelLayer {
   private app: Application | null = null
   private root = new Container()
@@ -215,20 +229,26 @@ export class LabelLayer {
    */
   private reconcile(originX: number, originY: number, scale: number, w: number, h: number): void {
     let budget = RES_BUDGET
-    // Two passes so that what the user can see is sharpened first, whatever the draw order.
-    for (const onScreen of [true, false]) {
-      for (const p of this.placed) {
-        if (budget === 0) return
-        if (p.res === this.res) continue
-        const sx = p.spec.x * scale - originX
-        const sy = p.spec.y * scale - originY
-        const visible = sx > -w * 0.25 && sx < w * 1.25 && sy > -h * 0.25 && sy < h * 1.25
-        if (visible !== onScreen) continue
-        for (const t of p.texts) t.resolution = this.res
-        p.res = this.res
-        budget--
-      }
+    for (const p of this.placed) {
+      if (budget === 0) return
+      const want = this.resFor(p.spec)
+      if (p.res === want) continue
+      // Off-screen labels are left alone entirely rather than queued behind the visible ones.
+      // Zooming in is exactly when most of them leave the viewport, and building a texture for
+      // something nobody can see is the worst way to spend a frame. They are picked up here
+      // within a frame or two of coming back into view, which is soon enough to go unnoticed.
+      const sx = p.spec.x * scale - originX
+      const sy = p.spec.y * scale - originY
+      if (sx < -w * 0.25 || sx > w * 1.25 || sy < -h * 0.25 || sy > h * 1.25) continue
+      for (const t of p.texts) t.resolution = want
+      p.res = want
+      budget--
     }
+  }
+
+  /** The layer's resolution, capped so this particular label's texture stays affordable. */
+  private resFor(s: LabelSpec): number {
+    return Math.max(MIN_RES, Math.min(this.res, MAX_GLYPH_PX / Math.max(s.size, 1)))
   }
 
   private rebuild(): void {
@@ -239,12 +259,12 @@ export class LabelLayer {
       const node = s.curve === 0 ? this.straight(s) : this.curved(s)
       if (!node) continue
       this.root.addChild(node.view)
-      this.placed.push({ spec: s, res: this.res, ...node })
+      this.placed.push({ spec: s, res: this.resFor(s), ...node })
     }
   }
 
   private straight(s: LabelSpec): Omit<Placed, 'spec' | 'res'> | null {
-    const t = new Text({ text: s.text, style: this.styleFor(s), resolution: this.res })
+    const t = new Text({ text: s.text, style: this.styleFor(s), resolution: this.resFor(s) })
     t.anchor.set(0.5)
     t.position.set(s.x, s.y)
     t.rotation = (s.angle * Math.PI) / 180
@@ -301,7 +321,7 @@ export class LabelLayer {
     let d = (arc - total) / 2 // centre the run on the arc
     for (let i = 0; i < chars.length; i++) {
       const p = along(d + widths[i] / 2)
-      const g = new Text({ text: chars[i], style, resolution: this.res })
+      const g = new Text({ text: chars[i], style, resolution: this.resFor(s) })
       g.anchor.set(0.5)
       g.position.set(p.x, p.y)
       g.rotation = p.a
