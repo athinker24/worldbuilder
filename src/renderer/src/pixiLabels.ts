@@ -152,7 +152,23 @@ export class LabelLayer {
       app.renderer.resize(width, height)
     this.root.scale.set(scale)
     this.root.position.set(-originX, -originY)
-    this.reconcile(originX, originY, scale, width, height)
+    // Cull to the viewport BEFORE drawing. Pixi submits every child it is given, and a label's
+    // quad grows with the zoom — at scale 16 an off-screen name is a vast piece of geometry the
+    // GPU still has to transform and clip. Zooming in is when most labels leave the screen, so
+    // this is the difference between drawing what is visible and drawing the whole world.
+    // Tested by hand at the same moment: hiding labels entirely made a deep zoom completely
+    // smooth, which is what pointed here.
+    //
+    // The test uses each label's own half-extent, not just its anchor: a name wide enough to
+    // cross the viewport can have its centre well outside it and still need drawing.
+    for (const p of this.placed) {
+      const sx = p.spec.x * scale - originX
+      const sy = p.spec.y * scale - originY
+      const mx = p.halfW * scale + 4
+      const my = p.halfH * scale + 4
+      p.view.visible = sx > -mx && sx < width + mx && sy > -my && sy < height + my
+    }
+    this.reconcile()
     app.renderer.render(app.stage)
   }
 
@@ -227,19 +243,16 @@ export class LabelLayer {
    * pixel density each texture is drawn at — so this sets `resolution` on the existing Text
    * objects rather than re-measuring the text and rebuilding the scene graph.
    */
-  private reconcile(originX: number, originY: number, scale: number, w: number, h: number): void {
+  private reconcile(): void {
     let budget = RES_BUDGET
     for (const p of this.placed) {
       if (budget === 0) return
       const want = this.resFor(p.spec)
       if (p.res === want) continue
-      // Off-screen labels are left alone entirely rather than queued behind the visible ones.
-      // Zooming in is exactly when most of them leave the viewport, and building a texture for
-      // something nobody can see is the worst way to spend a frame. They are picked up here
-      // within a frame or two of coming back into view, which is soon enough to go unnoticed.
-      const sx = p.spec.x * scale - originX
-      const sy = p.spec.y * scale - originY
-      if (sx < -w * 0.25 || sx > w * 1.25 || sy < -h * 0.25 || sy > h * 1.25) continue
+      // Only what is actually being drawn — draw() has just set `visible` from the viewport test.
+      // Building a texture for something nobody can see is the worst way to spend a frame, and
+      // off-screen labels are picked up within a frame or two of coming back into view.
+      if (!p.view.visible) continue
       for (const t of p.texts) t.resolution = want
       p.res = want
       budget--
