@@ -1393,14 +1393,17 @@ kbd {
 }
 
 /* Abstract pin mark. Fills the icon box, which the zoom path already sizes, so the shape
-   scales with the map without a branch in updateOverlaySizes. The shadow replaces the badge's
-   box-shadow — a filter follows the actual silhouette, which a box-shadow cannot. */
+   scales with the map without a branch in updateOverlaySizes. It carries no drop-shadow: the
+   shapes already draw their own white EDGE stroke (pinIcons.tsx, rgba(255,255,255,0.9) at
+   stroke-width 1.5 of a 24-unit viewBox), which is what actually separates a pin from the map
+   underneath — the shadow was decoration on top of it. Decoration is not worth a per-pin
+   compositing layer plus a CPU-side blur on every zoom frame, ~80 times over; see
+   .map-label-svg for the full measurement. */
 .pin-shape {
   width: 100%;
   height: 100%;
   display: block;
   overflow: visible;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
 }
 
 /* Shape picker: one row, wraps. Swatches preview in the pin's own colour. */
@@ -1500,7 +1503,17 @@ kbd {
   position: absolute;
   overflow: visible;
   pointer-events: none;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 6px rgba(0, 0, 0, 0.5));
+  /* Legibility comes from a stroke halo on the text below, NOT filter: drop-shadow(). Two
+     chained drop-shadows used to live here, and they were the single most expensive thing on
+     the map. Chromium promotes any filtered element to its own compositing layer, and only
+     takes the GPU filter path when the source is ALREADY composited (canvas/WebGL/video/3D
+     CSS) — a DOM/SVG overlay is none of those, so each shadow was blurred on the CPU, pixel by
+     pixel. Worse, these labels scale with zoom, so the blurred texture can never be reused
+     between frames. Measured on a 163-entity map: 207 compositor layers per frame (1.42M
+     UpdateLayer events in 112 s), Layerize 13.0 s and Paint 12.9 s — the two largest costs in
+     the whole trace, ahead of every polygon. This is the "layer explosion" anti-pattern.
+     Halo-instead-of-shadow is also what real map renderers do: Mapbox GL moved text-halo into
+     the glyph's own shader pass precisely so it costs one draw instead of two. */
 }
 
 /* THE zoom-tremble fix, and it belongs on EVERY label that scales with the map. A scaled glyph
@@ -1515,6 +1528,17 @@ kbd {
   pointer-events: visiblePainted;
   cursor: pointer;
   text-rendering: geometricPrecision;
+  /* The halo (see .map-label-svg for why it is not a shadow). paint-order draws the stroke
+     FIRST and the fill over it, so only the outer half of the stroke shows and the glyph shape
+     stays intact — the same thing Mapbox calls text-halo. It costs nothing: one paint pass, no
+     filter, no separate layer, no re-raster when the label scales. The width is in `em`, which
+     on this element resolves against the text's own font-size="100" design space, so the halo
+     scales with the label exactly like the glyphs do. round linejoin keeps sharp glyph corners
+     from growing spikes. */
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.85);
+  stroke-width: 0.16em;
+  stroke-linejoin: round;
 }
 
 /* Image-library grid (ImageStrip — pin and polygon fill). */
