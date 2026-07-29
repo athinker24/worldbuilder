@@ -706,6 +706,11 @@ export default function MapView({
   // root-view carrier), since the marker's own icon gets replaced wholesale then.
   const polyLabels = useRef(new Map<number, L.Marker>())
   const labelFont = useRef(new Map<number, string>())
+  // True while the wheel-zoom ease is running; labels are hidden for its duration (see
+  // updateOverlaySizes). labelsHidden tracks what was last WRITTEN, so the visibility write
+  // happens twice per gesture rather than on every frame.
+  const zoomingRef = useRef(false)
+  const labelsHidden = useRef(false)
   // Which features are free text labels — size/font live baked in the icon, so zoom only needs
   // to know WHICH icons take the `--lz` scale write (pins take a different branch)
   const labelText = useRef(new Set<number>())
@@ -1368,20 +1373,61 @@ export default function MapView({
       // Free text label: size and font are baked into the icon; zoom only writes `--lz`, which
       // the svg's transform reads (see labelDivIcon for why a transform and not a font size).
       // A custom property INHERITS, so writing it here on _icon reaches the svg — no lookup.
-      if (labelText.current.has(fl.featureId)) pinEl.style.setProperty('--lz', String(scale))
+      // ...unless a wheel-zoom ease is running, in which case every label is hidden anyway and
+      // writing to it would just be a style invalidation nobody can see (see below).
+      if (!zoomingRef.current && labelText.current.has(fl.featureId))
+        pinEl.style.setProperty('--lz', String(scale))
     })
-    // Derived-mode labels (on the map, outside the featureGroup): same pattern as free labels
-    // — one fontSize write, no DOM measuring (SVG em sizing scales text + arc together)
-    for (const m of derivedLabels.current) {
-      if (!bounds.contains(m.getLatLng())) continue
-      const el = (m as unknown as { _icon?: HTMLElement })._icon
-      if (el) el.style.setProperty('--lz', String(scale)) // base is baked; see labelDivIcon
+    // Labels are hidden for the duration of a wheel-zoom ease, and come back when it settles.
+    //
+    // They are 96 % of all rasterisation on a realistic map — measured by toggling the layer off
+    // mid-recording, same viewport and gesture in each half: 920 ms/s of raster with labels on
+    // against 41 ms/s with them off, 24 fps against 80. Pins are 4 %; every polygon and the base
+    // image together are the remainder. Four attempts to make the TEXT cheaper (stroke halo
+    // instead of drop-shadow, a thinner halo, will-change, plain <text> instead of a textPath)
+    // each moved it by nothing, and a fifth measurement explains why: freezing the label scale
+    // outright left rasterisation at 897 ms/s. The cost is not how the text is drawn, and it is
+    // not the rescale either — the wheel loop calls setZoomAround per frame, which is Leaflet's
+    // full rebuild, so the whole layer re-rasterises every frame regardless. Labels are simply
+    // the expensive thing inside that repaint.
+    //
+    // Not drawing them during the gesture is therefore the one lever that is already measured:
+    // the 41 ms/s figure IS this state. It is also what map renderers do — labels settle after
+    // the movement stops rather than being re-typeset mid-flight. The real fix underneath is to
+    // stop rebuilding the map every frame at all (transform during the gesture, rebuild on
+    // settle, the way Leaflet's own zoom animation works); this stays useful either way.
+    //
+    // The write is guarded on a CHANGE in state, so it costs two style writes per gesture rather
+    // than one per label per frame — the trap this whole function exists to avoid.
+    const zooming = zoomingRef.current
+    if (zooming !== labelsHidden.current) {
+      labelsHidden.current = zooming
+      const v = zooming ? 'hidden' : ''
+      const setVis = (m: L.Marker): void => {
+        const el = (m as unknown as { _icon?: HTMLElement })._icon
+        if (el) el.style.visibility = v
+      }
+      for (const m of derivedLabels.current) setVis(m)
+      for (const m of polyLabels.current.values()) setVis(m)
+      featureGroupRef.current.eachLayer((l) => {
+        const fl = l as FeatureLayer
+        if (fl.featureId !== undefined && labelText.current.has(fl.featureId)) setVis(l as L.Marker)
+      })
     }
-    // Polygon name labels: identical scaling, identical reason.
-    for (const m of polyLabels.current.values()) {
-      if (!bounds.contains(m.getLatLng())) continue
-      const el = (m as unknown as { _icon?: HTMLElement })._icon
-      if (el) el.style.setProperty('--lz', String(scale))
+    if (!zooming) {
+      // Derived-mode labels (on the map, outside the featureGroup): same pattern as free labels
+      // — one fontSize write, no DOM measuring (SVG em sizing scales text + arc together)
+      for (const m of derivedLabels.current) {
+        if (!bounds.contains(m.getLatLng())) continue
+        const el = (m as unknown as { _icon?: HTMLElement })._icon
+        if (el) el.style.setProperty('--lz', String(scale)) // base is baked; see labelDivIcon
+      }
+      // Polygon name labels: identical scaling, identical reason.
+      for (const m of polyLabels.current.values()) {
+        if (!bounds.contains(m.getLatLng())) continue
+        const el = (m as unknown as { _icon?: HTMLElement })._icon
+        if (el) el.style.setProperty('--lz', String(scale))
+      }
     }
     // Stroke widths (see patch 3): one property on the pane, inherited by every path, instead
     // of a setStyle per feature per frame. Anchored at zoom 0, so a weight of 3 means 3 MAP
@@ -2833,6 +2879,9 @@ export default function MapView({
       const cur = map.getZoom()
       const diff = wheelTarget - cur
       if (Math.abs(diff) < 0.004) {
+        // Cleared BEFORE the final setZoomAround: that call fires 'zoom' synchronously, and it is
+        // the pass that has to bring the labels back and size them to the zoom they settled at.
+        zoomingRef.current = false
         map.setZoomAround(wheelPt!, wheelTarget, { animate: false })
         wheelTarget = null
         wheelRaf = null
@@ -2862,6 +2911,7 @@ export default function MapView({
       const r = hostRectRef.current ?? host.getBoundingClientRect()
       wheelPt = L.point(e.clientX - r.left, e.clientY - r.top)
       wheelZooming = true
+      zoomingRef.current = true // labels stay hidden until the ease settles
       if (wheelRaf === null) wheelRaf = requestAnimationFrame(wheelStep)
     }
     host.addEventListener('mousedown', onDown)
