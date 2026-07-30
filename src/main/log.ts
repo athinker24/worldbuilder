@@ -89,8 +89,15 @@ export function logError(where: string, err: unknown, extra: Record<string, unkn
     if (!logDir) return
     mkdirSync(logDir, { recursive: true })
     const file = join(logDir, 'error.log')
-    // Rotate BEFORE writing, so the current record is never the one split in half.
-    if (existsSync(file) && statSync(file).size > MAX_BYTES)
+    // Rotate BEFORE writing, so the current record is never the one split in half. Two triggers:
+    //
+    //  - the FIRST record of a run, always. Whatever is in the file belongs to a previous launch,
+    //    and leaving it there is what made the log tiring to actually use: you open it after a
+    //    crash and have to work out which of a dozen stacked runs is yours. Now error.log is
+    //    always "this run" and error.log.1 is always "the run before", which is the pair anyone
+    //    diagnosing a fault wants — the crash, and what the app did the time before it.
+    //  - size, so one runaway loop inside a single run cannot fill the disk.
+    if (existsSync(file) && (!sessionLogged || statSync(file).size > MAX_BYTES))
       renameSync(file, join(logDir, 'error.log.1'))
 
     const lines: string[] = []

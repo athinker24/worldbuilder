@@ -47,7 +47,16 @@ function adoptLegacyDataDir(): void {
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'world',
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+    // corsEnabled: the WebGL map layers upload these images as textures, and a texture upload
+    // from another origin is refused unless the request was a CORS one that succeeded (see the
+    // handler, which answers it). Plain <img> tags are unaffected — those never ask for CORS.
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true
+    }
   }
 ])
 
@@ -650,13 +659,21 @@ app.whenReady().then(() => {
     ])
   }
 
-  protocol.handle('world', (req) => {
+  protocol.handle('world', async (req) => {
     const rel = decodeURIComponent(new URL(req.url).pathname)
     const full = normalize(join(DATA_DIR, rel))
     // prefix + separator: sibling folders like "Worldbuilder-other" must not pass
     if (!full.startsWith(normalize(DATA_DIR) + sep))
       return new Response('forbidden', { status: 403 })
-    return net.fetch(pathToFileURL(full).toString())
+    const res = await net.fetch(pathToFileURL(full).toString())
+    // A texture upload from an image of another origin is a security error in WebGL, and this
+    // scheme IS another origin — that is what made a polygon's fill image render black instead of
+    // showing. Answering the CORS request is what lets the upload through. It widens nothing: the
+    // scheme is reachable only from this app's own renderer, and the path above is already
+    // confined to DATA_DIR.
+    const headers = new Headers(res.headers)
+    headers.set('Access-Control-Allow-Origin', '*')
+    return new Response(res.body, { status: res.status, statusText: res.statusText, headers })
   })
 
   ipcMain.handle('api', (_e, method: string, ...args: unknown[]) => {
