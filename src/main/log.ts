@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'fs'
 import { release } from 'os'
 import { join } from 'path'
 
@@ -17,12 +17,24 @@ import { join } from 'path'
 //
 // Records are separated by a blank line and start with a line beginning '---', so several
 // pasted together stay readable and the boundaries survive copy-paste.
+//
+// ONE FILE PER RUN, named for when the run started, ten kept. Appending every run to one file is
+// the thing that makes a log tiring to use: you open it after a crash and have to work out which
+// of a dozen stacked runs is yours, and the only clue is a timestamp you have to read carefully.
+// A filename answers that before the file is opened. A run with no errors writes nothing at all,
+// so the folder is a list of the runs that had trouble — and if the newest name is not from
+// today, today went fine.
 
 let logDir = ''
 let sessionId = ''
 let sessionLogged = false
 let version = 'unknown'
-const MAX_BYTES = 1024 * 1024 // one rotation, then the old file is replaced
+// The run's own file, named on the first error. '' until then — a run that goes well leaves
+// nothing behind, so the folder is a list of the runs that had trouble and nothing else.
+let file = ''
+let capped = false
+const MAX_BYTES = 1024 * 1024 // per run; past it the file stops growing and says so
+const KEEP = 10 // runs kept, newest first
 
 // The last IPC calls, oldest first. Names only — arguments can hold the user's world content
 // and this file is meant to be shareable.
@@ -43,8 +55,43 @@ export function initLog(
   logDir = join(dataDir, 'logs')
   version = appVersion
   context = ctx
-  // Short and random enough to tell two runs apart in one file; not an identifier of anything.
+  // Short and random enough to tell two runs apart; not an identifier of anything.
   sessionId = Math.random().toString(36).slice(2, 8)
+  sessionLogged = false
+  file = ''
+  capped = false
+}
+
+/**
+ * Name this run's file and clear out old ones. Called once, on the first error.
+ *
+ * ONE FILE PER RUN, named for when the run started. The alternative — appending every run to one
+ * file — is what makes a log tiring to actually use: you open it after a crash and have to work
+ * out which of a dozen stacked runs is yours, and the answer is only ever a timestamp you have to
+ * read carefully. A filename answers it before the file is open. It is also what the user asked
+ * for, having hit exactly that confusion, and what this app already does for backups.
+ *
+ * Names sort chronologically as text, so "newest" needs no file stats and no date parsing.
+ */
+function beginFile(): string {
+  const names = readdirSync(logDir)
+    .filter((n) => /^error-.*\.log$/.test(n))
+    .sort()
+  // Keep KEEP runs INCLUDING the one about to be written.
+  for (const old of names.slice(0, Math.max(0, names.length - (KEEP - 1))))
+    rmSync(join(logDir, old), { force: true })
+  // Files from the two older naming schemes. Left alone they sit there forever, never updated,
+  // looking exactly as current as everything else — the confusion this whole change is about.
+  for (const dead of ['error.log', 'error.prev.log', 'error.log.1'])
+    rmSync(join(logDir, dead), { force: true })
+  const d = new Date()
+  const s =
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
+  // The session id is in the name as well as inside the file. Two launches inside one second
+  // would otherwise share a filename and quietly become one file — and it means a record pasted
+  // into a message can be traced back to the file it came from.
+  return join(logDir, `error-${s}-${sessionId}.log`)
 }
 
 export function noteCall(method: string): void {
@@ -86,23 +133,18 @@ const kv = (o: Record<string, unknown>): string =>
  *  reporting a failure is worse than no logger. */
 export function logError(where: string, err: unknown, extra: Record<string, unknown> = {}): void {
   try {
-    if (!logDir) return
+    if (!logDir || capped) return
     mkdirSync(logDir, { recursive: true })
-    const file = join(logDir, 'error.log')
-    // Rotate BEFORE writing, so the current record is never the one split in half. Two triggers:
-    //
-    //  - the FIRST record of a run, always. Whatever is in the file belongs to a previous launch,
-    //    and leaving it there is what made the log tiring to actually use: you open it after a
-    //    crash and have to work out which of a dozen stacked runs is yours. Now error.log is
-    //    always "this run" and error.prev.log is always "the run before", which is the pair anyone
-    //    diagnosing a fault wants — the crash, and what the app did the time before it.
-    //  - size, so one runaway loop inside a single run cannot fill the disk.
-    //
-    // The name ends in .log for a plain reason: `error.log.1` is not a text file as far as
-    // Windows is concerned. It shows as "1 File", double-clicking asks which program to use, and
-    // the one file most likely to be sent to someone for help is the one they cannot open.
-    if (existsSync(file) && (!sessionLogged || statSync(file).size > MAX_BYTES))
-      renameSync(file, join(logDir, 'error.prev.log'))
+    if (!file) file = beginFile()
+    // A runaway loop must not fill the disk one record at a time. Stopping is better than
+    // rotating within a run: rotation would throw away the START of the run, which is where the
+    // first, uncaused failure is — the one worth reading. Say so in the file rather than just
+    // going quiet, or the truncation reads as "nothing else happened".
+    if (existsSync(file) && statSync(file).size > MAX_BYTES) {
+      capped = true
+      appendFileSync(file, `--- ${stamp()} ${sessionId} log capped, later errors dropped\r\n`)
+      return
+    }
 
     const lines: string[] = []
     if (!sessionLogged) {

@@ -1523,8 +1523,13 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     noteCall('getMap')
     noteCall('updateFeature')
     logError('ipc:updateFeature', new TypeError('boom'), { extra: 'x'.repeat(2000) })
-    const lf = join(ldir, 'logs', 'error.log')
-    const txt = readFileSync(lf, 'utf8')
+    const logs = join(ldir, 'logs')
+    const only = (): string => {
+      const n = readdirSync(logs).filter((f) => /^error-.*\.log$/.test(f))
+      assert.equal(n.length, 1, 'one file per run')
+      return join(logs, n[0])
+    }
+    const txt = readFileSync(only(), 'utf8')
     assert.ok(txt.includes('version=9.9.9'), 'session header')
     assert.ok(txt.includes('TypeError: boom'), 'the error itself')
     assert.ok(txt.includes('file=w.dunya dirty=true'), 'context from the app')
@@ -1533,14 +1538,29 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     // A logger that throws while reporting is worse than none: unwritable directory, no crash.
     initLog(join(dir, 'nope', ' bad'), '1', () => ({}))
     logError('main:uncaught', new Error('during a broken log dir'))
-    // Rotation keeps one previous file rather than growing without bound.
+    // One file per RUN: a second run writes its own, and files from the older naming schemes are
+    // cleared out rather than left to sit there looking as current as everything else.
+    const firstRun = basename(only())
+    writeFileSync(join(logs, 'error.log'), 'from an older version')
     initLog(ldir, '9.9.9', () => ({}))
-    writeFileSync(lf, 'x'.repeat(1024 * 1024 + 10))
+    logError('main:uncaught', new Error('second run'))
+    const files = readdirSync(logs)
+    assert.equal(files.length, 2, 'a file per run, and the legacy name is gone')
+    const secondRun = join(
+      logs,
+      files.find((f) => f !== firstRun)!
+    )
+    assert.ok(
+      readFileSync(secondRun, 'utf8').includes('second run'),
+      'the second run wrote its own file, leaving the first intact'
+    )
+    // A runaway loop stops the file rather than filling the disk, and says that it did.
+    writeFileSync(secondRun, 'x'.repeat(1024 * 1024 + 10))
     logError('main:uncaught', new Error('after the cap'))
-    // The name has to keep the .log extension — the previous run's log is the file most likely
-    // to be sent to someone for help, and Windows will not open `error.log.1` as text.
-    assert.ok(existsSync(join(ldir, 'logs', 'error.prev.log')), 'rotated, still a .log')
-    assert.ok(readFileSync(lf, 'utf8').includes('after the cap'), 'new file has the new record')
+    logError('main:uncaught', new Error('long after the cap'))
+    const capped = readFileSync(secondRun, 'utf8')
+    assert.ok(capped.includes('log capped'), 'the cap is announced, not silent')
+    assert.ok(!capped.includes('long after the cap'), 'and it holds')
   }
 
   console.log('db self-check OK')
