@@ -2869,40 +2869,54 @@ export default function MapView({
     let panDx = 0
     let panDy = 0
     let panRaf: number | null = null
-    // Which axes have run into the world's edge. Once an axis is against the bound, pushing
-    // further is not merely refused — it SHIMMERS. Leaflet clamps by projecting the requested
-    // centre, offsetting it and unprojecting again, and that round trip lands on a slightly
-    // different sub-pixel every time, so a blocked drag makes the map vibrate by a fraction of a
-    // pixel each frame instead of sitting still. Measured on a real gesture: 828 px requested,
-    // 153 px delivered, and every remaining step reading ask(-20,-1) got(0.5,0.1),
-    // ask(-30,0) got(-0.3,0.0) — pure noise around the limit.
-    //
-    // So an axis that produced no movement stops being asked, until the drag reverses and pulls
-    // away from the edge. The bound itself is unchanged and still does its job; it just stops
-    // buzzing while it holds.
-    let blockedX = 0 // sign of the direction that is against the bound, 0 when free
-    let blockedY = 0
+    /**
+     * Trim a pan to what the world's edge actually allows, BEFORE asking for it.
+     *
+     * Handing Leaflet an offset that runs past maxBounds does not simply get refused — it
+     * shimmers. Leaflet corrects by projecting the requested centre, offsetting it and
+     * unprojecting again, and that round trip lands on a slightly different sub-pixel every time,
+     * so a blocked drag vibrates by a fraction of a pixel each frame instead of sitting still.
+     * Measured: 828 px requested, 153 px delivered, and every remaining step reading
+     * ask(-20,-1) got(0.5,0.1), ask(-30,0) got(-0.3,0.0) — noise, not movement.
+     *
+     * Clamping the request instead means Leaflet's correction never has to run. It is also
+     * stateless, which the first attempt at this was not: tracking which axis had "hit the edge"
+     * needed a rule for when to let go again, and every version of that rule left the drag stuck
+     * against one side or the other.
+     */
+    const allowedPan = (dx: number, dy: number): [number, number] => {
+      const mb = map.options.maxBounds
+        ? L.latLngBounds(map.options.maxBounds as L.LatLngBoundsLiteral)
+        : null
+      if (!mb) return [dx, dy]
+      const z = map.getZoom()
+      const half = map.getSize().divideBy(2)
+      const c = map.project(map.getCenter(), z)
+      // Two opposite corners are enough: this projection only scales and flips, so the box stays
+      // axis-aligned — but which corner lands on which side depends on the flip, hence min/max.
+      const p1 = map.project(mb.getNorthWest(), z)
+      const p2 = map.project(mb.getSouthEast(), z)
+      const fit = (v: number, lo: number, hi: number, viewLo: number, viewHi: number): number => {
+        const room0 = lo - viewLo // most negative offset the edge allows
+        const room1 = hi - viewHi // most positive
+        // Bounds narrower than the view: no offset satisfies both edges, so do not move at all
+        // rather than let Leaflet resolve it by yanking the map back to centre.
+        if (room0 > room1) return 0
+        return Math.max(room0, Math.min(room1, v))
+      }
+      return [
+        fit(dx, Math.min(p1.x, p2.x), Math.max(p1.x, p2.x), c.x - half.x, c.x + half.x),
+        fit(dy, Math.min(p1.y, p2.y), Math.max(p1.y, p2.y), c.y - half.y, c.y + half.y)
+      ]
+    }
+
     const panStep = (): void => {
       panRaf = null
-      // Only pulling the OPPOSITE way releases the edge. Testing for "not the blocked direction"
-      // looks equivalent and is not: a frame with no movement on this axis has sign 0, which is
-      // also "not blocked", so any purely vertical nudge unblocked the horizontal axis and the
-      // next push re-discovered the edge with another shimmer. That is why the buzzing survived
-      // the first attempt at this.
-      if (blockedX !== 0 && Math.sign(panDx) === -blockedX) blockedX = 0
-      if (blockedY !== 0 && Math.sign(panDy) === -blockedY) blockedY = 0
-      const askX = blockedX === 0 ? panDx : 0
-      const askY = blockedY === 0 ? panDy : 0
+      const [dx, dy] = allowedPan(panDx, panDy)
       panDx = 0
       panDy = 0
-      if (askX === 0 && askY === 0) return
-      const before = map.project(map.getCenter(), map.getZoom())
-      map.panBy([askX, askY], { animate: false })
-      const after = map.project(map.getCenter(), map.getZoom())
-      // "Asked for a real move and got less than a pixel" is what being against the edge looks
-      // like; the sub-pixel it did report is the round-trip noise, not movement.
-      if (Math.abs(askX) >= 1 && Math.abs(after.x - before.x) < 1) blockedX = Math.sign(askX)
-      if (Math.abs(askY) >= 1 && Math.abs(after.y - before.y) < 1) blockedY = Math.sign(askY)
+      if (dx === 0 && dy === 0) return
+      map.panBy([dx, dy], { animate: false })
     }
     const onMove = (e: MouseEvent): void => {
       if (!panning) return
@@ -2918,8 +2932,6 @@ export default function MapView({
       // left it rather than a few pixels behind.
       if (panRaf !== null) cancelAnimationFrame(panRaf)
       panStep()
-      blockedX = 0
-      blockedY = 0
       // Catch up culled markers that panned into view. NOT map.on('moveend'): panBy runs with
       // animate:false, so Leaflet fires a full synchronous moveend on EVERY pan step (not once
       // per gesture) — hooking moveend directly reran the (real, ~5ms) style-recalc cost
