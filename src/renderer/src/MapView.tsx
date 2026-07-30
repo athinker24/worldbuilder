@@ -2884,9 +2884,13 @@ export default function MapView({
     let blockedY = 0
     const panStep = (): void => {
       panRaf = null
-      // Pulling the other way always releases the edge.
-      if (blockedX !== 0 && Math.sign(panDx) !== blockedX) blockedX = 0
-      if (blockedY !== 0 && Math.sign(panDy) !== blockedY) blockedY = 0
+      // Only pulling the OPPOSITE way releases the edge. Testing for "not the blocked direction"
+      // looks equivalent and is not: a frame with no movement on this axis has sign 0, which is
+      // also "not blocked", so any purely vertical nudge unblocked the horizontal axis and the
+      // next push re-discovered the edge with another shimmer. That is why the buzzing survived
+      // the first attempt at this.
+      if (blockedX !== 0 && Math.sign(panDx) === -blockedX) blockedX = 0
+      if (blockedY !== 0 && Math.sign(panDy) === -blockedY) blockedY = 0
       const askX = blockedX === 0 ? panDx : 0
       const askY = blockedY === 0 ? panDy : 0
       panDx = 0
@@ -3365,7 +3369,10 @@ export default function MapView({
       mapFitZoom = fit // read by the LOD fade (module scope)
       // Prevent escaping into ugly grey space beyond the image: pan bounded, no zooming out past fit
       map.options.maxBoundsViscosity = 1
-      map.setMaxBounds(L.latLngBounds(bounds).pad(0.5))
+      // A full image's width of slack on every side. The old half was measurably tight: a drag
+      // asking for 828 px only got 153 before hitting the wall. Grey space beyond the edge is the
+      // price, and roaming room is worth more than never seeing any.
+      map.setMaxBounds(L.latLngBounds(bounds).pad(1))
       // Exactly `fit`, not `fit - 1`, and the floor matters more than it looks.
       //
       // Leaflet's _rebound does two different things. While the view is SMALLER than the bounds it
