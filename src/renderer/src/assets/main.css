@@ -2322,11 +2322,13 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
-/* Polygon name labels used to be a Leaflet Tooltip styled here (.leaflet-tooltip.poly-label).
-   They are now `polyLabels` markers built with labelDivIcon — the same SVG/textPath mechanism
-   as derived region labels and free-text labels — so they take .map-label/.map-label-svg above
-   and need no rules of their own. See the note in MapView's updateOverlaySizes for why: the
-   Leaflet Tooltip class cannot avoid a forced-layout read on every zoom frame it repositions. */
+/* Polygon name labels used to be a Leaflet Tooltip styled here (.leaflet-tooltip.poly-label), then
+   divIcon markers. They are drawn in WebGL now (pixiLabels.ts) and have no DOM element at all, so
+   there is nothing here to style. Do not bring either back for anything that scales with zoom:
+   the Tooltip class cannot avoid a forced-layout read on every frame it repositions, and a DOM
+   element that scales is re-rasterised at every new device scale. Both were measured; both were
+   the biggest cost on the map at the time. .map-label/.map-label-svg above are still live — the
+   derived region labels and the draw-tool preview use them. */
 
 /* --- zoom HUD --- */
 .zoom-hud {

@@ -701,11 +701,6 @@ export default function MapView({
   const mapRef = useRef<L.Map | null>(null)
   const featureGroupRef = useRef<L.FeatureGroup | null>(null)
   const imageLayerRef = useRef<L.ImageOverlay | null>(null)
-  // Polygon name labels: independent markers, NOT Leaflet tooltips — see their creation site for
-  // why. Live on the map like derivedLabels, keyed by feature id (unlike derivedLabels' flat
-  // array) because a single-feature geometry edit needs to reposition exactly one without a
-  // full reload. labelFont remembers each one's font across the year-tick content swap (the
-  // root-view carrier), since the marker's own icon gets replaced wholesale then.
   // Polygon name labels live in a WebGL layer, not the DOM — see pixiLabels.ts for the
   // measurements that forced it. `polySpec` is the label each polygon WOULD draw; applyYear
   // decides which of them are actually visible this year and hands that subset to the layer.
@@ -730,10 +725,6 @@ export default function MapView({
   // Hit-box size in zoom-0 units, scaled onto the transparent icon by updateOverlaySizes.
   const labelHit = useRef(new Map<number, { w: number; h: number }>())
   const labelLayer = useRef<LabelLayer | null>(null)
-  const labelFont = useRef(new Map<number, string>())
-  // Which features are free text labels — size/font live baked in the icon, so zoom only needs
-  // to know WHICH icons take the `--lz` scale write (pins take a different branch)
-  const labelText = useRef(new Set<number>())
   // Pin size multipliers; scale with zoom like polygon labels (glued to the map).
   // ar is set only on FREE custom-image pins (height = width / ar; no DOM measurement).
   const markerSize = useRef(new Map<number, { size: number; ar?: number }>())
@@ -979,7 +970,6 @@ export default function MapView({
   // session. Session kinds: calib (2 points → distance form), dist (cumulative ruler), area
   // (transient polygon). dist/area create NO persistent features — Wonderdraft's measure tool.
   const [mapScale, setMapScale] = useState<MapScale | null>(null)
-  const scaleRef = useRef<MapScale | null>(null)
   const [barZoom, setBarZoom] = useState(0) // for the scale bar (no ref reads during render)
   type Measure =
     | null
@@ -1007,7 +997,6 @@ export default function MapView({
     if (sc) all[id] = sc
     else delete all[id]
     await api.setSetting('mapScales', JSON.stringify(all))
-    scaleRef.current = sc
     setMapScale(sc)
   }
   const saveCalib = async (val: number, unit: string): Promise<void> => {
@@ -1676,8 +1665,6 @@ export default function MapView({
     polySpec.current.clear()
     freeSpec.current.clear()
     labelHit.current.clear()
-    labelFont.current.clear()
-    labelText.current.clear()
     markerSize.current.clear()
     layerYears.current.clear()
     allLayers.current.clear()
@@ -1933,13 +1920,13 @@ export default function MapView({
             }
           }
         }
-        // Badge scaling ONLY for pins; a label is Point too but its font scales (the labelText branch)
+        // Badge scaling ONLY for pins. A label is a Point too, but what it scales is its
+        // transparent hit box (the labelHit branch), not a badge.
         if (!isPolygon && !isLabel)
           markerSize.current.set(f.id, {
             size: style.size ?? 1,
             ar: style.img && style.imgFree ? (style.imgAR ?? 1) : undefined
           })
-        if (isLabel) labelText.current.add(f.id)
         // No tooltip on a label — its text is already visible
         if (f.entity_name && !derived && !isLabel) {
           // escapeHtml is REQUIRED (both branches): a string tooltip/label renders via innerHTML
@@ -1953,7 +1940,6 @@ export default function MapView({
             // is not added to the map yet at this point in the loop, and getCenter() throws
             // until it is.
             const font = style.font ?? 'Cinzel'
-            labelFont.current.set(f.id, font)
             const b = (layer as L.Polygon).getBounds()
             const base = Math.min(
               200,
@@ -3214,8 +3200,9 @@ export default function MapView({
     // The WebGL label canvas. Deliberately NOT a Leaflet pane: panes are transformed by Leaflet
     // on every zoom and pan, and the whole point here is that the layer positions itself from two
     // numbers instead of being moved around. z-index sits above the marker pane (600) and below
-    // the controls (800). pointer-events stays off — hit testing goes through LabelLayer.hitTest
-    // so the canvas never swallows a click meant for the map.
+    // the controls (800). pointer-events stays off so a canvas never swallows a click meant for
+    // the map: a label is clicked through its own transparent Leaflet marker, a shape through the
+    // map-level hit test over `shapeSpecs`.
     // Shapes get their own canvas UNDER the markers, labels theirs above. One canvas cannot do
     // both: Leaflet stacks its panes by z-index (overlay 400, markers 600) and regions have to sit
     // below the pins while names sit above them, so the two WebGL layers straddle the marker pane.
@@ -3469,7 +3456,6 @@ export default function MapView({
     api.listEntities().then(setAllEntities)
     api.getSetting('mapScales').then((raw) => {
       const sc = (JSON.parse(raw || '{}') as Record<number, MapScale>)[id] ?? null
-      scaleRef.current = sc
       setMapScale(sc)
     })
     api.getSetting('travelModes').then((raw) => setTravelModesState(JSON.parse(raw || '[]')))

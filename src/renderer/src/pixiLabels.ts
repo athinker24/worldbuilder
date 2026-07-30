@@ -68,8 +68,6 @@ type Placed = {
   spec: LabelSpec
   view: Container
   texts: Text[]
-  halfW: number
-  halfH: number
   res: number
 }
 
@@ -252,27 +250,6 @@ export class LabelLayer {
     this.res = want
   }
 
-  /**
-   * Which label is under a container point, or null. Labels left the DOM, so their click targets
-   * left with them; MapView calls this before falling back to Leaflet's own hit testing.
-   * Later entries win, matching the draw order the user sees.
-   */
-  hitTest(x: number, y: number, originX: number, originY: number, scale: number): number | null {
-    for (let i = this.placed.length - 1; i >= 0; i--) {
-      const p = this.placed[i]
-      const cx = p.spec.x * scale - originX
-      const cy = p.spec.y * scale - originY
-      // Unrotate the point rather than rotate the box — one angle, cheaper and exact.
-      const a = (-p.spec.angle * Math.PI) / 180
-      const dx = x - cx
-      const dy = y - cy
-      const lx = dx * Math.cos(a) - dy * Math.sin(a)
-      const ly = dx * Math.sin(a) + dy * Math.cos(a)
-      if (Math.abs(lx) <= p.halfW * scale && Math.abs(ly) <= p.halfH * scale) return p.spec.id
-    }
-    return null
-  }
-
   destroy(): void {
     this.disposed = true
     this.app?.destroy(false, { children: true })
@@ -340,7 +317,7 @@ export class LabelLayer {
     t.anchor.set(0.5)
     t.position.set(s.x, s.y)
     t.rotation = (s.angle * Math.PI) / 180
-    return { view: t, texts: [t], halfW: t.width / 2, halfH: t.height / 2 }
+    return { view: t, texts: [t] }
   }
 
   /**
@@ -403,6 +380,6 @@ export class LabelLayer {
     }
     group.position.set(s.x, s.y)
     group.rotation = (s.angle * Math.PI) / 180
-    return { view: group, texts, halfW: total / 2, halfH: (s.size + Math.abs(sag)) / 2 }
+    return { view: group, texts }
   }
 }
