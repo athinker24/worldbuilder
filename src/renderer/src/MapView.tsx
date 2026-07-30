@@ -2869,12 +2869,39 @@ export default function MapView({
     let panDx = 0
     let panDy = 0
     let panRaf: number | null = null
+    // ==== TEMPORARY DIAGNOSTIC — REMOVE ONCE THE PAN FAULT IS UNDERSTOOD ====================
+    // The complaint is behavioural, not a frame-rate one: while zoomed out the map shakes and
+    // will not follow the cursor. A profile cannot show that, so measure the thing itself —
+    // what each step ASKED the map to move against what it actually moved. A gap means something
+    // is overriding us (bounds clamping, or the zoom ease writing the pane transform underneath),
+    // and the sign and size of it says which.
+    const panLog: string[] = []
+    let panAskX = 0
+    let panAskY = 0
+    let panGotX = 0
+    let panGotY = 0
+    // ==== END TEMPORARY DIAGNOSTIC =========================================================
     const panStep = (): void => {
       panRaf = null
       if (panDx === 0 && panDy === 0) return
+      const before = map.project(map.getCenter(), map.getZoom())
+      const askX = panDx
+      const askY = panDy
       map.panBy([panDx, panDy], { animate: false })
       panDx = 0
       panDy = 0
+      const after = map.project(map.getCenter(), map.getZoom())
+      const gotX = after.x - before.x
+      const gotY = after.y - before.y
+      panAskX += askX
+      panAskY += askY
+      panGotX += gotX
+      panGotY += gotY
+      if (panLog.length < 40 && (Math.abs(gotX - askX) > 0.5 || Math.abs(gotY - askY) > 0.5))
+        panLog.push(
+          `ask(${askX},${askY}) got(${gotX.toFixed(1)},${gotY.toFixed(1)})` +
+            (wheelRaf !== null ? ' DURING-ZOOM-EASE' : '')
+        )
     }
     const onMove = (e: MouseEvent): void => {
       if (!panning) return
@@ -2890,6 +2917,24 @@ export default function MapView({
       // left it rather than a few pixels behind.
       if (panRaf !== null) cancelAnimationFrame(panRaf)
       panStep()
+      // ==== TEMPORARY DIAGNOSTIC — REMOVE WITH ITS COUNTERPART ABOVE ========================
+      // One record per drag, into the normal error log so it can just be pasted back.
+      if (panAskX || panAskY) {
+        void api.logError('MapView.panDiag', 'pan gesture summary', '', {
+          zoom: map.getZoom().toFixed(3),
+          minZoom: map.getMinZoom().toFixed(3),
+          asked: `${panAskX},${panAskY}`,
+          moved: `${panGotX.toFixed(1)},${panGotY.toFixed(1)}`,
+          lost: `${(panAskX - panGotX).toFixed(1)},${(panAskY - panGotY).toFixed(1)}`,
+          steps: panLog.length ? panLog.join(' | ') : 'every step moved exactly as asked'
+        })
+      }
+      panAskX = 0
+      panAskY = 0
+      panGotX = 0
+      panGotY = 0
+      panLog.length = 0
+      // ==== END TEMPORARY DIAGNOSTIC =======================================================
       // Catch up culled markers that panned into view. NOT map.on('moveend'): panBy runs with
       // animate:false, so Leaflet fires a full synchronous moveend on EVERY pan step (not once
       // per gesture) — hooking moveend directly reran the (real, ~5ms) style-recalc cost
