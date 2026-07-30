@@ -845,6 +845,9 @@ export default function MapView({
       {
         color: string
         fillColor: string
+        // The same image as an assets/-relative path. fillColor's `url(#…)` is an SVG reference
+        // and means nothing to the WebGL layer, which needs the file itself.
+        fillImg?: string
         fillOpacity: number
         weight: number
         opacity: number
@@ -1812,7 +1815,12 @@ export default function MapView({
             font: style.font ?? 'Cinzel',
             size,
             angle: Number(style.angle) || 0,
-            curve: Number(style.curve) || 0
+            curve: Number(style.curve) || 0,
+            // The declutter range travels WITH the label: the WebGL layer re-checks it every
+            // frame, which is the only way it can appear and disappear mid-zoom (refreshZoomVis
+            // reaches the Leaflet grab box and nothing else).
+            minZoom: style.minZoom,
+            maxZoom: style.maxZoom
           })
           // ~0.62em per letter is the same estimate labelDivIcon used to lay the text out, so the
           // grab area matches what the user sees closely enough to feel exact.
@@ -1837,9 +1845,17 @@ export default function MapView({
         const gjc = (JSON.parse(f.geometry) as { coordinates: number[][] | number[][][] })
           .coordinates
         const asRings = (isPolygon ? gjc : [gjc]) as number[][][]
+        // A curved path is drawn from the SAME sampled spline the DOM overlay draws: the stored
+        // vertices are editable control points, never what is shown. Sampling here rather than in
+        // the WebGL layer keeps the curve in one place — and makes the hit test follow the line
+        // the user can actually see, which the raw vertices did not.
+        const rings =
+          isLine && style.curviness
+            ? [curvePoints(asRings[0], style.curviness).map((ll) => [ll.lng, ll.lat])]
+            : asRings
         featRings.current.set(
           f.id,
-          asRings.map((ring) =>
+          rings.map((ring) =>
             ring.map((pt) => {
               const p = map.project(L.latLng(pt[1], pt[0]), 0)
               return [p.x, p.y]
@@ -1870,6 +1886,7 @@ export default function MapView({
       renderStyle.current.set(f.id, {
         color,
         fillColor,
+        fillImg: !derived && isPolygon ? style.fillImg : undefined,
         fillOpacity: derived ? 0.55 : (style.fillOpacity ?? 0.25),
         weight: style.weight ?? (isLine ? 3 : 2),
         opacity: lineOpacity,
@@ -2470,7 +2487,7 @@ export default function MapView({
           // (fillColor reverts to flat too — fill images are void in the political mosaic)
           const root = rootOf(eid)
           const c = entColors.current.get(root) ?? '#666666'
-          if (st) st = { ...st, color: c, fillColor: c }
+          if (st) st = { ...st, color: c, fillColor: c, fillImg: undefined }
           labelRoot = carrier.get(root) === fid ? root : -1
         } else if (featArea.current.has(fid)) {
           // Hiding rules apply to POLYGON borders only: when a parent's hand-drawn border is
@@ -2485,18 +2502,20 @@ export default function MapView({
       }
       if (rankOn && st) {
         const c = eid !== undefined ? rungColor(eid) : '#666666'
-        st = { ...st, color: c, fillColor: c }
+        st = { ...st, color: c, fillColor: c, fillImg: undefined }
       }
       // The zoom gate comes last: baseVisible = visibility APART from zoom (refreshZoomVis
       // reads it), then hide when outside the zoom range
       baseVisible.current.set(fid, visible)
-      if (!zoomOk(fid)) visible = false
       // Free text: the marker below is only the grab handle, so the WebGL layer has to be told
-      // separately that this one is on screen — every gate above already applies to it.
+      // separately that this one is on screen — every gate above already applies to it. The zoom
+      // range is deliberately NOT one of them: it is carried on the spec and re-checked per frame,
+      // because it is the one gate that opens and closes without anything else changing.
       if (visible) {
         const fs = freeSpec.current.get(fid)
         if (fs) shownLabels.push(fs)
       }
+      if (!zoomOk(fid)) visible = false
       const arrow = featArrow.current.get(fid)
       // A polygon or path: drawn by the WebGL layer, and kept out of the map entirely unless it is
       // the one being edited. `inDom` is what the gate below now asks instead of `visible`.
@@ -2507,7 +2526,10 @@ export default function MapView({
           id: fid,
           rings,
           closed: kind !== 'line',
-          fill: kind === 'line' ? null : hexNum(st.fillColor ?? st.color),
+          // With a fill image the flat colour is only what shows until it loads, and fillColor is
+          // an `url(#…)` there — the outline colour is the closer stand-in.
+          fill: kind === 'line' ? null : hexNum(st.fillImg ? st.color : (st.fillColor ?? st.color)),
+          fillImg: st.fillImg ? assetUrl(st.fillImg) : undefined,
           fillAlpha: st.fillOpacity ?? 0.25,
           stroke: hexNum(st.color),
           strokeAlpha: st.opacity ?? 1,
@@ -3200,7 +3222,8 @@ export default function MapView({
     sc.style.cssText =
       'position:absolute;inset:0;width:100%;height:100%;z-index:450;pointer-events:none'
     host.appendChild(sc)
-    const shapes = new ShapeLayer(sc)
+    // A fill image arrives after the frame that asked for it, so the layer says when to redraw.
+    const shapes = new ShapeLayer(sc, () => drawShapes())
     shapeLayer.current = shapes
     shapes.ready
       .then(() => applyYear(yearRef.current))

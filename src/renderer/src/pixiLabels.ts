@@ -47,6 +47,16 @@ export type LabelSpec = {
   angle: number
   /** arc bend, in the same units labelDivIcon used: 0 is straight, +/- bends up/down */
   curve: number
+  /**
+   * The zoom range this label is shown in, if it has one — the per-feature declutter setting.
+   *
+   * It is checked here, every frame, rather than by the caller when it builds the list. The caller
+   * only rebuilds on a real change (a year tick, an edit), while crossing a threshold happens
+   * mid-gesture with nothing else changing, so a list filtered at build time stayed stale until
+   * something unrelated happened to rebuild it.
+   */
+  minZoom?: number
+  maxZoom?: number
 }
 
 /**
@@ -180,7 +190,12 @@ export class LabelLayer {
     // ignores a write that changes nothing, and this threshold is crossed about once per gesture
     // rather than per frame, so unlike viewport culling it does not churn the render group.
     const hideAbove = (height * LOD_HIDE_ABOVE) / scale
-    for (const p of this.placed) p.view.visible = p.spec.size <= hideAbove
+    const zoom = Math.log2(scale)
+    for (const p of this.placed)
+      p.view.visible =
+        p.spec.size <= hideAbove &&
+        (p.spec.minZoom == null || zoom >= p.spec.minZoom) &&
+        (p.spec.maxZoom == null || zoom <= p.spec.maxZoom)
     this.reconcile(originX, originY, scale, width, height)
     app.renderer.render(app.stage)
   }

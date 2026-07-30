@@ -1,5 +1,5 @@
 import 'pixi.js/unsafe-eval'
-import { Application, Container, Graphics } from 'pixi.js'
+import { Application, Assets, Container, Graphics, Matrix, Texture } from 'pixi.js'
 
 // Polygons and paths, drawn in WebGL rather than as SVG.
 //
@@ -25,6 +25,12 @@ export type ShapeSpec = {
   rings: number[][][]
   closed: boolean
   fill: number | null
+  /**
+   * A fill image, as a URL. Stretched over the shape's bounding box and scaled with it, which is
+   * what the SVG `<pattern>` this replaces did with objectBoundingBox + preserveAspectRatio=none.
+   * Until it has loaded — and if it fails to — `fill` is used, so a polygon is never blank.
+   */
+  fillImg?: string
   fillAlpha: number
   stroke: number
   strokeAlpha: number
@@ -112,9 +118,13 @@ export class ShapeLayer {
   private strokeScale = 1
   private hiddenId: number | null = null
   private disposed = false
+  /** url → the loaded texture, or null while it is in flight / after it failed. */
+  private textures = new Map<string, Texture | null>()
+  private onLoaded: () => void
   readonly ready: Promise<void>
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, onLoaded: () => void = () => {}) {
+    this.onLoaded = onLoaded
     const app = new Application()
     this.ready = app
       .init({ canvas, backgroundAlpha: 0, antialias: true, autoStart: false, preference: 'webgl' })
@@ -191,7 +201,19 @@ export class ShapeLayer {
       // Holes have to be declared alongside the outer ring for the fill rule to cut them out.
       if (s.fill !== null && s.closed) {
         trace(g, s)
-        g.fill({ color: s.fill, alpha: s.fillAlpha })
+        const tex = s.fillImg ? this.texture(s.fillImg) : null
+        if (tex) {
+          // The matrix maps the texture onto the shape's own box, so the image stretches with the
+          // polygon and rides the container's scale like everything else. Do NOT make this a
+          // repeat in screen space: that is what the SVG version did at first and the pattern
+          // visibly slid across the shape on every zoom.
+          const [bx, by, bw, bh] = bounds(s.rings)
+          g.fill({
+            texture: tex,
+            alpha: s.fillAlpha,
+            matrix: new Matrix(bw / tex.width, 0, 0, bh / tex.height, bx, by)
+          })
+        } else g.fill({ color: s.fill, alpha: s.fillAlpha })
       }
       // Divided by the scale because the container multiplies by it — this is what keeps a border
       // the same thickness on screen at every zoom.
@@ -222,6 +244,41 @@ export class ShapeLayer {
       this.built.push({ spec: s, view: g })
     }
   }
+
+  /**
+   * The texture for a fill image, or null if it is not here yet. Loads once per url and rebuilds
+   * when it lands — a polygon shows its flat colour for the moment in between rather than nothing.
+   */
+  private texture(url: string): Texture | null {
+    const hit = this.textures.get(url)
+    if (hit !== undefined) return hit
+    this.textures.set(url, null) // claim it first: rebuild() runs often and must not re-request
+    Assets.load<Texture>(url)
+      .then((tex) => {
+        if (this.disposed) return
+        this.textures.set(url, tex)
+        this.rebuild()
+        this.onLoaded()
+      })
+      .catch(() => {}) // a missing asset keeps the flat colour; nothing else to do about it
+    return null
+  }
+}
+
+/** [x, y, width, height] of every point in the shape. */
+const bounds = (rings: number[][][]): [number, number, number, number] => {
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const ring of rings)
+    for (const [x, y] of ring) {
+      if (x < x0) x0 = x
+      if (y < y0) y0 = y
+      if (x > x1) x1 = x
+      if (y > y1) y1 = y
+    }
+  return [x0, y0, Math.max(x1 - x0, 1e-6), Math.max(y1 - y0, 1e-6)]
 }
 
 /**
