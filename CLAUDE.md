@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+**Never start editing files straight after a request. First say — in a sentence or two, not a menu
+of options — what you understood and how you mean to solve it, then wait for the reply.** Reading,
+searching and measuring beforehand is expected; that is what makes those sentences worth reading.
+This holds for small changes too: the expensive mistakes here have been confident work on a
+misread request, not slow work.
+
 Read `HANDOFF.md` at the start of a session and update it after material work.
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
