@@ -203,13 +203,16 @@ export class ShapeLayer {
     this.root.position.set(-originX, -originY)
     app.renderer.render(app.stage)
     // Collect once the map stops moving — Pixi only frees in postrender, and a map that renders
-    // on demand stops rendering the moment you stop moving. See GC_IDLE_MS in pixiLabels.ts.
-    // Geometry, not glyphs, so there is far less to free here than in the label layer; this
-    // renderer has its own GC and would otherwise simply never run one.
+    // on demand stops rendering the moment you stop moving. See GC_IDLE_MS in pixiLabels.ts, and
+    // collectWhenIdle there for why a frame is rendered first. Geometry, not glyphs, so there is
+    // far less to free here than in the label layer; this renderer has its own GC and would
+    // otherwise simply never run one.
     if (this.idle) clearTimeout(this.idle)
     this.idle = setTimeout(() => {
       this.idle = null
-      if (!this.disposed) app.renderer.gc.run()
+      if (this.disposed) return
+      app.renderer.render(app.stage)
+      app.renderer.gc.run()
     }, GC_IDLE_MS)
   }
 

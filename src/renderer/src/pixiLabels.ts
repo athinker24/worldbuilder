@@ -254,12 +254,20 @@ export class LabelLayer {
    * Every frame pushes the collection back, so an active gesture never pays for it; one pass runs
    * GC_IDLE_MS after the last one. A single pass is enough — it frees everything unused for longer
    * than GC_UNUSED_MS, and with nothing rendering, nothing new can become unused afterwards.
+   *
+   * The render before it is not a formality. "Unused" means "not touched by a render", and nothing
+   * has rendered since the map went still — so without this the pass frees the labels currently ON
+   * SCREEN along with the garbage, and the next zoom re-uploads the whole scene. That showed up as
+   * a distinct stutter on the first movement after a pause. One frame first marks everything
+   * visible as just-used, leaving only the stale resolutions to go.
    */
   private collectWhenIdle(app: Application): void {
     if (this.idle) clearTimeout(this.idle)
     this.idle = setTimeout(() => {
       this.idle = null
-      if (!this.disposed) app.renderer.gc.run()
+      if (this.disposed) return
+      app.renderer.render(app.stage)
+      app.renderer.gc.run()
     }, GC_IDLE_MS)
   }
 
