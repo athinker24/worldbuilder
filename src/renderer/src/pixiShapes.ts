@@ -256,6 +256,10 @@ export class ShapeLayer {
     // every load quietly failed, which showed up as an image-filled polygon staying flat. The
     // browser has no such trouble, and this is how the rest of the app loads assets anyway.
     const img = new Image()
+    // Required, and it has to be set before src: `world://` is a different origin from the
+    // renderer, and WebGL refuses to upload an image fetched without CORS. Without it the texture
+    // loads, uploads black, and the polygon shows a black fill — which is what happened.
+    img.crossOrigin = 'anonymous'
     img.onload = () => {
       if (this.disposed) return
       this.textures.set(url, Texture.from(img))
