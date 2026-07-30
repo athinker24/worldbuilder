@@ -2027,11 +2027,14 @@ export default function MapView({
           setSelected(f)
           setExtraSel([])
         }
-        // Markers are still real Leaflet layers, so they keep listening for themselves. Polygons
-        // and paths are not in the map any more, so theirs is filed by id and called by the
-        // map-level listener once the hit test has resolved which shape was clicked.
+        // A shape can be clicked in either of two ways, because it is drawn in either of two
+        // places. Normally it lives in the WebGL layer and is not in the map at all, so the
+        // map-level listener resolves the hit test and calls what is filed here by id. During an
+        // edit session it is a real Leaflet layer again — and then Leaflet finds it first and the
+        // map never fires its own click, so the layer has to keep listening for itself too.
+        // Wiring only one of the two left every polygon unselectable in edit mode.
         if (isPolygon || isLine) featClick.current.set(f.id, onFeatureClick)
-        else layer.on('click', onFeatureClick)
+        layer.on('click', onFeatureClick)
         // saveGeometry has two phases: (1) snapshotUpdates runs SYNCHRONOUSLY — captures+clears
         // layer geometries and weldTouched at pm:update time (deferred, it would blend into the
         // next gesture);
