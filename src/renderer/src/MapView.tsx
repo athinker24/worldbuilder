@@ -2964,9 +2964,19 @@ export default function MapView({
     // DOM elements costing 920 ms/s of rasterisation. They are drawn in WebGL now and the whole
     // layer rasterises at 37 ms/s, so there is nothing expensive left inside the pane to re-raster.
     //
-    // COMMIT_SPAN bounds how far the view can drift from its last real rebuild, so the softness of
-    // a stretched rasterisation never exceeds ~27 % of a size step however long a scroll runs.
-    const COMMIT_SPAN = 0.35
+    // COMMIT_SPAN is how far the view may drift from its last real rebuild before one is forced
+    // mid-gesture. It is a safety valve, not the normal path: every crossing costs a full Leaflet
+    // rebuild, and one expensive frame among cheap ones is felt as a hitch. At 0.35 a long scroll
+    // crossed it repeatedly — visible in a trace as Paint spiking to 216 ms in a second whose
+    // neighbours sat between 23 and 92, and felt as the map catching every so often while zooming.
+    //
+    // What it buys is sharpness, and sharpness got much cheaper: labels are drawn by the WebGL
+    // layer at the eased zoom, so they stay crisp throughout regardless of this number. All that
+    // softens between rebuilds is polygon edges and the base image, and the image is a photograph
+    // being scaled anyway. So the span is wide enough that an ordinary gesture never crosses it
+    // and settles into its single rebuild at the end, with this left to catch an unusually long
+    // continuous scroll before the stretch becomes obvious.
+    const COMMIT_SPAN = 1.5
     let wheelTarget: number | null = null
     let wheelRaf: number | null = null
     let wheelZooming = false
