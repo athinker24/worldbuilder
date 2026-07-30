@@ -74,7 +74,11 @@ type Placed = {
  */
 const RES_BUDGET = 3
 
-const HALO = 0.16 // stroke width as a fraction of font size — matches the CSS halo it replaces
+// Stroke width as a fraction of the font size — the same 0.08em the CSS halo used. Both draw the
+// stroke under the fill, so half of it is hidden and the visible rim is 0.04em; doubling it here
+// to "match" made the outline twice as heavy as the text it was outlining.
+const HALO = 0.08
+const HALO_ALPHA = 0.85
 
 /**
  * Text resolution is what keeps glyphs crisp: a texture rasterised for zoom 0 and then scaled up
@@ -241,7 +245,7 @@ export class LabelLayer {
       fill: s.color,
       // The halo, same technique and proportion as the CSS `paint-order: stroke` it replaces —
       // and in WebGL it really is free, drawn in the same pass as the glyph.
-      stroke: { color: '#000000', width: s.size * HALO, join: 'round' },
+      stroke: { color: '#000000', alpha: HALO_ALPHA, width: s.size * HALO, join: 'round' },
       align: 'center'
     })
   }
