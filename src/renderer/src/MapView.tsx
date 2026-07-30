@@ -40,6 +40,7 @@ import ColorPicker from './ColorPicker'
 import ContextMenu, { MenuItem, MenuState } from './ContextMenu'
 import { ImageStrip, PinShape, PinShapePicker, pinShapeBody } from './pinIcons'
 import { LabelLayer, type LabelSpec } from './pixiLabels'
+import { ShapeLayer, shapeAt, pathAt, hexNum, type ShapeSpec } from './pixiShapes'
 import EntityPage from './EntityPage'
 import HierarchyPanel, { ActiveMode } from './HierarchyPanel'
 import { alertDialog, confirmDialog } from './dialog'
@@ -713,6 +714,18 @@ export default function MapView({
   // Leaflet marker stays and only its LOOK moves. Its icon becomes an empty transparent box that
   // exists purely to be clicked and grabbed — no glyphs in it, so it costs what a pin costs.
   // This is the "display in Pixi, interact as a real Leaflet layer" split CLAUDE.md describes.
+  // Polygons and paths are drawn by a WebGL layer, so the things Leaflet used to give for free
+  // now need somewhere to live: the geometry in zoom-0 space (what the layer draws and what hit
+  // testing runs against), and each feature's click handler, which is invoked from a single
+  // map-level listener once the hit test says which shape was under the cursor. Keeping the
+  // handler bodies exactly as they were — closures over the feature row and all — is deliberate:
+  // routing changed, none of the conquest, navigation or selection logic did.
+  const featRings = useRef(new Map<number, number[][][]>())
+  const featClick = useRef(new Map<number, (ev: L.LeafletMouseEvent) => void>())
+  const shapeLayer = useRef<ShapeLayer | null>(null)
+  // What the shape layer is currently drawing — the hit test searches this, so it has to be the
+  // same list, in the same order, that produced what is on screen.
+  const shapeSpecs = useRef<ShapeSpec[]>([])
   const freeSpec = useRef(new Map<number, LabelSpec>())
   // Hit-box size in zoom-0 units, scaled onto the transparent icon by updateOverlaySizes.
   const labelHit = useRef(new Map<number, { w: number; h: number }>())
@@ -1361,6 +1374,23 @@ export default function MapView({
     layer.draw(c.x - size.x / 2, c.y - size.y / 2, 2 ** zoom, size.x, size.y)
   }
 
+  /** The same view, handed to the shape layer. Split only because the two canvases are separate. */
+  const drawShapes = (ox?: number, oy?: number, sc?: number, w?: number, h?: number): void => {
+    const map = mapRef.current
+    const sl = shapeLayer.current
+    if (!map || !sl) return
+    if (ox !== undefined) {
+      sl.setScale(sc!)
+      sl.draw(ox, oy!, sc!, w!, h!)
+      return
+    }
+    const zoom = map.getZoom()
+    const size = map.getSize()
+    const c = map.project(map.getCenter(), zoom)
+    sl.setScale(2 ** zoom)
+    sl.draw(c.x - size.x / 2, c.y - size.y / 2, 2 ** zoom, size.x, size.y)
+  }
+
   const updateOverlaySizes = (): void => {
     const map = mapRef.current
     if (!map || !featureGroupRef.current) return
@@ -1655,6 +1685,8 @@ export default function MapView({
     baseVisible.current.clear()
     featArrow.current.clear()
     renderStyle.current.clear()
+    featRings.current.clear()
+    featClick.current.clear()
     parentHist.current.clear()
     rungTargets.current.clear()
     entTags.current.clear()
@@ -1798,6 +1830,23 @@ export default function MapView({
           })
         }
       })
+      // Geometry in zoom-0 space, for the WebGL layer to draw and for hit testing to search. Kept
+      // here rather than read back off the Leaflet layer because those layers are no longer in the
+      // map for polygons and paths — only the selected one ever is.
+      if (isPolygon || isLine) {
+        const gjc = (JSON.parse(f.geometry) as { coordinates: number[][] | number[][][] })
+          .coordinates
+        const asRings = (isPolygon ? gjc : [gjc]) as number[][][]
+        featRings.current.set(
+          f.id,
+          asRings.map((ring) =>
+            ring.map((pt) => {
+              const p = map.project(L.latLng(pt[1], pt[0]), 0)
+              return [p.x, p.y]
+            })
+          )
+        )
+      }
       featKind.current.set(
         f.id,
         isPolygon ? 'polygon' : isLine ? 'line' : isLabel ? 'label' : 'pin'
@@ -1913,7 +1962,7 @@ export default function MapView({
             layer.bindTooltip(escapeHtml(f.entity_name), { sticky: true })
           }
         }
-        layer.on('click', (ev) => {
+        const onFeatureClick = (ev: L.LeafletMouseEvent): void => {
           if (measureRef.current) return // measure session: the click falls through to the map handler
           // 🧭 Navigation: clicks pick the start/destination pin
           const nv = navRef.current
@@ -1977,7 +2026,12 @@ export default function MapView({
           }
           setSelected(f)
           setExtraSel([])
-        })
+        }
+        // Markers are still real Leaflet layers, so they keep listening for themselves. Polygons
+        // and paths are not in the map any more, so theirs is filed by id and called by the
+        // map-level listener once the hit test has resolved which shape was clicked.
+        if (isPolygon || isLine) featClick.current.set(f.id, onFeatureClick)
+        else layer.on('click', onFeatureClick)
         // saveGeometry has two phases: (1) snapshotUpdates runs SYNCHRONOUSLY — captures+clears
         // layer geometries and weldTouched at pm:update time (deferred, it would blend into the
         // next gesture);
@@ -2315,6 +2369,11 @@ export default function MapView({
     // The polygon labels this year actually shows, gathered as the gate below decides each
     // feature's fate and handed to the WebGL layer in one go at the end.
     const shownLabels: LabelSpec[] = []
+    // Same for the shapes. Whichever feature is selected is left OUT and drawn by Leaflet instead,
+    // because geoman edits a real layer with real vertex handles — the "display in Pixi, edit as a
+    // Leaflet layer" split. Everything else never enters the DOM at all, which is the point.
+    const shownShapes: ShapeSpec[] = []
+    const editingId = selectedRef.current?.id ?? null
     const rankOn = activeModeRef.current?.kind === 'rank'
     // Default (root) view: base polygons painted in the color of the entity at the TOP of
     // that year's chain (no parent = top); the root's name becomes one label over its largest piece.
@@ -2419,15 +2478,36 @@ export default function MapView({
         if (fs) shownLabels.push(fs)
       }
       const arrow = featArrow.current.get(fid)
+      // A polygon or path: drawn by the WebGL layer, and kept out of the map entirely unless it is
+      // the one being edited. `inDom` is what the gate below now asks instead of `visible`.
+      const rings = featRings.current.get(fid)
+      const inDom = !rings || fid === editingId
+      if (rings && visible && st)
+        shownShapes.push({
+          id: fid,
+          rings,
+          closed: kind !== 'line',
+          fill: kind === 'line' ? null : hexNum(st.fillColor ?? st.color),
+          fillAlpha: st.fillOpacity ?? 0.25,
+          stroke: hexNum(st.color),
+          strokeAlpha: st.opacity ?? 1,
+          weight: st.weight ?? 2,
+          dash: st.dashArray
+            ? String(st.dashArray)
+                .split(/[ ,]+/)
+                .map(Number)
+                .filter((n) => n > 0)
+            : []
+        })
       for (const l of layers) {
-        if (visible && !fg.hasLayer(l)) {
+        if (visible && inDom && !fg.hasLayer(l)) {
           fg.addLayer(l)
           // Re-adding the same layer object to the featureGroup does NOT bring geoman's vertex
           // markers back (measured) → refresh manually when edit mode is on. ONLY for the
           // selected feature (not global — that was the source of the lag).
           if (toolRef.current === 'edit' && selectedRef.current?.id === fid)
             (l as unknown as { pm?: { enable: () => void } }).pm?.enable()
-        } else if (!visible && fg.hasLayer(l)) fg.removeLayer(l)
+        } else if ((!visible || !inDom) && fg.hasLayer(l)) fg.removeLayer(l)
         if (visible && st && (l as L.Path).setStyle) {
           // dashArray returns to canonical — the conquest highlight's dashed edge must not
           // stick, while path (line) patterns survive (kept in renderStyle). isCurveControl:
@@ -2471,6 +2551,10 @@ export default function MapView({
         }
       }
     }
+    shapeSpecs.current = shownShapes
+    shapeLayer.current?.setShapes(shownShapes)
+    shapeLayer.current?.setHidden(editingId)
+    drawShapes()
     labelLayer.current?.setLabels(shownLabels)
     drawLabels()
     rebuildDerivedLabels(year, rungOwnerAt) // mod yoksa kendini temizler
@@ -3079,6 +3163,22 @@ export default function MapView({
     // numbers instead of being moved around. z-index sits above the marker pane (600) and below
     // the controls (800). pointer-events stays off — hit testing goes through LabelLayer.hitTest
     // so the canvas never swallows a click meant for the map.
+    // Shapes get their own canvas UNDER the markers, labels theirs above. One canvas cannot do
+    // both: Leaflet stacks its panes by z-index (overlay 400, markers 600) and regions have to sit
+    // below the pins while names sit above them, so the two WebGL layers straddle the marker pane.
+    const sc = document.createElement('canvas')
+    sc.style.cssText =
+      'position:absolute;inset:0;width:100%;height:100%;z-index:450;pointer-events:none'
+    host.appendChild(sc)
+    const shapes = new ShapeLayer(sc)
+    shapeLayer.current = shapes
+    shapes.ready
+      .then(() => applyYear(yearRef.current))
+      .catch(() => {
+        shapeLayer.current = null
+        sc.remove()
+      })
+
     const lc = document.createElement('canvas')
     lc.style.cssText =
       'position:absolute;inset:0;width:100%;height:100%;z-index:650;pointer-events:none'
@@ -3099,7 +3199,10 @@ export default function MapView({
           { detail: 'WebGL label layer failed to start; map labels are off' }
         )
       })
-    map.on('move', drawLabels)
+    map.on('move', () => {
+      drawLabels()
+      drawShapes()
+    })
 
     const fg = new L.FeatureGroup()
     featureGroupRef.current = fg
@@ -3130,6 +3233,25 @@ export default function MapView({
     // tick of that drag, not once per gesture — see onUp's comment for why).
 
     // Measure session clicks: calib switches to the form at 2 points; dist/area accumulate points
+    // Polygons and paths left the DOM, so Leaflet no longer routes clicks to them. This does it
+    // instead: hit test the shapes the WebGL layer is currently drawing, then call that feature's
+    // own handler — the same closure that used to be bound to its layer, so selection, conquest
+    // picking and navigation behave exactly as before.
+    //
+    // Runs before the measure handler below and stops there if it hit something, matching the old
+    // order: a click on a shape was consumed by the shape, and only empty map fell through.
+    map.on('click', (e: L.LeafletMouseEvent) => {
+      if (measureRef.current) return // a measure session wants the raw map click
+      const specs = shapeSpecs.current
+      if (!specs.length) return
+      const p = map.project(e.latlng, 0)
+      // Paths are picked by proximity, and the tolerance has to be in the same zoom-0 space the
+      // geometry is in — a fixed number of screen pixels divided by the current scale.
+      const fid = shapeAt(specs, p.x, p.y) ?? pathAt(specs, p.x, p.y, 8 / 2 ** map.getZoom())
+      if (fid === null) return
+      featClick.current.get(fid)?.(e)
+    })
+
     map.on('click', (e: L.LeafletMouseEvent) => {
       const m = measureRef.current
       if (!m || m.kind === 'calib-form') return
@@ -3328,6 +3450,9 @@ export default function MapView({
       labelLayer.current?.destroy()
       labelLayer.current = null
       lc.remove()
+      shapeLayer.current?.destroy()
+      shapeLayer.current = null
+      sc.remove()
       if (wheelRaf !== null) cancelAnimationFrame(wheelRaf)
       if (panRaf !== null) cancelAnimationFrame(panRaf)
       host.removeEventListener('mousedown', onDown)

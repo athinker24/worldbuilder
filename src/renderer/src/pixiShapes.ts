@@ -37,6 +37,20 @@ export type ShapeSpec = {
 type Built = { spec: ShapeSpec; view: Graphics }
 
 /**
+ * A CSS colour string as a number, for Pixi. Only the hex forms the app actually stores are
+ * understood; anything else — notably the `url(#pattern)` a polygon fill image resolves to, which
+ * has no WebGL equivalent yet — falls back rather than throwing, so an unsupported fill shows in a
+ * plain colour instead of taking the map down.
+ */
+export const hexNum = (css: string | undefined, fallback = 0x888888): number => {
+  if (!css || css[0] !== '#') return fallback
+  const h = css.slice(1)
+  if (h.length === 3) return parseInt(h[0] + h[0] + h[1] + h[1] + h[2] + h[2], 16)
+  if (h.length === 6) return parseInt(h, 16)
+  return fallback
+}
+
+/**
  * How far the zoom may drift before stroke widths are redrawn.
  *
  * Strokes are the one thing that cannot simply ride the container's scale. Their width is in
