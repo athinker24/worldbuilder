@@ -1,5 +1,6 @@
 import 'pixi.js/unsafe-eval'
 import { Application, Container, Graphics, Texture } from 'pixi.js'
+import { GC_IDLE_MS, GC_UNUSED_MS } from './pixiLabels'
 
 // Polygons and paths, drawn in WebGL rather than as SVG.
 //
@@ -149,13 +150,21 @@ export class ShapeLayer {
   /** url → the loaded texture, or null while it is in flight / after it failed. */
   private textures = new Map<string, Texture | null>()
   private onLoaded: () => void
+  private idle: ReturnType<typeof setTimeout> | null = null
   readonly ready: Promise<void>
 
   constructor(canvas: HTMLCanvasElement, onLoaded: () => void = () => {}) {
     this.onLoaded = onLoaded
     const app = new Application()
     this.ready = app
-      .init({ canvas, backgroundAlpha: 0, antialias: true, autoStart: false, preference: 'webgl' })
+      .init({
+        canvas,
+        backgroundAlpha: 0,
+        antialias: true,
+        autoStart: false,
+        preference: 'webgl',
+        gcMaxUnusedTime: GC_UNUSED_MS
+      })
       .then(() => {
         if (this.disposed) {
           app.destroy()
@@ -193,6 +202,15 @@ export class ShapeLayer {
     this.root.scale.set(scale)
     this.root.position.set(-originX, -originY)
     app.renderer.render(app.stage)
+    // Collect once the map stops moving — Pixi only frees in postrender, and a map that renders
+    // on demand stops rendering the moment you stop moving. See GC_IDLE_MS in pixiLabels.ts.
+    // Geometry, not glyphs, so there is far less to free here than in the label layer; this
+    // renderer has its own GC and would otherwise simply never run one.
+    if (this.idle) clearTimeout(this.idle)
+    this.idle = setTimeout(() => {
+      this.idle = null
+      if (!this.disposed) app.renderer.gc.run()
+    }, GC_IDLE_MS)
   }
 
   /**
@@ -208,6 +226,8 @@ export class ShapeLayer {
 
   destroy(): void {
     this.disposed = true
+    if (this.idle) clearTimeout(this.idle)
+    this.idle = null
     this.app?.destroy(false, { children: true })
     this.app = null
   }
