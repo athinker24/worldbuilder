@@ -3340,7 +3340,19 @@ export default function MapView({
       // Prevent escaping into ugly grey space beyond the image: pan bounded, no zooming out past fit
       map.options.maxBoundsViscosity = 1
       map.setMaxBounds(L.latLngBounds(bounds).pad(0.5))
-      map.setMinZoom(map.getBoundsZoom(bounds) - 1)
+      // Exactly `fit`, not `fit - 1`, and the floor matters more than it looks.
+      //
+      // Leaflet's _rebound does two different things. While the view is SMALLER than the bounds it
+      // clamps, which is the intent here. Once the view is LARGER it re-centres instead — so every
+      // pan step gets yanked back to the middle, and dragging turns into a fight: the map shakes,
+      // slips out from under the cursor and refuses to go where it is pushed.
+      //
+      // Allowing one level below fit put the map exactly on that boundary. At fit - 1 the view
+      // covers twice the image, and pad(0.5) makes the bounds twice the image too, so the two
+      // sides of the comparison were equal and which branch ran came down to rounding noise.
+      // Holding the floor at fit keeps the view inside the bounds at every reachable zoom, so only
+      // the clamping branch can run. It also makes this line agree with the comment above it.
+      map.setMinZoom(map.getBoundsZoom(bounds))
     }
   }, [worldMap?.image_path, worldMap?.width, worldMap?.height])
 
