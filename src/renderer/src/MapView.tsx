@@ -2374,6 +2374,20 @@ export default function MapView({
     // Leaflet layer" split. Everything else never enters the DOM at all, which is the point.
     const shownShapes: ShapeSpec[] = []
     const editingId = selectedRef.current?.id ?? null
+    // While a feature is actually being EDITED, every shape goes back to being a Leaflet layer and
+    // the WebGL layer draws nothing.
+    //
+    // Geoman's snapping is why. It snaps a dragged vertex to other layers' vertices, and it can
+    // only see layers that are in the map — so with the neighbours drawn in WebGL there was
+    // nothing to snap to. The topological weld depends on that snapping (it finds partners by
+    // matching coordinates that snapping made identical), and so does the adjacency behind derived
+    // region labels, so losing it quietly breaks two features that look unrelated to rendering.
+    //
+    // The trade is deliberate and cheap: editing is a deliberate, stationary act — you are placing
+    // vertices, not flying around the map — so paying the old rendering cost for the length of an
+    // edit session buys back every editing behaviour exactly as it was, with no second
+    // implementation of snapping to get subtly wrong.
+    const editSession = toolRef.current === 'edit' && editingId !== null
     const rankOn = activeModeRef.current?.kind === 'rank'
     // Default (root) view: base polygons painted in the color of the entity at the TOP of
     // that year's chain (no parent = top); the root's name becomes one label over its largest piece.
@@ -2481,8 +2495,8 @@ export default function MapView({
       // A polygon or path: drawn by the WebGL layer, and kept out of the map entirely unless it is
       // the one being edited. `inDom` is what the gate below now asks instead of `visible`.
       const rings = featRings.current.get(fid)
-      const inDom = !rings || fid === editingId
-      if (rings && visible && st)
+      const inDom = !rings || editSession || fid === editingId
+      if (rings && visible && st && !editSession)
         shownShapes.push({
           id: fid,
           rings,
@@ -2571,15 +2585,15 @@ export default function MapView({
   // the highlight is a class now, not a style, so the layers need no touching.
   useEffect(() => {
     selIdsRef.current = selIds
-    // Selection now changes what is DRAWN WHERE, not just how it looks: the selected shape leaves
-    // the WebGL list and becomes a real Leaflet layer so geoman has vertex handles to work with,
-    // and it picks up its highlight. Both of those are applyYear's job, so it has to run — a
-    // markSelection() alone left the selected feature with no layer, which is why editing did
-    // nothing at all.
+    // Selection and edit mode now change what is DRAWN WHERE, not just how it looks. The selected
+    // shape leaves the WebGL list and becomes a real Leaflet layer so geoman has vertex handles,
+    // and an edit session hands ALL of them back to Leaflet so geoman can snap between them. Both
+    // are applyYear's decision, so it has to re-run — markSelection() alone left the selected
+    // feature with no layer at all, which is why editing did nothing.
     applyYear(yearRef.current)
     markSelection()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selIds.join(',')])
+  }, [selIds.join(','), tool === 'edit'])
 
   // Load the layers panel from settings (persisted); toggles apply instantly, DB-free
   useEffect(() => {
