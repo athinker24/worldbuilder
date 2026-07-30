@@ -85,6 +85,32 @@ const dashRing = (
 
 type Built = { spec: ShapeSpec; view: Graphics }
 
+/** Would these two lists draw the same picture? See setShapes for why it is worth asking. */
+const same = (a: ShapeSpec[], b: ShapeSpec[]): boolean => {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]
+    const y = b[i]
+    if (
+      x.id !== y.id ||
+      x.rings !== y.rings ||
+      x.closed !== y.closed ||
+      x.fill !== y.fill ||
+      x.fillImg !== y.fillImg ||
+      x.fillAlpha !== y.fillAlpha ||
+      x.stroke !== y.stroke ||
+      x.strokeAlpha !== y.strokeAlpha ||
+      x.weight !== y.weight ||
+      x.arrow !== y.arrow ||
+      x.selected !== y.selected ||
+      x.dash.length !== y.dash.length ||
+      x.dash.some((v, j) => v !== y.dash[j])
+    )
+      return false
+  }
+  return true
+}
+
 /**
  * A CSS colour string as a number, for Pixi. Only the hex forms the app actually stores are
  * understood; anything else — notably the `url(#pattern)` a polygon fill image resolves to, which
@@ -143,6 +169,12 @@ export class ShapeLayer {
   }
 
   setShapes(specs: ShapeSpec[]): void {
+    // Dragging the year slider calls this on every tick, and a rebuild retriangulates every
+    // polygon — but most years change nothing about what is drawn, so most of those rebuilds
+    // produce an identical scene. Comparing first is O(n) over ~60 primitives against work
+    // measured in milliseconds. Geometry compares by REFERENCE: the ring arrays are built once
+    // per reload and handed back unchanged, so a new array means new geometry.
+    if (same(this.specs, specs)) return
     this.specs = specs
     this.rebuild()
   }
