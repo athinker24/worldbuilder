@@ -73,6 +73,30 @@ type Placed = {
   res: number
 }
 
+/** Would these two lists draw the same text? See setLabels for why it is worth asking. */
+const same = (a: LabelSpec[], b: LabelSpec[]): boolean => {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]
+    const y = b[i]
+    if (
+      x.id !== y.id ||
+      x.text !== y.text ||
+      x.x !== y.x ||
+      x.y !== y.y ||
+      x.size !== y.size ||
+      x.angle !== y.angle ||
+      x.curve !== y.curve ||
+      x.color !== y.color ||
+      x.font !== y.font ||
+      x.minZoom !== y.minZoom ||
+      x.maxZoom !== y.maxZoom
+    )
+      return false
+  }
+  return true
+}
+
 /**
  * How many labels may have their textures regenerated in a single frame.
  *
@@ -171,6 +195,10 @@ export class LabelLayer {
 
   /** Replace the whole label set. Cheap enough to call on every reload — see rebuild(). */
   setLabels(specs: LabelSpec[]): void {
+    // Dragging the year slider calls this on every tick, and a rebuild re-measures and re-lays
+    // out every glyph run — while most years change nothing about which names are shown. The
+    // comparison is O(n) over primitives; the rebuild it skips is milliseconds.
+    if (same(this.specs, specs)) return
     this.specs = specs
     this.rebuild()
   }
