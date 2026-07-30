@@ -902,6 +902,15 @@ h4 {
   max-width: 340px;
 }
 
+/* The error variant. It has to differ from a save confirmation at a glance — the same box in the
+   same corner reads as "saved" no matter what it says — and it is the one toast worth clicking,
+   so it takes back the pointer events the rest deliberately give up. */
+.toast-error {
+  pointer-events: auto;
+  cursor: pointer;
+  border-left: 3px solid var(--danger);
+}
+
 /* [[ entity-name completion suggestions (EntityPage note/content text areas) */
 .wiki-sug {
   position: fixed;

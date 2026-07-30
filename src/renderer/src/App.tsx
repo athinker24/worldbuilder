@@ -232,38 +232,52 @@ export default function App(): React.JSX.Element {
   // start clean).
   // Toast (save confirmation) — not modal, disappears on its own. There was no visual proof
   // that Ctrl+S actually wrote; auto-save reports through the same channel.
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const showToast = useCallback((msg: string, ms = 2200): void => {
-    setToast(msg)
+  const showToast = useCallback((msg: string, ms = 2200, err = false): void => {
+    setToast({ msg, err })
     clearTimeout(toastTimer.current)
     toastTimer.current = setTimeout(() => setToast(null), ms)
   }, [])
 
-  // A command that fails must SAY so. Without this the app answers a failed click with nothing
-  // at all — which is how the error log's own test went: the backup threw, the file recorded it
-  // in full, and the user was left with no reason to ever go and look. main.tsx keeps its own
-  // listener for the RECORD (it works even before React mounts); this one is for the PERSON.
+  // A fault must SAY so. Without this the app answers a failure with nothing at all — and the
+  // cost of that is not hypothetical: a WebGL texture upload was failing on every polygon fill
+  // image, the log named the exact cause in one line, and three rounds of guessing went by
+  // because nothing on screen ever suggested there was a log to read.
+  //
+  // BOTH kinds are caught here. Only rejections used to be, so anything that threw synchronously
+  // — an event handler, a render loop, which is most of the map — was recorded silently. That
+  // WebGL error was exactly that kind. main.tsx keeps its own listeners for the RECORD (they work
+  // even before React mounts); these are for the PERSON.
   useEffect(() => {
-    const onReject = (e: PromiseRejectionEvent): void => {
-      const r = e.reason as { message?: string }
+    let lastMsg = ''
+    let lastAt = 0
+    const say = (raw: string): void => {
       // Strip Electron's IPC wrapper — the user does not need to read 'invoking remote method'.
-      const msg = (r?.message ?? String(e.reason)).replace(
-        /^Error invoking remote method '\w+': /,
-        ''
-      )
-      // Longer than the default 2.2s and pointing at the log: an alpha tester has no reason to
-      // know that folder exists otherwise, and the whole point of writing it was for them to be
-      // able to hand it back.
+      const msg = raw.replace(/^(Uncaught )?Error invoking remote method '\w+': /, '')
+      // Same guard as main.tsx's, for the same reason: a fault inside the map's animation loop
+      // fires every frame, and re-rendering the toast 144 times a second helps nobody read it.
+      const now = Date.now()
+      if (msg === lastMsg && now - lastAt < 5000) return
+      lastMsg = msg
+      lastAt = now
       showToast(
         translate(lang, 'Something went wrong: {msg}', { msg: msg.slice(0, 120) }) +
           ' ' +
-          translate(lang, 'Details are in Help ▸ Open Error Log.'),
-        6000
+          translate(lang, 'Click to open the error log.'),
+        8000,
+        true
       )
     }
+    const onReject = (e: PromiseRejectionEvent): void =>
+      say((e.reason as { message?: string })?.message ?? String(e.reason))
+    const onError = (e: ErrorEvent): void => say(e.message)
     window.addEventListener('unhandledrejection', onReject)
-    return () => window.removeEventListener('unhandledrejection', onReject)
+    window.addEventListener('error', onError)
+    return () => {
+      window.removeEventListener('unhandledrejection', onReject)
+      window.removeEventListener('error', onError)
+    }
   }, [showToast, lang])
 
   const saveWorld = useCallback(
@@ -1143,7 +1157,16 @@ export default function App(): React.JSX.Element {
           {view.kind === 'shortcuts' && <Shortcuts />}
         </div>
 
-        {toast && <div className="toast">{toast}</div>}
+        {/* An error toast is CLICKABLE and opens the log folder. Telling someone a log exists is
+            not the same as getting them to it — the folder is four levels deep in Documents. */}
+        {toast && (
+          <div
+            className={toast.err ? 'toast toast-error' : 'toast'}
+            onClick={toast.err ? () => void api.openLogFolder() : undefined}
+          >
+            {toast.msg}
+          </div>
+        )}
         {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
         {palette && (
           <Palette

@@ -94,11 +94,15 @@ export function logError(where: string, err: unknown, extra: Record<string, unkn
     //  - the FIRST record of a run, always. Whatever is in the file belongs to a previous launch,
     //    and leaving it there is what made the log tiring to actually use: you open it after a
     //    crash and have to work out which of a dozen stacked runs is yours. Now error.log is
-    //    always "this run" and error.log.1 is always "the run before", which is the pair anyone
+    //    always "this run" and error.prev.log is always "the run before", which is the pair anyone
     //    diagnosing a fault wants — the crash, and what the app did the time before it.
     //  - size, so one runaway loop inside a single run cannot fill the disk.
+    //
+    // The name ends in .log for a plain reason: `error.log.1` is not a text file as far as
+    // Windows is concerned. It shows as "1 File", double-clicking asks which program to use, and
+    // the one file most likely to be sent to someone for help is the one they cannot open.
     if (existsSync(file) && (!sessionLogged || statSync(file).size > MAX_BYTES))
-      renameSync(file, join(logDir, 'error.log.1'))
+      renameSync(file, join(logDir, 'error.prev.log'))
 
     const lines: string[] = []
     if (!sessionLogged) {

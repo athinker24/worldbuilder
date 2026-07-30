@@ -1537,7 +1537,9 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     initLog(ldir, '9.9.9', () => ({}))
     writeFileSync(lf, 'x'.repeat(1024 * 1024 + 10))
     logError('main:uncaught', new Error('after the cap'))
-    assert.ok(existsSync(join(ldir, 'logs', 'error.log.1')), 'rotated')
+    // The name has to keep the .log extension — the previous run's log is the file most likely
+    // to be sent to someone for help, and Windows will not open `error.log.1` as text.
+    assert.ok(existsSync(join(ldir, 'logs', 'error.prev.log')), 'rotated, still a .log')
     assert.ok(readFileSync(lf, 'utf8').includes('after the cap'), 'new file has the new record')
   }
 

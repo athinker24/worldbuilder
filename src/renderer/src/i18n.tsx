@@ -339,6 +339,7 @@ const TR: Record<string, string> = {
   'Not on a map': 'Haritada değil',
   'Something went wrong: {msg}': 'Bir şeyler ters gitti: {msg}',
   'Details are in Help ▸ Open Error Log.': 'Ayrıntılar Yardım ▸ Hata Kaydını Aç içinde.',
+  'Click to open the error log.': 'Hata kaydını açmak için tıklayın.',
   Shape: 'Şekil',
   Disc: 'Daire',
   Ring: 'İçi boş daire',
