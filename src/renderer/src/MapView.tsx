@@ -2534,6 +2534,7 @@ export default function MapView({
           stroke: hexNum(st.color),
           strokeAlpha: st.opacity ?? 1,
           weight: st.weight ?? 2,
+          arrow: arrow === 'end',
           selected: selIdsRef.current.includes(fid),
           dash: st.dashArray
             ? String(st.dashArray)

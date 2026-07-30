@@ -1,5 +1,5 @@
 import 'pixi.js/unsafe-eval'
-import { Application, Assets, Container, Graphics, Matrix, Texture } from 'pixi.js'
+import { Application, Container, Graphics, Matrix, Texture } from 'pixi.js'
 
 // Polygons and paths, drawn in WebGL rather than as SVG.
 //
@@ -38,6 +38,8 @@ export type ShapeSpec = {
   weight: number
   /** Dash pattern in screen pixels, empty for solid. */
   dash: number[]
+  /** Draw a direction arrowhead at the last point (open paths only). */
+  arrow?: boolean
   /** Draw the selection halo. Replaces the `.sel-feature` drop-shadow the SVG paths used to wear. */
   selected?: boolean
 }
@@ -236,6 +238,7 @@ export class ShapeLayer {
         trace(g, s)
         g.stroke({ width: w, color: s.stroke, alpha: s.strokeAlpha, join: 'round', cap: 'round' })
       }
+      if (s.arrow && !s.closed) arrowHead(g, s.rings[0], w, s.stroke, s.strokeAlpha)
       // Rebuilding recreates every Graphics, so the hidden one has to be re-hidden here — a
       // setScale() mid-edit was silently bringing the edited shape back and drawing it under the
       // Leaflet layer being dragged, which read as the old outline refusing to let go.
@@ -253,16 +256,60 @@ export class ShapeLayer {
     const hit = this.textures.get(url)
     if (hit !== undefined) return hit
     this.textures.set(url, null) // claim it first: rebuild() runs often and must not re-request
-    Assets.load<Texture>(url)
-      .then((tex) => {
-        if (this.disposed) return
-        this.textures.set(url, tex)
-        this.rebuild()
-        this.onLoaded()
-      })
-      .catch(() => {}) // a missing asset keeps the flat colour; nothing else to do about it
+    // A plain Image, NOT Assets.load: these are `world://` urls from the app's own protocol, and
+    // Pixi's resolver only recognises http(s) as absolute — it treated them as relative paths and
+    // every load quietly failed, which showed up as an image-filled polygon staying flat. The
+    // browser has no such trouble, and this is how the rest of the app loads assets anyway.
+    const img = new Image()
+    img.onload = () => {
+      if (this.disposed) return
+      this.textures.set(url, Texture.from(img))
+      this.rebuild()
+      this.onLoaded()
+    }
+    img.src = url // a missing asset keeps the flat colour; nothing else to do about it
     return null
   }
+}
+
+/**
+ * The direction arrowhead at the end of a path, in the proportions the SVG `worldArrow` marker
+ * had — the same drawing, since a marker element means nothing outside SVG.
+ *
+ * Geometry in units of the stroke width w: a triangle 3w long and 3w across the base, tip landing
+ * 1.2w past the last point and the base 1.8w behind it. Both numbers are load-bearing (they were
+ * measured against the round line cap, which pokes through a head seated any closer), so they are
+ * carried over rather than re-picked.
+ */
+const arrowHead = (
+  g: Graphics,
+  ring: number[][],
+  w: number,
+  color: number,
+  alpha: number
+): void => {
+  const end = ring[ring.length - 1]
+  // The previous DISTINCT point: a repeated last vertex would give a zero-length direction.
+  let prev: number[] | undefined
+  for (let i = ring.length - 2; i >= 0; i--) {
+    if (ring[i][0] !== end[0] || ring[i][1] !== end[1]) {
+      prev = ring[i]
+      break
+    }
+  }
+  if (!prev) return
+  const len = Math.hypot(end[0] - prev[0], end[1] - prev[1])
+  const dx = (end[0] - prev[0]) / len
+  const dy = (end[1] - prev[1]) / len
+  const tip = [end[0] + dx * 1.2 * w, end[1] + dy * 1.2 * w]
+  const back = [end[0] - dx * 1.8 * w, end[1] - dy * 1.8 * w]
+  const hx = -dy * 1.5 * w // half the base, perpendicular to the direction
+  const hy = dx * 1.5 * w
+  g.moveTo(tip[0], tip[1])
+  g.lineTo(back[0] + hx, back[1] + hy)
+  g.lineTo(back[0] - hx, back[1] - hy)
+  g.closePath()
+  g.fill({ color, alpha })
 }
 
 /** [x, y, width, height] of every point in the shape. */
