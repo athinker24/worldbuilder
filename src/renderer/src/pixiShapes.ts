@@ -32,6 +32,47 @@ export type ShapeSpec = {
   weight: number
   /** Dash pattern in screen pixels, empty for solid. */
   dash: number[]
+  /** Draw the selection halo. Replaces the `.sel-feature` drop-shadow the SVG paths used to wear. */
+  selected?: boolean
+}
+
+/**
+ * Walk a ring, emitting only the "on" spans of a dash pattern.
+ *
+ * Pixi has no dashed stroke, and the alternative — leaving paths solid — loses the distinction
+ * between a road, a border and a route, which the map uses to mean different things. Cutting the
+ * geometry is the standard answer and it is cheap here because it happens when shapes are built,
+ * not per frame. Lengths are in screen pixels, so they are divided by the scale like stroke widths.
+ */
+const dashRing = (
+  ring: number[][],
+  pattern: number[],
+  scale: number,
+  emit: (a: number[], b: number[]) => void
+): void => {
+  const pat = pattern.map((v) => Math.max(v / scale, 1e-6))
+  let idx = 0
+  let left = pat[0]
+  let on = true
+  for (let i = 1; i < ring.length; i++) {
+    let [ax, ay] = ring[i - 1]
+    const [bx, by] = ring[i]
+    let rest = Math.hypot(bx - ax, by - ay)
+    while (rest > left) {
+      const t = left / rest
+      const mx = ax + (bx - ax) * t
+      const my = ay + (by - ay) * t
+      if (on) emit([ax, ay], [mx, my])
+      ax = mx
+      ay = my
+      rest -= left
+      idx = (idx + 1) % pat.length
+      left = pat[idx]
+      on = !on
+    }
+    if (on) emit([ax, ay], [bx, by])
+    left -= rest
+  }
 }
 
 type Built = { spec: ShapeSpec; view: Graphics }
@@ -141,16 +182,30 @@ export class ShapeLayer {
         if (s.closed) g.closePath()
       }
       if (s.fill !== null && s.closed) g.fill({ color: s.fill, alpha: s.fillAlpha })
-      if (s.weight > 0)
-        g.stroke({
-          // Divided by the scale because the container multiplies by it — this is what keeps a
-          // border the same thickness on screen at every zoom.
-          width: s.weight / this.strokeScale,
-          color: s.stroke,
-          alpha: s.strokeAlpha,
-          join: 'round',
-          cap: 'round'
-        })
+      // Divided by the scale because the container multiplies by it — this is what keeps a border
+      // the same thickness on screen at every zoom.
+      const w = s.weight / this.strokeScale
+      // The selection halo goes down FIRST so the feature's own colour draws over the top of it,
+      // leaving a rim rather than a repaint. The old SVG did this with a drop-shadow, which is the
+      // one thing that must not come back — filters were the single most expensive item on the map.
+      if (s.selected) {
+        for (const ring of s.rings) {
+          if (!ring.length) continue
+          g.moveTo(ring[0][0], ring[0][1])
+          for (let i = 1; i < ring.length; i++) g.lineTo(ring[i][0], ring[i][1])
+          if (s.closed) g.closePath()
+        }
+        g.stroke({ width: w + 6 / this.strokeScale, color: 0xffffff, alpha: 0.9, join: 'round' })
+      }
+      if (s.weight > 0 && s.dash.length) {
+        for (const ring of s.rings)
+          dashRing(s.closed ? [...ring, ring[0]] : ring, s.dash, this.strokeScale, (a, b) => {
+            g.moveTo(a[0], a[1])
+            g.lineTo(b[0], b[1])
+          })
+        g.stroke({ width: w, color: s.stroke, alpha: s.strokeAlpha, cap: 'butt' })
+      } else if (s.weight > 0)
+        g.stroke({ width: w, color: s.stroke, alpha: s.strokeAlpha, join: 'round', cap: 'round' })
       this.root.addChild(g)
       this.built.push({ spec: s, view: g })
     }

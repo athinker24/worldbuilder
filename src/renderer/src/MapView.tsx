@@ -2492,6 +2492,7 @@ export default function MapView({
           stroke: hexNum(st.color),
           strokeAlpha: st.opacity ?? 1,
           weight: st.weight ?? 2,
+          selected: selIdsRef.current.includes(fid),
           dash: st.dashArray
             ? String(st.dashArray)
                 .split(/[ ,]+/)
@@ -2566,6 +2567,12 @@ export default function MapView({
   // the highlight is a class now, not a style, so the layers need no touching.
   useEffect(() => {
     selIdsRef.current = selIds
+    // Selection now changes what is DRAWN WHERE, not just how it looks: the selected shape leaves
+    // the WebGL list and becomes a real Leaflet layer so geoman has vertex handles to work with,
+    // and it picks up its highlight. Both of those are applyYear's job, so it has to run — a
+    // markSelection() alone left the selected feature with no layer, which is why editing did
+    // nothing at all.
+    applyYear(yearRef.current)
     markSelection()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selIds.join(',')])
@@ -3076,17 +3083,16 @@ export default function MapView({
       // The label canvas sits OVER the panes, not inside one, so it inherits none of that. Driving
       // it with the same eased zoom keeps the two in lockstep — and costs one draw call, because
       // Pixi never cared what Leaflet thinks the zoom is.
-      const layer = labelLayer.current
-      if (!layer) return
+      // BOTH WebGL canvases sit over the panes rather than inside one, so neither inherits that
+      // transform and both have to be driven here. Missing one is not subtle: the shapes stayed
+      // at the committed zoom while everything around them scaled, and the map looked like it had
+      // come unstuck from itself.
       const size = map.getSize()
       const c = map.project(map.getCenter(), zc)
-      layer.draw(
-        s * (c.x - size.x / 2 + p.x) - p.x,
-        s * (c.y - size.y / 2 + p.y) - p.y,
-        2 ** z,
-        size.x,
-        size.y
-      )
+      const ox = s * (c.x - size.x / 2 + p.x) - p.x
+      const oy = s * (c.y - size.y / 2 + p.y) - p.y
+      labelLayer.current?.draw(ox, oy, 2 ** z, size.x, size.y)
+      drawShapes(ox, oy, 2 ** z, size.x, size.y)
     }
 
     /** Drop the visual transform and make `z` real — the one full rebuild per gesture. */
