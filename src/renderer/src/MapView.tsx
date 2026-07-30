@@ -2904,20 +2904,84 @@ export default function MapView({
     // wheelZooming: while the rAF runs, the 'zoom' event does DOM only (label/pin scaling) and
     // React state (HUD/scale bar) is not updated per frame — 60fps React re-renders (Timeline/
     // panel) would stutter. React state updates once when the zoom settles (below).
+    // THE EASE IS A CSS TRANSFORM, NOT SIXTY REAL ZOOMS.
+    //
+    // `setZoomAround(..., {animate:false})` goes through Map._resetView, which fires `viewreset` —
+    // Leaflet's FULL rebuild: every polygon reprojected, every `d` rewritten, the layer restyled
+    // and repainted. Calling that once per animation frame was, measured on a realistic map, 425
+    // ms/s inside this callback alone (2.6 ms every frame) plus the ~420 ms/s of Paint, Style,
+    // Layerize, Layout and Commit it triggers — together nearly all of the main thread's 983 ms/s.
+    //
+    // Leaflet's own renderer already separates the two:
+    //     zoom      -> _onZoom  -> _updateTransform   (a CSS transform, nothing else)
+    //     viewreset -> _reset   -> _update            (the full rebuild)
+    // which is why its native zoom animation transforms during the gesture and rebuilds at the end.
+    //
+    // This was tried once before and was much WORSE, for a reason that no longer applies: scaling
+    // the pane makes the browser re-rasterise the content inside it, and back then the labels were
+    // DOM elements costing 920 ms/s of rasterisation. They are drawn in WebGL now and the whole
+    // layer rasterises at 37 ms/s, so there is nothing expensive left inside the pane to re-raster.
+    //
+    // COMMIT_SPAN bounds how far the view can drift from its last real rebuild, so the softness of
+    // a stretched rasterisation never exceeds ~27 % of a size step however long a scroll runs.
+    const COMMIT_SPAN = 0.35
     let wheelTarget: number | null = null
-    let wheelPt: L.Point | null = null
     let wheelRaf: number | null = null
     let wheelZooming = false
+    // The zoom being DISPLAYED. map.getZoom() is the last committed one and lags behind for the
+    // length of the ease; the gap between them is exactly what the pane transform is showing.
+    let wheelShown: number | null = null
+    // Frozen per baseline rather than tracking the live cursor: the transform is absolute against
+    // its baseline, so moving the anchor underneath would slide the map sideways.
+    let wheelAnchor: L.Point | null = null
+
+    /** Show `z` without telling Leaflet: one composited transform, plus the WebGL labels. */
+    const paintZoom = (z: number): void => {
+      const zc = map.getZoom()
+      const s = map.getZoomScale(z, zc)
+      const p = wheelAnchor!
+      const pane = map.getPanes().mapPane
+      // Leaflet parks the pane with its own translate and remembers it in _leaflet_pos, which we
+      // never touch — so this composes on top and Leaflet's bookkeeping stays true.
+      const pos = L.DomUtil.getPosition(pane) ?? new L.Point(0, 0)
+      const t = p.add(pos.subtract(p).multiplyBy(s))
+      pane.style.transformOrigin = '0 0'
+      pane.style.transform = `translate3d(${t.x}px,${t.y}px,0) scale(${s})`
+      // The label canvas sits OVER the panes, not inside one, so it inherits none of that. Driving
+      // it with the same eased zoom keeps the two in lockstep — and costs one draw call, because
+      // Pixi never cared what Leaflet thinks the zoom is.
+      const layer = labelLayer.current
+      if (!layer) return
+      const size = map.getSize()
+      const c = map.project(map.getCenter(), zc)
+      layer.draw(
+        s * (c.x - size.x / 2 + p.x) - p.x,
+        s * (c.y - size.y / 2 + p.y) - p.y,
+        2 ** z,
+        size.x,
+        size.y
+      )
+    }
+
+    /** Drop the visual transform and make `z` real — the one full rebuild per gesture. */
+    const commitZoom = (z: number): void => {
+      const pane = map.getPanes().mapPane
+      pane.style.transformOrigin = ''
+      L.DomUtil.setPosition(pane, L.DomUtil.getPosition(pane) ?? new L.Point(0, 0))
+      map.setZoomAround(wheelAnchor!, z, { animate: false })
+    }
+
     const wheelStep = (): void => {
       if (wheelTarget === null) {
         wheelRaf = null
         return
       }
-      const cur = map.getZoom()
+      const cur = wheelShown ?? map.getZoom()
       const diff = wheelTarget - cur
       if (Math.abs(diff) < 0.004) {
-        map.setZoomAround(wheelPt!, wheelTarget, { animate: false })
+        commitZoom(wheelTarget)
         wheelTarget = null
+        wheelShown = null
         wheelRaf = null
         wheelZooming = false
         showHud(map.getZoom()) // on settle, one React update for HUD + scale bar
@@ -2928,7 +2992,11 @@ export default function MapView({
         drawLabels()
         return
       }
-      map.setZoomAround(wheelPt!, cur + diff * 0.2, { animate: false })
+      const z = cur + diff * 0.2
+      wheelShown = z
+      // Re-baseline before the GPU has to stretch the last rasterisation too far.
+      if (Math.abs(z - map.getZoom()) > COMMIT_SPAN) commitZoom(z)
+      else paintZoom(z)
       wheelRaf = requestAnimationFrame(wheelStep)
     }
     const onWheel = (e: WheelEvent): void => {
@@ -2953,9 +3021,12 @@ export default function MapView({
       // never has a CSS transform/zoom applied, so container scale is always 1:1 — a plain
       // offset against the cached rect (kept fresh by the ResizeObserver above) is equivalent.
       const r = hostRectRef.current ?? host.getBoundingClientRect()
-      wheelPt = L.point(e.clientX - r.left, e.clientY - r.top)
       wheelZooming = true
-      if (wheelRaf === null) wheelRaf = requestAnimationFrame(wheelStep)
+      // Only the first tick of a gesture sets the anchor — see wheelAnchor for why it is frozen.
+      if (wheelRaf === null) {
+        wheelAnchor = L.point(e.clientX - r.left, e.clientY - r.top)
+        wheelRaf = requestAnimationFrame(wheelStep)
+      }
     }
     host.addEventListener('mousedown', onDown)
     host.addEventListener('wheel', onWheel, { passive: false })
