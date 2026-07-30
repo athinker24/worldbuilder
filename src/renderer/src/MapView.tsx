@@ -2558,6 +2558,10 @@ export default function MapView({
     drawShapes()
     labelLayer.current?.setLabels(shownLabels)
     drawLabels()
+    // The selected feature's Leaflet layer is added and removed BY this function now, so geoman
+    // has to be pointed at it afterwards — enabling edit mode before the layer exists leaves a
+    // polygon you can select but whose vertex handles never appear.
+    syncEditMode()
     rebuildDerivedLabels(year, rungOwnerAt) // mod yoksa kendini temizler
     updateOverlaySizes() // re-added label/pin sizes settle onto the current zoom
     markSelection() // layers were rebuilt → rewrite the selection highlight

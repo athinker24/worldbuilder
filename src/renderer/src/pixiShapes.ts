@@ -110,6 +110,7 @@ export class ShapeLayer {
   private built: Built[] = []
   /** The scale the current stroke widths were computed for. */
   private strokeScale = 1
+  private hiddenId: number | null = null
   private disposed = false
   readonly ready: Promise<void>
 
@@ -134,8 +135,9 @@ export class ShapeLayer {
     this.rebuild()
   }
 
-  /** Hide one shape without rebuilding — used while its real Leaflet layer is out for editing. */
+  /** Hide one shape — the one whose real Leaflet layer is out for editing. Survives a rebuild. */
   setHidden(id: number | null): void {
+    this.hiddenId = id
     for (const b of this.built) b.view.visible = b.spec.id !== id
   }
 
@@ -172,16 +174,25 @@ export class ShapeLayer {
     if (!this.app) return
     this.root.removeChildren().forEach((c) => c.destroy({ children: true }))
     this.built = []
-    for (const s of this.specs) {
-      const g = new Graphics()
-      // Holes must be declared before the fill is applied, so every ring goes down first.
+    // Every pass lays down its OWN path. Sharing one was the bug behind paths ignoring their dash
+    // pattern: a line has no fill, so the ring laid down for filling was never consumed, and the
+    // dash segments appended to it — leaving stroke() to draw the whole unbroken ring as well as
+    // the dashes, which is indistinguishable from solid.
+    const trace = (g: Graphics, s: ShapeSpec): void => {
       for (const ring of s.rings) {
         if (!ring.length) continue
         g.moveTo(ring[0][0], ring[0][1])
         for (let i = 1; i < ring.length; i++) g.lineTo(ring[i][0], ring[i][1])
         if (s.closed) g.closePath()
       }
-      if (s.fill !== null && s.closed) g.fill({ color: s.fill, alpha: s.fillAlpha })
+    }
+    for (const s of this.specs) {
+      const g = new Graphics()
+      // Holes have to be declared alongside the outer ring for the fill rule to cut them out.
+      if (s.fill !== null && s.closed) {
+        trace(g, s)
+        g.fill({ color: s.fill, alpha: s.fillAlpha })
+      }
       // Divided by the scale because the container multiplies by it — this is what keeps a border
       // the same thickness on screen at every zoom.
       const w = s.weight / this.strokeScale
@@ -189,12 +200,7 @@ export class ShapeLayer {
       // leaving a rim rather than a repaint. The old SVG did this with a drop-shadow, which is the
       // one thing that must not come back — filters were the single most expensive item on the map.
       if (s.selected) {
-        for (const ring of s.rings) {
-          if (!ring.length) continue
-          g.moveTo(ring[0][0], ring[0][1])
-          for (let i = 1; i < ring.length; i++) g.lineTo(ring[i][0], ring[i][1])
-          if (s.closed) g.closePath()
-        }
+        trace(g, s)
         g.stroke({ width: w + 6 / this.strokeScale, color: 0xffffff, alpha: 0.9, join: 'round' })
       }
       if (s.weight > 0 && s.dash.length) {
@@ -204,8 +210,14 @@ export class ShapeLayer {
             g.lineTo(b[0], b[1])
           })
         g.stroke({ width: w, color: s.stroke, alpha: s.strokeAlpha, cap: 'butt' })
-      } else if (s.weight > 0)
+      } else if (s.weight > 0) {
+        trace(g, s)
         g.stroke({ width: w, color: s.stroke, alpha: s.strokeAlpha, join: 'round', cap: 'round' })
+      }
+      // Rebuilding recreates every Graphics, so the hidden one has to be re-hidden here — a
+      // setScale() mid-edit was silently bringing the edited shape back and drawing it under the
+      // Leaflet layer being dragged, which read as the old outline refusing to let go.
+      g.visible = s.id !== this.hiddenId
       this.root.addChild(g)
       this.built.push({ spec: s, view: g })
     }
