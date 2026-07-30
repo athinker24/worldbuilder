@@ -206,8 +206,7 @@ export class ShapeLayer {
     // on demand stops rendering the moment you stop moving. See GC_IDLE_MS in pixiLabels.ts, and
     // collectWhenIdle there for why a frame is rendered first. Geometry, not glyphs, so there is
     // far less to free here than in the label layer; this renderer has its own GC and would
-    // otherwise simply never run one. The texture and canvas POOLS are global, so the label
-    // layer's pass clears them for both — doing it here as well would only find them empty.
+    // otherwise simply never run one.
     if (this.idle) clearTimeout(this.idle)
     this.idle = setTimeout(() => {
       this.idle = null

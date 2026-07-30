@@ -6,7 +6,7 @@
 // suit a rendering library would trade a real security property for a startup micro-optimisation,
 // and a .dunya is treated as hostile input (see the security contract in CLAUDE.md).
 import 'pixi.js/unsafe-eval'
-import { Application, CanvasPool, Container, Text, TextStyle, TexturePool } from 'pixi.js'
+import { Application, Container, Text, TextStyle } from 'pixi.js'
 
 // Map labels, drawn in WebGL rather than as DOM elements.
 //
@@ -260,15 +260,6 @@ export class LabelLayer {
    * SCREEN along with the garbage, and the next zoom re-uploads the whole scene. That showed up as
    * a distinct stutter on the first movement after a pause. One frame first marks everything
    * visible as just-used, leaving only the stale resolutions to go.
-   *
-   * The two pools are the rest of it, and they are why collecting alone was not enough — the floor
-   * still rose by ~500 MB for every minute of zooming. A text texture that stops being used is not
-   * destroyed, it is RETURNED to a global pool, and so is the canvas it was drawn on. Neither is
-   * ever trimmed, and the garbage collector leaves both alone because a pooled texture is not
-   * "unused" so much as "kept for later". Sizes round up to powers of two, so every new
-   * combination of label size and resolution opens another bucket — and exploring new zoom levels
-   * is precisely what opens new combinations. Clearing them can only take what nothing is holding:
-   * a texture in use was popped out of the pool and is not there to be cleared.
    */
   private collectWhenIdle(app: Application): void {
     if (this.idle) clearTimeout(this.idle)
@@ -277,8 +268,6 @@ export class LabelLayer {
       if (this.disposed) return
       app.renderer.render(app.stage)
       app.renderer.gc.run()
-      TexturePool.clear(true)
-      CanvasPool.clear()
     }, GC_IDLE_MS)
   }
 
