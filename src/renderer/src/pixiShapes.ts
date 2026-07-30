@@ -1,5 +1,5 @@
 import 'pixi.js/unsafe-eval'
-import { Application, Container, Graphics, Matrix, Texture } from 'pixi.js'
+import { Application, Container, Graphics, Texture } from 'pixi.js'
 
 // Polygons and paths, drawn in WebGL rather than as SVG.
 //
@@ -204,18 +204,13 @@ export class ShapeLayer {
       if (s.fill !== null && s.closed) {
         trace(g, s)
         const tex = s.fillImg ? this.texture(s.fillImg) : null
-        if (tex) {
-          // The matrix maps the texture onto the shape's own box, so the image stretches with the
-          // polygon and rides the container's scale like everything else. Do NOT make this a
-          // repeat in screen space: that is what the SVG version did at first and the pattern
-          // visibly slid across the shape on every zoom.
-          const [bx, by, bw, bh] = bounds(s.rings)
-          g.fill({
-            texture: tex,
-            alpha: s.fillAlpha,
-            matrix: new Matrix(bw / tex.width, 0, 0, bh / tex.height, bx, by)
-          })
-        } else g.fill({ color: s.fill, alpha: s.fillAlpha })
+        // Pixi's default textureSpace is 'local', which normalises the texture over the path's own
+        // bounding box — objectBoundingBox, exactly what the SVG pattern did, so the image
+        // stretches with the polygon and rides the container's scale like everything else. Passing
+        // a matrix to do that by hand is worse than redundant: Pixi INVERTS it and appends it to
+        // the normalisation it already did, which collapsed the whole fill onto one texel.
+        if (tex) g.fill({ texture: tex, alpha: s.fillAlpha })
+        else g.fill({ color: s.fill, alpha: s.fillAlpha })
       }
       // Divided by the scale because the container multiplies by it — this is what keeps a border
       // the same thickness on screen at every zoom.
@@ -310,22 +305,6 @@ const arrowHead = (
   g.lineTo(back[0] - hx, back[1] - hy)
   g.closePath()
   g.fill({ color, alpha })
-}
-
-/** [x, y, width, height] of every point in the shape. */
-const bounds = (rings: number[][][]): [number, number, number, number] => {
-  let x0 = Infinity
-  let y0 = Infinity
-  let x1 = -Infinity
-  let y1 = -Infinity
-  for (const ring of rings)
-    for (const [x, y] of ring) {
-      if (x < x0) x0 = x
-      if (y < y0) y0 = y
-      if (x > x1) x1 = x
-      if (y > y1) y1 = y
-    }
-  return [x0, y0, Math.max(x1 - x0, 1e-6), Math.max(y1 - y0, 1e-6)]
 }
 
 /**
