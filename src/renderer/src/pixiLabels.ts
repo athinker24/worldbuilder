@@ -99,6 +99,26 @@ const MAX_RES = 8
  */
 const MAX_GLYPH_PX = 256
 
+/**
+ * Stop drawing a label once its glyphs are this many times the viewport height.
+ *
+ * Zooming deep into one region was heavy while everything else stayed smooth, and turning labels
+ * off made it perfect — but the cause is not the labels that have left the screen. WebGL clips
+ * those for free. It is the ones still ON it: a name sized in MAP units becomes enormous as the
+ * zoom climbs, so a handful of overlapping, mostly-transparent quads end up alpha-blending over
+ * the whole viewport several times per frame, which is pure fill rate. GPUTask was already sitting
+ * at ~500 ms/s in the last measurement.
+ *
+ * Hiding them is not a compromise: text more than a screen tall is not a label any more, it is a
+ * wall. Every real map renderer drops a name once you are further in than the thing it names, and
+ * this is that rule. The threshold is generous so the label stays until it is unmistakably useless.
+ *
+ * Deliberately NOT viewport culling: `culled`/`visible` flag a render-group structure change, so
+ * labels flicking across the viewport edge during a zoom rebuild the batch every frame. That was
+ * measured — it made lag worse everywhere, not better. This threshold is crossed once per gesture.
+ */
+const LOD_HIDE_ABOVE = 1.5
+
 export class LabelLayer {
   private app: Application | null = null
   private root = new Container()
@@ -152,6 +172,11 @@ export class LabelLayer {
       app.renderer.resize(width, height)
     this.root.scale.set(scale)
     this.root.position.set(-originX, -originY)
+    // Level of detail: drop names that have grown past being readable (see LOD_HIDE_ABOVE). Pixi
+    // ignores a write that changes nothing, and this threshold is crossed about once per gesture
+    // rather than per frame, so unlike viewport culling it does not churn the render group.
+    const hideAbove = (height * LOD_HIDE_ABOVE) / scale
+    for (const p of this.placed) p.view.visible = p.spec.size <= hideAbove
     this.reconcile(originX, originY, scale, width, height)
     app.renderer.render(app.stage)
   }
