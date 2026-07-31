@@ -113,6 +113,25 @@ const HALO = 0.08
 const HALO_ALPHA = 0.85
 
 /**
+ * How long a texture may sit unused before it can be collected, and how long after the last frame
+ * to go looking. Exported so the shape layer uses the same pair — one policy, two renderers.
+ *
+ * WHY THIS EXISTS AT ALL. Pixi collects unused GPU resources in `postrender` — after a frame. This
+ * map renders on demand, so when you stop moving, rendering stops, and with it the only thing that
+ * frees anything: memory climbed with every zoom, held, and never came back down. Measured at 2 GB
+ * after a few minutes of zooming, with nothing released while the app sat idle.
+ *
+ * A zoom gesture is what makes the garbage: glyph textures are keyed by text, style AND resolution,
+ * so every resolution step the ratchet takes leaves a full set of the previous ones behind. That is
+ * exactly the workload where "collect after a frame" collects nothing, because the frames stop.
+ *
+ * The default idle time is 60 s. Halved here because on-demand rendering makes "unused for 30
+ * seconds" a much stronger statement than it is under a ticker — nothing is being drawn at all.
+ */
+export const GC_UNUSED_MS = 30_000
+export const GC_IDLE_MS = 35_000
+
+/**
  * Text resolution is what keeps glyphs crisp: a texture rasterised for zoom 0 and then scaled up
  * eight times is a blurry mess. It is re-rendered when the zoom SETTLES, never during a gesture —
  * re-rasterising per frame is the exact cost this whole module exists to remove. Between settles
@@ -162,6 +181,7 @@ export class LabelLayer {
   private placed: Placed[] = []
   private res = 1
   private disposed = false
+  private idle: ReturnType<typeof setTimeout> | null = null
   /** Resolves once WebGL is up; every public method is safe to call before then. */
   readonly ready: Promise<void>
 
@@ -174,6 +194,7 @@ export class LabelLayer {
         antialias: true,
         // The map drives its own redraws — a ticker would render frames nobody asked for.
         autoStart: false,
+        gcMaxUnusedTime: GC_UNUSED_MS,
         // Electron is not going to hand us a fallback-worthy GPU-less context; if WebGL is
         // genuinely unavailable the caller falls back to DOM labels rather than limping.
         preference: 'webgl'
@@ -224,6 +245,30 @@ export class LabelLayer {
         (p.spec.maxZoom == null || zoom <= p.spec.maxZoom)
     this.reconcile(originX, originY, scale, width, height)
     app.renderer.render(app.stage)
+    this.collectWhenIdle(app)
+  }
+
+  /**
+   * Collect once the map has stopped moving. See GC_IDLE_MS for why anything is needed here.
+   *
+   * Every frame pushes the collection back, so an active gesture never pays for it; one pass runs
+   * GC_IDLE_MS after the last one. A single pass is enough — it frees everything unused for longer
+   * than GC_UNUSED_MS, and with nothing rendering, nothing new can become unused afterwards.
+   *
+   * The render before it is not a formality. "Unused" means "not touched by a render", and nothing
+   * has rendered since the map went still — so without this the pass frees the labels currently ON
+   * SCREEN along with the garbage, and the next zoom re-uploads the whole scene. That showed up as
+   * a distinct stutter on the first movement after a pause. One frame first marks everything
+   * visible as just-used, leaving only the stale resolutions to go.
+   */
+  private collectWhenIdle(app: Application): void {
+    if (this.idle) clearTimeout(this.idle)
+    this.idle = setTimeout(() => {
+      this.idle = null
+      if (this.disposed) return
+      app.renderer.render(app.stage)
+      app.renderer.gc.run()
+    }, GC_IDLE_MS)
   }
 
   /**
@@ -252,6 +297,8 @@ export class LabelLayer {
 
   destroy(): void {
     this.disposed = true
+    if (this.idle) clearTimeout(this.idle)
+    this.idle = null
     this.app?.destroy(false, { children: true })
     this.app = null
   }
@@ -302,7 +349,14 @@ export class LabelLayer {
 
   private rebuild(): void {
     if (!this.app) return
+    // Same family of leak as the shape layer's context (see pixiShapes.rebuild), smaller: a Text
+    // does not free its TextStyle unless destroy() is asked for it, and styleFor() makes a fresh
+    // one per label per rebuild. It is NOT asked for per Text on purpose — a curved label's glyphs
+    // all share one style, so `{ style: true }` would destroy the same object once per letter.
+    // Collected first because destroy() nulls the reference on the way out.
+    const styles = this.placed.map((p) => p.texts[0]?.style).filter((s) => s !== undefined)
     this.root.removeChildren().forEach((c) => c.destroy({ children: true }))
+    for (const s of styles) s.destroy()
     this.placed = []
     for (const s of this.specs) {
       const node = s.curve === 0 ? this.straight(s) : this.curved(s)

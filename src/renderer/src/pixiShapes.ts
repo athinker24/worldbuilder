@@ -1,5 +1,6 @@
 import 'pixi.js/unsafe-eval'
 import { Application, Container, Graphics, Texture } from 'pixi.js'
+import { GC_IDLE_MS, GC_UNUSED_MS } from './pixiLabels'
 
 // Polygons and paths, drawn in WebGL rather than as SVG.
 //
@@ -149,13 +150,21 @@ export class ShapeLayer {
   /** url → the loaded texture, or null while it is in flight / after it failed. */
   private textures = new Map<string, Texture | null>()
   private onLoaded: () => void
+  private idle: ReturnType<typeof setTimeout> | null = null
   readonly ready: Promise<void>
 
   constructor(canvas: HTMLCanvasElement, onLoaded: () => void = () => {}) {
     this.onLoaded = onLoaded
     const app = new Application()
     this.ready = app
-      .init({ canvas, backgroundAlpha: 0, antialias: true, autoStart: false, preference: 'webgl' })
+      .init({
+        canvas,
+        backgroundAlpha: 0,
+        antialias: true,
+        autoStart: false,
+        preference: 'webgl',
+        gcMaxUnusedTime: GC_UNUSED_MS
+      })
       .then(() => {
         if (this.disposed) {
           app.destroy()
@@ -193,6 +202,18 @@ export class ShapeLayer {
     this.root.scale.set(scale)
     this.root.position.set(-originX, -originY)
     app.renderer.render(app.stage)
+    // Collect once the map stops moving — Pixi only frees in postrender, and a map that renders
+    // on demand stops rendering the moment you stop moving. See GC_IDLE_MS in pixiLabels.ts, and
+    // collectWhenIdle there for why a frame is rendered first. Geometry, not glyphs, so there is
+    // far less to free here than in the label layer; this renderer has its own GC and would
+    // otherwise simply never run one.
+    if (this.idle) clearTimeout(this.idle)
+    this.idle = setTimeout(() => {
+      this.idle = null
+      if (this.disposed) return
+      app.renderer.render(app.stage)
+      app.renderer.gc.run()
+    }, GC_IDLE_MS)
   }
 
   /**
@@ -208,6 +229,8 @@ export class ShapeLayer {
 
   destroy(): void {
     this.disposed = true
+    if (this.idle) clearTimeout(this.idle)
+    this.idle = null
     this.app?.destroy(false, { children: true })
     this.app = null
   }
@@ -216,7 +239,18 @@ export class ShapeLayer {
 
   private rebuild(): void {
     if (!this.app) return
-    this.root.removeChildren().forEach((c) => c.destroy({ children: true }))
+    // `context: true` is load-bearing, and its absence was a leak of hundreds of MB per minute
+    // of zooming. Pixi frees a Graphics' own GraphicsContext — its path, its tessellated geometry,
+    // its batch buffers — only when destroy() is called with NO options at all, or with `context`
+    // asked for explicitly:
+    //
+    //     if (this._ownedContext && !options) ... else if (options === true || options?.context)
+    //
+    // `{ children: true }` satisfies neither branch, so every context was orphaned. This runs on
+    // every setScale, which is every 0.35 of a zoom level, so a minute of zooming left thousands
+    // behind. The geometry lives in JS, not on the GPU, which is why it showed up as the RENDERER
+    // process growing while the GPU process stayed flat.
+    this.root.removeChildren().forEach((c) => c.destroy({ children: true, context: true }))
     this.built = []
     // Every pass lays down its OWN path. Sharing one was the bug behind paths ignoring their dash
     // pattern: a line has no fill, so the ring laid down for filling was never consumed, and the
