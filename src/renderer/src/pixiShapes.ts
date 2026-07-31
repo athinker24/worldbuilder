@@ -138,9 +138,19 @@ export const hexNum = (css: string | undefined, fallback = 0x888888): number => 
  */
 const STROKE_REDRAW_SPAN = 0.35
 
+/** Radius and rim of a vertex dot, in SCREEN pixels — matched to geoman's own handle. */
+const HANDLE_R = 6
+const HANDLE_FILL = 0xffffff
+const HANDLE_RIM = 0x3388ff
+
 export class ShapeLayer {
   private app: Application | null = null
   private root = new Container()
+  /** Vertex dots for the shape being edited. Own container so shapes and dots rebuild apart. */
+  private handleRoot = new Container()
+  private handles: number[][] = []
+  /** The last view draw() was given, so setHandles can re-render without one. */
+  private last: [number, number, number, number, number] | null = null
   private specs: ShapeSpec[] = []
   private built: Built[] = []
   /** The scale the current stroke widths were computed for. */
@@ -172,6 +182,9 @@ export class ShapeLayer {
         }
         this.app = app
         app.stage.addChild(this.root)
+        // A SIBLING of root, not a child: rebuild() destroys everything under root, and the dots
+        // must survive that. It carries the same scale and position, set together in draw().
+        app.stage.addChild(this.handleRoot)
         this.rebuild()
       })
     this.ready.catch(() => {})
@@ -188,6 +201,24 @@ export class ShapeLayer {
     this.rebuild()
   }
 
+  /**
+   * The vertex dots of the shape currently being edited, in zoom-0 coordinates.
+   *
+   * A geoman handle does two jobs: it shows where a vertex IS, and it can be dragged. Only the
+   * second needs a DOM element, and the DOM element is what costs — hundreds of them was the whole
+   * problem. So the showing moves here, where a dot is free, and geoman keeps real handles for
+   * only the few nearest the cursor. Nothing disappears from view, which is what made every
+   * earlier attempt at "fewer markers" unacceptable.
+   */
+  setHandles(points: number[][]): void {
+    this.handles = points
+    this.drawHandles()
+    // Re-render with whatever view draw() last used. Dots change on their own schedule — a vertex
+    // drag, a selection — none of which line up with the caller's redraw, and asking the caller to
+    // follow every setHandles with a draw would only reproduce this here, badly.
+    if (this.last) this.draw(...this.last)
+  }
+
   /** Hide one shape — the one whose real Leaflet layer is out for editing. Survives a rebuild. */
   setHidden(id: number | null): void {
     this.hiddenId = id
@@ -197,10 +228,13 @@ export class ShapeLayer {
   draw(originX: number, originY: number, scale: number, width: number, height: number): void {
     const app = this.app
     if (!app) return
+    this.last = [originX, originY, scale, width, height]
     if (app.renderer.width !== width || app.renderer.height !== height)
       app.renderer.resize(width, height)
     this.root.scale.set(scale)
     this.root.position.set(-originX, -originY)
+    this.handleRoot.scale.set(scale)
+    this.handleRoot.position.set(-originX, -originY)
     app.renderer.render(app.stage)
     // Collect once the map stops moving — Pixi only frees in postrender, and a map that renders
     // on demand stops rendering the moment you stop moving. See GC_IDLE_MS in pixiLabels.ts, and
@@ -225,6 +259,7 @@ export class ShapeLayer {
     if (Math.abs(Math.log2(scale / this.strokeScale)) < STROKE_REDRAW_SPAN) return
     this.strokeScale = scale
     this.rebuild()
+    this.drawHandles() // dots are screen-sized too, so they follow the same cadence as strokes
   }
 
   destroy(): void {
@@ -307,6 +342,19 @@ export class ShapeLayer {
       this.root.addChild(g)
       this.built.push({ spec: s, view: g })
     }
+  }
+
+  /** One circle per vertex, sized in screen pixels like the strokes — hence /strokeScale. */
+  private drawHandles(): void {
+    this.handleRoot.removeChildren().forEach((c) => c.destroy({ children: true, context: true }))
+    if (!this.handles.length) return
+    const g = new Graphics()
+    const r = HANDLE_R / this.strokeScale
+    for (const [x, y] of this.handles) g.circle(x, y, r)
+    g.fill({ color: HANDLE_FILL })
+    for (const [x, y] of this.handles) g.circle(x, y, r)
+    g.stroke({ width: 1 / this.strokeScale, color: HANDLE_RIM })
+    this.handleRoot.addChild(g)
   }
 
   /**
