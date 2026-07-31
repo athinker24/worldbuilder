@@ -138,8 +138,11 @@ export const hexNum = (css: string | undefined, fallback = 0x888888): number => 
  */
 const STROKE_REDRAW_SPAN = 0.35
 
-/** Radius and rim of a vertex dot, in SCREEN pixels — matched to geoman's own handle. */
+// Vertex and midpoint dots, in SCREEN pixels, matched to geoman's own handles: a 14 px white
+// circle with a blue rim for a vertex, a smaller and fainter one for the midpoint between two.
 const HANDLE_R = 6
+const MID_R = 4
+const MID_ALPHA = 0.7
 const HANDLE_FILL = 0xffffff
 const HANDLE_RIM = 0x3388ff
 
@@ -149,6 +152,7 @@ export class ShapeLayer {
   /** Vertex dots for the shape being edited. Own container so shapes and dots rebuild apart. */
   private handleRoot = new Container()
   private handles: number[][] = []
+  private mids: number[][] = []
   /** The last view draw() was given, so setHandles can re-render without one. */
   private last: [number, number, number, number, number] | null = null
   private specs: ShapeSpec[] = []
@@ -210,8 +214,9 @@ export class ShapeLayer {
    * only the few nearest the cursor. Nothing disappears from view, which is what made every
    * earlier attempt at "fewer markers" unacceptable.
    */
-  setHandles(points: number[][]): void {
+  setHandles(points: number[][], mids: number[][] = []): void {
     this.handles = points
+    this.mids = mids
     this.drawHandles()
     // Re-render with whatever view draw() last used. Dots change on their own schedule — a vertex
     // drag, a selection — none of which line up with the caller's redraw, and asking the caller to
@@ -344,17 +349,30 @@ export class ShapeLayer {
     }
   }
 
-  /** One circle per vertex, sized in screen pixels like the strokes — hence /strokeScale. */
+  /**
+   * A circle per vertex and a smaller one per midpoint, sized in screen pixels like the strokes —
+   * hence /strokeScale. Midpoints first, so a vertex is never covered by the point beside it.
+   *
+   * Everything visible comes from here, including the parts geoman also has a real marker for:
+   * those are transparent (see main.css). If only the handles WITHOUT a real marker were drawn,
+   * the set would change as the cursor moved and the map would twitch under the mouse — which is
+   * exactly what it did, and what this removes.
+   */
   private drawHandles(): void {
     this.handleRoot.removeChildren().forEach((c) => c.destroy({ children: true, context: true }))
-    if (!this.handles.length) return
-    const g = new Graphics()
-    const r = HANDLE_R / this.strokeScale
-    for (const [x, y] of this.handles) g.circle(x, y, r)
-    g.fill({ color: HANDLE_FILL })
-    for (const [x, y] of this.handles) g.circle(x, y, r)
-    g.stroke({ width: 1 / this.strokeScale, color: HANDLE_RIM })
-    this.handleRoot.addChild(g)
+    if (!this.handles.length && !this.mids.length) return
+    const w = 1 / this.strokeScale
+    const dots = (pts: number[][], r: number, alpha: number): void => {
+      if (!pts.length) return
+      const g = new Graphics()
+      for (const [x, y] of pts) g.circle(x, y, r)
+      g.fill({ color: HANDLE_FILL, alpha })
+      for (const [x, y] of pts) g.circle(x, y, r)
+      g.stroke({ width: w, color: HANDLE_RIM, alpha })
+      this.handleRoot.addChild(g)
+    }
+    dots(this.mids, MID_R / this.strokeScale, MID_ALPHA)
+    dots(this.handles, HANDLE_R / this.strokeScale, 1)
   }
 
   /**

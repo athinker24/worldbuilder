@@ -1244,20 +1244,37 @@ export default function MapView({
     const sl = shapeLayer.current
     if (!map || !sl) return
     const fid = selectedRef.current?.id
-    if (fid === undefined || toolRef.current !== 'edit') return sl.setHandles([])
+    if (fid === undefined || toolRef.current !== 'edit') return sl.setHandles([], [])
     const pts: number[][] = []
-    for (const l of allLayers.current.get(fid) ?? []) {
-      if ((l as FeatureLayer).isCurveControl === undefined && !(l as L.Polyline).getLatLngs)
-        continue
-      const walk = (v: unknown): void => {
-        if (Array.isArray(v)) return void v.forEach(walk)
-        const p = map.project(v as L.LatLng, 0)
-        pts.push([p.x, p.y])
+    const mids: number[][] = []
+    // A ring at a time, because the midpoints belong BETWEEN neighbours in one ring — running them
+    // over a flattened list would draw a point across the gap from a polygon's last vertex to the
+    // next ring's first, which is not an edge at all.
+    const ring = (pt: L.LatLng[], closed: boolean): void => {
+      const proj = pt.map((ll) => {
+        const p = map.project(ll, 0)
+        return [p.x, p.y]
+      })
+      pts.push(...proj)
+      const last = closed ? proj.length : proj.length - 1
+      for (let i = 0; i < last; i++) {
+        const a = proj[i]
+        const b = proj[(i + 1) % proj.length]
+        mids.push([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2])
       }
-      const geom = (l as L.Polyline).getLatLngs?.()
-      if (geom) walk(geom)
     }
-    sl.setHandles(pts)
+    for (const l of allLayers.current.get(fid) ?? []) {
+      const geom = (l as L.Polyline).getLatLngs?.()
+      if (!geom) continue
+      const closed = l instanceof L.Polygon
+      const walk = (v: unknown): void => {
+        const arr = v as unknown[]
+        if (Array.isArray(arr[0])) return void arr.forEach(walk)
+        ring(arr as L.LatLng[], closed)
+      }
+      if (Array.isArray(geom) && geom.length) walk(geom)
+    }
+    sl.setHandles(pts, mids)
   }
 
   // Edit mode applies ONLY to the selected feature: with vertex markers on every polygon/path
