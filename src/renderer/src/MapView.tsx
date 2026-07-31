@@ -72,6 +72,45 @@ import { pushUndo } from './undo'
 
 L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl })
 
+// --- Marker icons are placed with left/top instead of a 3D transform. --------------------------
+// Leaflet's setPosition writes `translate3d(x, y, 0)` on every marker element, and an element
+// carrying its own 3D transform is one Chromium lifts onto its own compositing layer. That is
+// invisible at 117 pins and ruinous in edit mode, where geoman puts a draggable element on every
+// vertex plus one between each pair: selecting a many-vertex polygon measured 426 compositing
+// layers PER FRAME (UpdateLayer, 115132 events over 270 frames), 100067 raster tasks in ten
+// seconds, 27 fps, and the main thread blocked in Commit for 7.6 s out of 12 — not working,
+// waiting. Two attempts to fix it by showing FEWER handles were both rejected on sight: nearest-N
+// to the cursor scatters and reshuffles as the mouse moves, and hiding the off-screen ones was no
+// better. The element count is not the problem; what each element costs is.
+//
+// Leaflet already has a transform-free path — left/top, what it uses when Browser.any3d is false.
+// Patched here for MARKERS ONLY rather than by flipping that flag, which would also change how
+// panes are positioned and how zoom animation runs.
+//
+// The trade is real and it is the right way round: left/top is laid out rather than composited, so
+// moving a marker costs layout. But markers do not move individually while panning or zooming —
+// the PANE moves and carries them — so that cost lands once per zoom commit, against a per-frame
+// compositing cost for every handle on screen.
+//
+// The stock method still runs first: it keeps `_leaflet_pos` (which getPosition reads) and the
+// z-index bookkeeping. Only the mechanism that puts the pixels somewhere changes.
+{
+  type PosMarker = { _icon?: HTMLElement; _shadow?: HTMLElement }
+  const proto = L.Marker.prototype as unknown as {
+    _setPos: (this: PosMarker, pos: L.Point) => void
+  }
+  const stockSetPos = proto._setPos
+  proto._setPos = function (pos: L.Point): void {
+    stockSetPos.call(this, pos)
+    for (const el of [this._icon, this._shadow]) {
+      if (!el) continue
+      el.style.transform = ''
+      el.style.left = `${pos.x}px`
+      el.style.top = `${pos.y}px`
+    }
+  }
+}
+
 // --- Two Leaflet patches that steady the POLYGONS under a smooth (fractional) wheel zoom. ------
 // Both were measured in a throwaway Leaflet harness (continuous setZoomAround sweep, logging each
 // overlay's per-frame deviation from its own layer point); the numbers below are from that run.

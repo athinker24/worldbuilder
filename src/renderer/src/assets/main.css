@@ -2339,6 +2339,28 @@ a {
    the biggest cost on the map at the time. .map-label/.map-label-svg above are still live — the
    derived region labels and the draw-tool preview use them. */
 
+/* Geoman's vertex handles, in edit mode. DIAGNOSTIC — see the note below before keeping or cutting.
+
+   Selecting a many-vertex polygon in edit mode measured at 426 compositing layers PER FRAME
+   (UpdateLayer, 115132 events over 270 frames), 100067 raster tasks in ten seconds and 27 fps,
+   with the main thread blocked in Commit for 7.6 s of 12 rather than working. That is layer
+   explosion, and this project has had it once before: chained drop-shadows on labels, 207 layers
+   per frame down to 114 once they went.
+
+   Geoman ships `transition: opacity ease .3s` on every handle and `opacity: .7` on the middle
+   ones. Both are promotion candidates — an element mid-transition on a compositable property, or
+   one carrying its own opacity, is exactly what Chromium lifts onto its own layer. Neither is
+   worth anything here: nothing ever changes their opacity.
+
+   If the layer count does not move, the cause is the other candidate — Leaflet positions markers
+   with `translate3d`, which promotes on its own — and no CSS will fix it. */
+.marker-icon {
+  transition: none;
+}
+.marker-icon-middle {
+  opacity: 1;
+}
+
 /* --- zoom HUD --- */
 .zoom-hud {
   position: absolute;
