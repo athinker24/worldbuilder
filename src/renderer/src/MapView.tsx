@@ -72,6 +72,20 @@ import { pushUndo } from './undo'
 
 L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl })
 
+/**
+ * Options for every `pm.enable()` here. They must be passed at the CALL: geoman's
+ * `Edit.enable(options)` does `L.Util.setOptions(this, options)` and never reads
+ * `map.pm.globalOptions`, so `setGlobalOptions` reaches only the layers geoman enables itself in
+ * its own bulk modes. Setting an edit option there looks right and does nothing.
+ *
+ * `limitMarkersToCount` leaves geoman holding real, draggable handles for only the few nearest the
+ * cursor. On its own that was unacceptable — the vertices you could SEE came and went as the mouse
+ * moved. It is fine now only because seeing them is no longer this element's job: every vertex is
+ * drawn as a dot in the WebGL layer (ShapeLayer.setHandles), which costs nothing, and these
+ * elements are left to do the one thing that needs a DOM node, which is being dragged.
+ */
+const EDIT_OPTS = { limitMarkersToCount: 20 }
+
 // --- Marker icons are placed with left/top instead of a 3D transform. --------------------------
 // Leaflet's setPosition writes `translate3d(x, y, 0)` on every marker element, and an element
 // carrying its own 3D transform is one Chromium lifts onto its own compositing layer. That is
@@ -1217,6 +1231,52 @@ export default function MapView({
     cur = maps.find((m) => m.id === cur!.parent_map_id)
   }
 
+  /**
+   * Feed the WebGL layer the vertex dots for whatever is being edited, read LIVE off the Leaflet
+   * layer so a vertex being dragged carries its dot with it. Empty when not editing.
+   *
+   * Geoman is left holding real, draggable handles for only the few nearest the cursor (see
+   * EDIT_OPTS). Every vertex is still visible, because the dots are drawn here for nothing —
+   * which is what makes that limit acceptable now and did not when the handles WERE the display.
+   */
+  const refreshHandles = (): void => {
+    const map = mapRef.current
+    const sl = shapeLayer.current
+    if (!map || !sl) return
+    const fid = selectedRef.current?.id
+    if (fid === undefined || toolRef.current !== 'edit') return sl.setHandles([], [])
+    const pts: number[][] = []
+    const mids: number[][] = []
+    // A ring at a time, because the midpoints belong BETWEEN neighbours in one ring — running them
+    // over a flattened list would draw a point across the gap from a polygon's last vertex to the
+    // next ring's first, which is not an edge at all.
+    const ring = (pt: L.LatLng[], closed: boolean): void => {
+      const proj = pt.map((ll) => {
+        const p = map.project(ll, 0)
+        return [p.x, p.y]
+      })
+      pts.push(...proj)
+      const last = closed ? proj.length : proj.length - 1
+      for (let i = 0; i < last; i++) {
+        const a = proj[i]
+        const b = proj[(i + 1) % proj.length]
+        mids.push([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2])
+      }
+    }
+    for (const l of allLayers.current.get(fid) ?? []) {
+      const geom = (l as L.Polyline).getLatLngs?.()
+      if (!geom) continue
+      const closed = l instanceof L.Polygon
+      const walk = (v: unknown): void => {
+        const arr = v as unknown[]
+        if (Array.isArray(arr[0])) return void arr.forEach(walk)
+        ring(arr as L.LatLng[], closed)
+      }
+      if (Array.isArray(geom) && geom.length) walk(geom)
+    }
+    sl.setHandles(pts, mids)
+  }
+
   // Edit mode applies ONLY to the selected feature: with vertex markers on every polygon/path
   // (enableGlobalEditMode) hundreds of points spawned and the map stuttered. Instead,
   // pm.enable() only on the selected feature's layers and pm.disable() on the rest. Called
@@ -1229,21 +1289,24 @@ export default function MapView({
       for (const l of layers) {
         const pm = (
           l as unknown as {
-            pm?: { enabled?: () => boolean; enable: () => void; disable: () => void }
+            pm?: { enabled?: () => boolean; enable: (o?: object) => void; disable: () => void }
           }
         ).pm
         if (!pm) continue
         const isOn = pm.enabled?.() ?? false
-        if (want && !isOn) pm.enable()
+        if (want && !isOn) pm.enable(EDIT_OPTS)
         else if (!want && isOn) pm.disable()
       }
     }
+    refreshHandles()
   }
 
   // Move the edit vertex markers to the selected feature when selection or tool changes
   useEffect(() => {
     selectedRef.current = selected
     syncEditMode()
+    // syncEditMode reads only refs; listing it would re-run this on every render instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, tool])
 
   // The single access point to geoman's draw instance (for the untyped internals, see DrawInstance)
@@ -2176,6 +2239,9 @@ export default function MapView({
           }
         })
         layer.on('pm:markerdrag', (e) => {
+          // The dots are read off the live layer, so a dragged vertex has to redraw them or its
+          // own dot stays behind while the handle moves — the one place the split would show.
+          refreshHandles()
           if (!dragPartners.current.length) return
           const ll = dragLL(e)
           if (!ll) return
@@ -2193,12 +2259,12 @@ export default function MapView({
             // the partner's vertex markers stay at the old spot — refresh edit mode
             const pm = (
               p.layer as unknown as {
-                pm?: { enabled?: () => boolean; disable: () => void; enable: () => void }
+                pm?: { enabled?: () => boolean; disable: () => void; enable: (o?: object) => void }
               }
             ).pm
             if (pm?.enabled?.()) {
               pm.disable()
-              pm.enable()
+              pm.enable(EDIT_OPTS)
             }
           }
           dragPartners.current = []
@@ -2575,7 +2641,7 @@ export default function MapView({
           // markers back (measured) → refresh manually when edit mode is on. ONLY for the
           // selected feature (not global — that was the source of the lag).
           if (toolRef.current === 'edit' && selectedRef.current?.id === fid)
-            (l as unknown as { pm?: { enable: () => void } }).pm?.enable()
+            (l as unknown as { pm?: { enable: (o?: object) => void } }).pm?.enable(EDIT_OPTS)
         } else if ((!visible || !inDom) && fg.hasLayer(l)) fg.removeLayer(l)
         if (visible && st && (l as L.Path).setStyle) {
           // dashArray returns to canonical — the conquest highlight's dashed edge must not
@@ -2734,7 +2800,7 @@ export default function MapView({
         if (shown && !fg.hasLayer(l)) {
           fg.addLayer(l)
           if (toolRef.current === 'edit' && selectedRef.current?.id === fid)
-            (l as unknown as { pm?: { enable: () => void } }).pm?.enable()
+            (l as unknown as { pm?: { enable: (o?: object) => void } }).pm?.enable(EDIT_OPTS)
         } else if (!shown && fg.hasLayer(l)) fg.removeLayer(l)
       }
     }

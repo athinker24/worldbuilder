@@ -2354,11 +2354,21 @@ a {
 
    If the layer count does not move, the cause is the other candidate — Leaflet positions markers
    with `translate3d`, which promotes on its own — and no CSS will fix it. */
+/* Geoman's edit handles are INVISIBLE. Every dot you see while editing is drawn by the WebGL
+   layer (ShapeLayer.setHandles); these elements exist only to be dragged.
+
+   The split is what made editing a many-vertex shape usable: hundreds of DOM handles were the
+   cost, so geoman keeps real ones for just the twenty nearest the cursor. Drawing only those
+   would mean the visible points changed as the mouse moved — tried, and it reads as the shape
+   twitching under the cursor. Drawing ALL of them in WebGL and hiding the real ones costs nothing
+   and leaves the map completely still: what is on screen is the same set geoman would have shown,
+   it simply is not made of these elements.
+
+   opacity, not visibility or display: those stop hit-testing, and being hit is the only thing
+   these are still for. */
 .marker-icon {
   transition: none;
-}
-.marker-icon-middle {
-  opacity: 1;
+  opacity: 0 !important;
 }
 
 /* --- zoom HUD --- */
