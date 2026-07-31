@@ -349,7 +349,14 @@ export class LabelLayer {
 
   private rebuild(): void {
     if (!this.app) return
+    // Same family of leak as the shape layer's context (see pixiShapes.rebuild), smaller: a Text
+    // does not free its TextStyle unless destroy() is asked for it, and styleFor() makes a fresh
+    // one per label per rebuild. It is NOT asked for per Text on purpose — a curved label's glyphs
+    // all share one style, so `{ style: true }` would destroy the same object once per letter.
+    // Collected first because destroy() nulls the reference on the way out.
+    const styles = this.placed.map((p) => p.texts[0]?.style).filter((s) => s !== undefined)
     this.root.removeChildren().forEach((c) => c.destroy({ children: true }))
+    for (const s of styles) s.destroy()
     this.placed = []
     for (const s of this.specs) {
       const node = s.curve === 0 ? this.straight(s) : this.curved(s)

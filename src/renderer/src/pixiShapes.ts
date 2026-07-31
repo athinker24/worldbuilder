@@ -239,7 +239,18 @@ export class ShapeLayer {
 
   private rebuild(): void {
     if (!this.app) return
-    this.root.removeChildren().forEach((c) => c.destroy({ children: true }))
+    // `context: true` is load-bearing, and its absence was a leak of hundreds of MB per minute
+    // of zooming. Pixi frees a Graphics' own GraphicsContext — its path, its tessellated geometry,
+    // its batch buffers — only when destroy() is called with NO options at all, or with `context`
+    // asked for explicitly:
+    //
+    //     if (this._ownedContext && !options) ... else if (options === true || options?.context)
+    //
+    // `{ children: true }` satisfies neither branch, so every context was orphaned. This runs on
+    // every setScale, which is every 0.35 of a zoom level, so a minute of zooming left thousands
+    // behind. The geometry lives in JS, not on the GPU, which is why it showed up as the RENDERER
+    // process growing while the GPU process stayed flat.
+    this.root.removeChildren().forEach((c) => c.destroy({ children: true, context: true }))
     this.built = []
     // Every pass lays down its OWN path. Sharing one was the bug behind paths ignoring their dash
     // pattern: a line has no fill, so the ring laid down for filling was never consumed, and the
