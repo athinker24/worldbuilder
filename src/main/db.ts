@@ -1537,6 +1537,10 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     logSetDebug(true)
     logEvent('DEBUG', 'now.written', {})
     logTime('map.reload')({ features: 12 })
+    // A repeated scope collapses into one line rather than sixty. The first real session log had
+    // sixty map.reload lines in three seconds and they buried everything else.
+    for (let i = 0; i < 12; i++) logEvent('INFO', 'noisy.scope', { took: `${5 + i}ms` })
+    logEvent('INFO', 'something.else', {})
     noteCall('getMap')
     noteCall('updateFeature')
     noteCall('logEvents') // reporting is not something the app was DOING — must stay out of it
@@ -1549,6 +1553,15 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.ok(!txt.includes('never.written'), 'DEBUG is silent while the switch is off')
     assert.ok(txt.includes('now.written'), 'and speaks once it is on')
     assert.ok(/map\.reload.*took=\d+ms/.test(txt), 'a timed operation reports its duration')
+    // EVENT lines only — the scope also appears inside the error report's trail, which is correct
+    // and must not be counted here.
+    const eventLines = txt.split('\n').filter((l) => /^\d{2}:\d{2}:\d{2}\.\d{3} {2}/.test(l))
+    assert.equal(
+      eventLines.filter((l) => l.includes('noisy.scope')).length,
+      1,
+      'a repeated scope leaves ONE line, not one per occurrence'
+    )
+    assert.ok(/noisy\.scope.*count=×12 took=5-16ms/.test(txt), 'and it keeps the count and spread')
     assert.ok(txt.includes('ERROR REPORT'), 'an error gets the full block, not a line')
     assert.ok(!txt.includes('logEvents'), 'the act of logging stays out of the trail')
     assert.ok(txt.includes('TypeError: boom'), 'the error itself')

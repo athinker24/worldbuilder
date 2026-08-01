@@ -208,7 +208,19 @@ function memoryLine(): string {
           1024
       )
     const total = Math.round(m.reduce((s, p) => s + (p.memory?.workingSetSize ?? 0), 0) / 1024)
-    return `total=${total}MB browser=${by('Browser')}MB renderer=${by('Tab')}MB gpu=${by('GPU')}MB`
+    // Zero components are dropped rather than written as 0MB. At startup the renderer and GPU
+    // processes do not exist yet, and `renderer=0MB` reads as a measurement rather than as an
+    // absence — the header looked wrong the first time it was seen.
+    const parts = [`total=${total}MB`]
+    for (const [label, type] of [
+      ['browser', 'Browser'],
+      ['renderer', 'Tab'],
+      ['gpu', 'GPU']
+    ] as const) {
+      const v = by(type)
+      if (v) parts.push(`${label}=${v}MB`)
+    }
+    return parts.join(' ')
   } catch {
     return ''
   }
@@ -222,7 +234,9 @@ function memoryLine(): string {
  * was paid for, and nothing added for observability may spend it.
  */
 function startMemoryWatch(): void {
-  let last = 0
+  // -1, not 0: the first sample is a BASELINE, not a change. Starting at zero made every session
+  // open with an invented `memory.changed from=0MB to=901MB`.
+  let last = -1
   let warned = false
   setInterval(() => {
     const total = Math.round(
@@ -233,6 +247,10 @@ function startMemoryWatch(): void {
       warned = true
       logEvent('WARN', 'memory.high', { total: `${total}MB`, threshold: `${MEMORY_WARN_MB}MB` })
     } else if (total < MEMORY_WARN_MB * 0.8) warned = false
+    if (last < 0) {
+      last = total // baseline, silently: the app starting is not the app changing
+      return
+    }
     if (Math.abs(total - last) >= MEMORY_STEP_MB) {
       logEvent('INFO', 'memory.changed', { from: `${last}MB`, to: `${total}MB` })
       last = total

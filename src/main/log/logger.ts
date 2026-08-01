@@ -33,6 +33,10 @@ export const id = (): string => sessionId
 export function init(dataDir: string, meta: Meta, ctx: () => Record<string, unknown>): void {
   context = ctx
   ring.clear()
+  // A line held from the previous session must not land in this one's file.
+  if (coalesceTimer) clearTimeout(coalesceTimer)
+  coalesceTimer = null
+  pending = null
   // Short and random enough to tell two runs apart; not an identifier of anything or anyone.
   sessionId = Math.random().toString(36).slice(2, 8)
   started = stamp()
@@ -75,9 +79,83 @@ export const debugEnabled = (): boolean => debug
 export function event(level: Level, scope: string, data: Record<string, unknown> = {}): void {
   if (level === 'DEBUG' && !debug) return
   ring.remember(scope)
-  // ERROR is written through immediately: the moment a line is worth keeping is the moment the
-  // process might not survive to flush it.
-  sink.write(eventLine(level, scope, data), level === 'ERROR')
+  if (level === 'ERROR') {
+    // Written through immediately, and never coalesced: the moment a line is worth keeping is the
+    // moment the process might not survive to flush it.
+    settle()
+    sink.write(eventLine(level, scope, data), true)
+    return
+  }
+  hold(level, scope, data)
+}
+
+// --- Coalescing -------------------------------------------------------------------------------
+//
+// The first real session log had sixty `map.reload` lines in three seconds, thirteen of them
+// sharing a millisecond. Every one was true — a dragged slider really does rebuild every layer that
+// often — but sixty identical lines is the "continuous render updates" this log is supposed not to
+// contain, and they buried everything else.
+//
+// So a repeat of the SAME scope inside a short window is held rather than written, and the run
+// leaves one line: `map.reload ×13 took=6-20ms`. The fact survives — you can still see it happened
+// thirteen times and what the spread was — while the noise does not. It is general on purpose:
+// the next scope to get chatty is already handled.
+
+const COALESCE_MS = 400
+
+type Pending = {
+  level: Level
+  scope: string
+  data: Record<string, unknown>
+  at: Date
+  n: number
+  lo: number
+  hi: number
+}
+let pending: Pending | null = null
+let coalesceTimer: ReturnType<typeof setTimeout> | null = null
+
+/** ms out of a `took=123ms` field, or NaN when there is none. */
+const tookMs = (data: Record<string, unknown>): number => parseInt(String(data.took ?? ''), 10)
+
+/** Write whatever is being held. Called before any other line, so order is never disturbed. */
+function settle(): void {
+  if (coalesceTimer) {
+    clearTimeout(coalesceTimer)
+    coalesceTimer = null
+  }
+  const p = pending
+  if (!p) return
+  pending = null
+  const data =
+    p.n === 1
+      ? p.data
+      : {
+          // Count first: the line reads "twelve of these, taking 5-16ms", which is the order the
+          // question is asked in.
+          count: `×${p.n}`,
+          ...p.data,
+          // The spread, not the last value: with a repeat the interesting thing is the range.
+          ...(Number.isNaN(p.lo) ? {} : { took: p.lo === p.hi ? `${p.lo}ms` : `${p.lo}-${p.hi}ms` })
+        }
+  sink.write(eventLine(p.level, p.scope, data, p.at))
+}
+
+function hold(level: Level, scope: string, data: Record<string, unknown>): void {
+  if (pending && pending.scope === scope && pending.level === level) {
+    const t = tookMs(data)
+    pending.n++
+    if (!Number.isNaN(t)) {
+      pending.lo = Number.isNaN(pending.lo) ? t : Math.min(pending.lo, t)
+      pending.hi = Number.isNaN(pending.hi) ? t : Math.max(pending.hi, t)
+    }
+  } else {
+    settle()
+    const t = tookMs(data)
+    pending = { level, scope, data, at: new Date(), n: 1, lo: t, hi: t }
+  }
+  if (coalesceTimer) clearTimeout(coalesceTimer)
+  coalesceTimer = setTimeout(settle, COALESCE_MS)
 }
 
 /**
@@ -128,6 +206,7 @@ export function error(where: string, err: unknown, extra: Record<string, unknown
     const body = stackLines[0] === headline ? stackLines.slice(1) : stackLines
 
     ring.remember(`error:${where}`)
+    settle() // a held line must not surface AFTER the error it came before
     sink.write(
       '\n' +
         block(`ERROR REPORT  ·  session ${sessionId}  ·  ${stamp()}`, [
@@ -144,5 +223,9 @@ export function error(where: string, err: unknown, extra: Record<string, unknown
   }
 }
 
-export const flush = (): void => sink.flush()
+/** Settle first: a held line that never reached the sink would not be flushed by flushing it. */
+export const flush = (): void => {
+  settle()
+  sink.flush()
+}
 export const dir = (): string => sink.path()
