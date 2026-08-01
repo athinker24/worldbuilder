@@ -1540,6 +1540,10 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     // A repeated scope collapses into one line rather than sixty. The first real session log had
     // sixty map.reload lines in three seconds and they buried everything else.
     for (let i = 0; i < 12; i++) logEvent('INFO', 'noisy.scope', { took: `${5 + i}ms` })
+    // Only genuinely identical events merge. Coalescing on the scope alone collapsed four tool
+    // changes into two lines and threw two of the four values away.
+    logEvent('INFO', 'tool.changed', { tool: 'polygon' })
+    logEvent('INFO', 'tool.changed', { tool: 'line' })
     logEvent('INFO', 'something.else', {})
     noteCall('getMap')
     noteCall('updateFeature')
@@ -1562,6 +1566,12 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       'a repeated scope leaves ONE line, not one per occurrence'
     )
     assert.ok(/noisy\.scope.*count=×12 took=5-16ms/.test(txt), 'and it keeps the count and spread')
+    assert.equal(
+      eventLines.filter((l) => l.includes('tool.changed')).length,
+      2,
+      'events that share a scope but differ in data are NOT merged'
+    )
+    assert.ok(txt.includes('tool=polygon') && txt.includes('tool=line'), 'and neither is lost')
     assert.ok(txt.includes('ERROR REPORT'), 'an error gets the full block, not a line')
     assert.ok(!txt.includes('logEvents'), 'the act of logging stays out of the trail')
     assert.ok(txt.includes('TypeError: boom'), 'the error itself')

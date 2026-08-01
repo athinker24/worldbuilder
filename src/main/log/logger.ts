@@ -76,17 +76,22 @@ export const debugEnabled = (): boolean => debug
  * Nothing in here may be called per frame. The rule is kept by where calls are placed rather than
  * by filtering: a log that has to defend itself against its own callers has already lost.
  */
-export function event(level: Level, scope: string, data: Record<string, unknown> = {}): void {
+export function event(
+  level: Level,
+  scope: string,
+  data: Record<string, unknown> = {},
+  at = new Date()
+): void {
   if (level === 'DEBUG' && !debug) return
   ring.remember(scope)
   if (level === 'ERROR') {
     // Written through immediately, and never coalesced: the moment a line is worth keeping is the
     // moment the process might not survive to flush it.
     settle()
-    sink.write(eventLine(level, scope, data), true)
+    sink.write(eventLine(level, scope, data, at), true)
     return
   }
-  hold(level, scope, data)
+  hold(level, scope, data, at)
 }
 
 // --- Coalescing -------------------------------------------------------------------------------
@@ -107,6 +112,8 @@ type Pending = {
   level: Level
   scope: string
   data: Record<string, unknown>
+  /** Everything but `took`, so only genuinely identical events merge — see `shape`. */
+  shape: string
   at: Date
   n: number
   lo: number
@@ -141,9 +148,26 @@ function settle(): void {
   sink.write(eventLine(p.level, p.scope, data, p.at))
 }
 
-function hold(level: Level, scope: string, data: Record<string, unknown>): void {
-  if (pending && pending.scope === scope && pending.level === level) {
-    const t = tookMs(data)
+/**
+ * Everything but the duration, as a comparable string.
+ *
+ * Coalescing on the SCOPE alone was wrong and the first log to use it showed why: four tool changes
+ * became two lines reading `tool.changed count=×2 tool=polygon from=none`, with two of the four
+ * values silently gone. `map.reload features=5` repeated really is the same event; `tool.changed
+ * tool=polygon` and `tool.changed tool=line` are two different things that happen to share a name.
+ * `took` is excluded because it is the one field expected to differ — that is what the range is for.
+ */
+const shape = (data: Record<string, unknown>): string =>
+  JSON.stringify(Object.entries(data).filter(([k]) => k !== 'took'))
+
+function hold(level: Level, scope: string, data: Record<string, unknown>, at: Date): void {
+  const t = tookMs(data)
+  if (
+    pending &&
+    pending.scope === scope &&
+    pending.level === level &&
+    pending.shape === shape(data)
+  ) {
     pending.n++
     if (!Number.isNaN(t)) {
       pending.lo = Number.isNaN(pending.lo) ? t : Math.min(pending.lo, t)
@@ -151,8 +175,7 @@ function hold(level: Level, scope: string, data: Record<string, unknown>): void 
     }
   } else {
     settle()
-    const t = tookMs(data)
-    pending = { level, scope, data, at: new Date(), n: 1, lo: t, hi: t }
+    pending = { level, scope, data, at, n: 1, lo: t, hi: t, shape: shape(data) }
   }
   if (coalesceTimer) clearTimeout(coalesceTimer)
   coalesceTimer = setTimeout(settle, COALESCE_MS)

@@ -46,8 +46,14 @@ export const logError = (where: string, err: unknown, extra: Record<string, unkn
   logger.error(where, err, extra)
 
 /** One event. `scope` is a dotted path: `project.opened`, `map.changed`, `tool.changed`. */
-export const logEvent = (level: Level, scope: string, data: Record<string, unknown> = {}): void =>
-  logger.event(level, scope, data)
+export const logEvent = (
+  level: Level,
+  scope: string,
+  data: Record<string, unknown> = {},
+  // Renderer events carry the time they HAPPENED. Without it a whole 500 ms batch shares one
+  // instant, and separate actions read as simultaneous.
+  at?: Date
+): void => logger.event(level, scope, data, at)
 
 /** Time an operation; the returned function ends it and writes the line. */
 export const logTime = logger.time

@@ -13,7 +13,15 @@ import { api } from './api'
 // increment and never touches the queue; see below for why that matters more than it sounds.
 
 type Level = 'INFO' | 'WARN' | 'DEBUG'
-type Entry = { level: Level; scope: string; data?: Record<string, unknown> }
+/**
+ * `at` is stamped HERE, when the event happens, and travels with it.
+ *
+ * Without it main stamps events as it writes them, so everything in one batch shares a
+ * millisecond — and a log where three separate keypresses read as simultaneous is worse than no
+ * timestamps at all. It cost a false bug report the first time this file was read: three ordinary
+ * undos looked like one keystroke firing three times.
+ */
+type Entry = { level: Level; scope: string; data?: Record<string, unknown>; at: number }
 
 const BATCH_MS = 500
 let queue: Entry[] = []
@@ -39,7 +47,7 @@ const ship = (): void => {
  */
 export function logEvent(level: Level, scope: string, data?: Record<string, unknown>): void {
   if (level === 'DEBUG' && !debug) return
-  queue.push({ level, scope, data })
+  queue.push({ level, scope, data, at: Date.now() })
   // A burst that outgrows the batch window ships early rather than growing without bound.
   if (queue.length >= 100) return ship()
   if (!timer) timer = setTimeout(ship, BATCH_MS)

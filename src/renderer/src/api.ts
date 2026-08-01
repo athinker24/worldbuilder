@@ -119,8 +119,9 @@ export const api = {
     inv<void>('logRendererError', where, message, stack, ctx).catch(() => {}),
   // Session events, batched by log.ts. Fire-and-forget for the same reason as logError: failing to
   // write a log line must never become a second failure on top of whatever it was describing.
-  logEvents: (batch: { level: string; scope: string; data?: Record<string, unknown> }[]) =>
-    inv<void>('logEvents', batch).catch(() => {}),
+  logEvents: (
+    batch: { level: string; scope: string; data?: Record<string, unknown>; at: number }[]
+  ) => inv<void>('logEvents', batch).catch(() => {}),
   logSessionInfo: (info: Record<string, unknown>) =>
     inv<void>('logSessionInfo', info).catch(() => {}),
   openLogFolder: () => inv<void>('openLogFolder'),

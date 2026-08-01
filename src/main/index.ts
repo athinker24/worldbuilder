@@ -559,12 +559,21 @@ const mainApi = {
    * `.dunya`'s content — so the level is validated against the four known values rather than
    * written through, and every field is clipped downstream in format.ts.
    */
-  logEvents(batch: { level: string; scope: string; data?: Record<string, unknown> }[]): void {
+  logEvents(
+    batch: { level: string; scope: string; data?: Record<string, unknown>; at?: number }[]
+  ): void {
     if (!Array.isArray(batch)) return
     for (const e of batch.slice(0, 200)) {
       const level = (['INFO', 'WARN', 'ERROR', 'DEBUG'] as const).find((l) => l === e?.level)
       if (!level || typeof e.scope !== 'string') continue
-      logEvent(level as Level, e.scope.slice(0, 40), e.data ?? {})
+      // The renderer's own stamp, so a batch does not collapse into one instant. Sanity-checked
+      // rather than trusted: it crosses from a renderer that may be running hostile content, and
+      // a nonsense date would make the whole file unreadable.
+      const at =
+        typeof e.at === 'number' && Math.abs(Date.now() - e.at) < 60_000
+          ? new Date(e.at)
+          : undefined
+      logEvent(level as Level, e.scope.slice(0, 40), e.data ?? {}, at)
     }
   },
   /** What only the renderer knows about the session — GPU backend, screen, its own versions. */
