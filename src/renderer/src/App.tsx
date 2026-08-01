@@ -31,6 +31,7 @@ import Preferences from './Preferences'
 import ProjectPreferences from './ProjectPreferences'
 import Shortcuts from './Shortcuts'
 import { pushUndo, redo, undo } from './undo'
+import { logEvent } from './log'
 
 // Workspaces (places you go) vs commands (things you do): the commands all live in the
 // application menu now, so every kind here is somewhere the main area can show.
@@ -180,9 +181,11 @@ export default function App(): React.JSX.Element {
   // Every map open writes 'lastMapId' (all switches — toolbar menu included — pass through
   // here) → returning to the app/maps reopens the last viewed map. Lives in the settings
   // table, so it travels inside the .dunya.
+  // Every switch between maps goes through here, which is why the log line does too.
   const openMap = useCallback(
     (id: number): void => {
       api.setSetting('lastMapId', String(id))
+      logEvent('INFO', 'map.changed', { map: id })
       navigate({ kind: 'map', id })
     },
     [navigate]
@@ -380,17 +383,17 @@ export default function App(): React.JSX.Element {
             ? exportMapRef.current()
             : showToast(translate(lang, 'Open a map first.'))
         case 'file.exportNotes':
-          return void api
-            .exportNotes()
-            .then(({ files }) =>
-              showToast(
-                translate(lang, 'Exported {n} note file(s); opening the folder…', { n: files })
-              )
+          return void api.exportNotes().then(({ files }) => {
+            logEvent('INFO', 'notes.export', { files })
+            showToast(
+              translate(lang, 'Exported {n} note file(s); opening the folder…', { n: files })
             )
+          })
         case 'file.backup':
-          return void api
-            .backupNow()
-            .then((path) => showToast(translate(lang, 'Backed up to {path}', { path })))
+          return void api.backupNow().then((path) => {
+            logEvent('INFO', 'project.backup', { file: path.split(/[\\/]/).pop() })
+            showToast(translate(lang, 'Backed up to {path}', { path }))
+          })
         case 'edit.undo':
         case 'edit.redo':
           return void (cmd === 'edit.redo' ? redo() : undo()).then((did) => {

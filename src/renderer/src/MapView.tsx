@@ -69,6 +69,7 @@ import ToolPanel, {
   TravelMode
 } from './ToolPanel'
 import { pushUndo } from './undo'
+import { endFrames, frame, logEvent, logTime } from './log'
 
 L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl })
 
@@ -1386,9 +1387,11 @@ export default function MapView({
     if (toolRef.current === t) {
       toolRef.current = null
       setToolState(null)
+      logEvent('INFO', 'tool.changed', { tool: 'none', from: t })
       syncEditMode() // when leaving edit, close the selected feature's vertex markers
       return
     }
+    logEvent('INFO', 'tool.changed', { tool: t, from: toolRef.current ?? 'none' })
     toolRef.current = t
     setToolState(t)
     syncEditMode() // entering edit opens the selection; switching tools closes the old edit
@@ -1751,6 +1754,9 @@ export default function MapView({
   const reloadGen = useRef(0)
   const reloadFeatures = async (): Promise<void> => {
     const gen = ++reloadGen.current
+    // The map is unresponsive for as long as this runs — every layer is rebuilt — so it is the one
+    // renderer operation whose duration is always worth a line.
+    const done = logTime('map.reload')
     const wm = await api.getMap(id)
     // Parent histories, the base set and color/name records fill in EVERY mode: conquest year
     // ticks, rank resolution and the default (root) view all feed from here
@@ -2333,6 +2339,7 @@ export default function MapView({
     // The full rebuild recreated the layers → reopen edit on the selected feature's NEW layers
     // (selected only; not global — that was where the lag came from)
     syncEditMode()
+    done({ features: wm?.features.length ?? 0 })
   }
 
   // CK3-style derived region labels (rank/paint): ADJACENT base polygons in the same group
@@ -3246,6 +3253,11 @@ export default function MapView({
         wheelRaf = null
         return
       }
+      // The frame counter, and the ONLY logging call allowed on a per-frame path: an integer
+      // increment, no allocation, no queue. Frame rate is measured from the frames the map was
+      // already drawing rather than from a loop of our own, because a permanent
+      // requestAnimationFrame would undo the on-demand rendering everything here is built on.
+      frame()
       const cur = wheelShown ?? map.getZoom()
       const diff = wheelTarget - cur
       if (Math.abs(diff) < 0.004) {
@@ -3260,6 +3272,9 @@ export default function MapView({
         // the backstop for the paths that reach a zoom without a wheel gesture.
         labelLayer.current?.setResolution(2 ** map.getZoom())
         drawLabels()
+        // The gesture is over, which is the only moment its frame rate means anything. Silent
+        // unless it was genuinely poor for long enough to matter (see log.ts).
+        endFrames('zoom')
         return
       }
       const z = cur + diff * 0.2

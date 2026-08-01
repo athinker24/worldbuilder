@@ -11,11 +11,12 @@ import {
   renameSync,
   statSync,
   unlinkSync,
+  utimesSync,
   writeFileSync
 } from 'fs'
 import { tmpdir } from 'os'
 import assert from 'assert'
-import { initLog, logError, noteCall } from './log.ts'
+import { flushLog, initLog, logError, logEvent, logSetDebug, logTime, noteCall } from './log.ts'
 
 // Kept free of Electron imports so `node src/main/db.ts` can run the self-check standalone.
 let db!: DatabaseSync
@@ -1519,18 +1520,37 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   {
     const ldir = join(dir, 'logtest')
     mkdirSync(ldir, { recursive: true })
-    initLog(ldir, '9.9.9', () => ({ file: 'w.dunya', dirty: true }))
-    noteCall('getMap')
-    noteCall('updateFeature')
-    logError('ipc:updateFeature', new TypeError('boom'), { extra: 'x'.repeat(2000) })
     const logs = join(ldir, 'logs')
     const only = (): string => {
-      const n = readdirSync(logs).filter((f) => /^error-.*\.log$/.test(f))
-      assert.equal(n.length, 1, 'one file per run')
+      const n = readdirSync(logs).filter((f) => /_session\.log$/.test(f))
+      assert.equal(n.length, 1, 'one file per session')
       return join(logs, n[0])
     }
+
+    initLog(ldir, '9.9.9', () => ({ file: 'w.dunya', dirty: true }))
+    // The header is written at INIT, not on the first error: a session log that only sometimes
+    // exists cannot be asked for by a user, which is the whole point of having one.
+    assert.ok(readFileSync(only(), 'utf8').includes('SESSION START'), 'header at session start')
+
+    logEvent('INFO', 'project.opened', { file: 'w.dunya', entities: 163 })
+    logEvent('DEBUG', 'never.written', {})
+    logSetDebug(true)
+    logEvent('DEBUG', 'now.written', {})
+    logTime('map.reload')({ features: 12 })
+    noteCall('getMap')
+    noteCall('updateFeature')
+    noteCall('logEvents') // reporting is not something the app was DOING — must stay out of it
+    logError('ipc:updateFeature', new TypeError('boom'), { extra: 'x'.repeat(2000) })
+    flushLog()
+
     const txt = readFileSync(only(), 'utf8')
-    assert.ok(txt.includes('version=9.9.9'), 'session header')
+    assert.ok(txt.includes('App       9.9.9'), 'the header carries the version')
+    assert.ok(/INFO {2}.*project\.opened.*entities=163/.test(txt), 'one line per event')
+    assert.ok(!txt.includes('never.written'), 'DEBUG is silent while the switch is off')
+    assert.ok(txt.includes('now.written'), 'and speaks once it is on')
+    assert.ok(/map\.reload.*took=\d+ms/.test(txt), 'a timed operation reports its duration')
+    assert.ok(txt.includes('ERROR REPORT'), 'an error gets the full block, not a line')
+    assert.ok(!txt.includes('logEvents'), 'the act of logging stays out of the trail')
     assert.ok(txt.includes('TypeError: boom'), 'the error itself')
     assert.ok(txt.includes('file=w.dunya dirty=true'), 'context from the app')
     assert.ok(txt.includes('getMap → updateFeature'), 'the call trail — how it got there')
@@ -1541,11 +1561,12 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     // One file per RUN: a second run writes its own, and files from the older naming schemes are
     // cleared out rather than left to sit there looking as current as everything else.
     const firstRun = basename(only())
-    writeFileSync(join(logs, 'error.log'), 'from an older version')
+    writeFileSync(join(logs, 'error-2026-01-01_00-00-00-abc.log'), 'from an older version')
     initLog(ldir, '9.9.9', () => ({}))
     logError('main:uncaught', new Error('second run'))
+    flushLog()
     const files = readdirSync(logs)
-    assert.equal(files.length, 2, 'a file per run, and the legacy name is gone')
+    assert.equal(files.length, 2, 'a file per session, and the legacy name is gone')
     const secondRun = join(
       logs,
       files.find((f) => f !== firstRun)!
@@ -1561,6 +1582,14 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     const capped = readFileSync(secondRun, 'utf8')
     assert.ok(capped.includes('log capped'), 'the cap is announced, not silent')
     assert.ok(!capped.includes('long after the cap'), 'and it holds')
+
+    // Retention: past the age limit a file goes, whatever the count says. Logs must not be a
+    // folder that only ever grows on someone's machine.
+    const stale = join(logs, '2020-01-01_00-00-00_old_session.log')
+    writeFileSync(stale, 'ancient')
+    utimesSync(stale, new Date(0), new Date(0))
+    initLog(ldir, '9.9.9', () => ({}))
+    assert.ok(!existsSync(stale), 'a log past the retention window is removed on launch')
   }
 
   console.log('db self-check OK')

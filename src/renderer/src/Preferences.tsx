@@ -1,6 +1,8 @@
-import { Lang, saveLanguage, saveTheme, Theme } from './api'
+import { useEffect, useState } from 'react'
+import { api, getDebugLog, Lang, saveDebugLog, saveLanguage, saveTheme, Theme } from './api'
 import Select from './Select'
 import { useT } from './i18n'
+import { setDebugLog } from './log'
 import { Row, Section } from './ui'
 
 // APPLICATION preferences: how the app itself behaves, independent of which world is open.
@@ -20,6 +22,13 @@ export default function Preferences({
   onThemeChange
 }: Props): React.JSX.Element {
   const t = useT()
+  const [debug, setDebug] = useState(false)
+  useEffect(() => {
+    void getDebugLog().then((on) => {
+      setDebug(on)
+      setDebugLog(on) // the renderer's own filter, so a DEBUG line costs a boolean test when off
+    })
+  }, [])
   return (
     <div className="page">
       <div className="page-head">
@@ -66,6 +75,35 @@ export default function Preferences({
           )}
         </p>
         <p className="hint">{t('Take an extra backup with File ▸ Back Up Now.')}</p>
+      </Section>
+
+      {/* Every session already writes a log; this only decides how much detail goes into it.
+          Off by default because DEBUG is for diagnosing the app, not for using it — and a chatty
+          log is one nobody reads when it finally matters. */}
+      <Section title={t('Developer')}>
+        <Row label={t('Detailed logging')}>
+          <Select
+            value={debug ? 'on' : 'off'}
+            onChange={(v) => {
+              const on = v === 'on'
+              setDebug(on)
+              setDebugLog(on)
+              void saveDebugLog(on)
+            }}
+            options={[
+              { value: 'off', label: t('Off') },
+              { value: 'on', label: t('On') }
+            ]}
+          />
+        </Row>
+        <p className="hint">
+          {t(
+            'Every run writes a log of what happened. Turn this on to add timings and internal detail — useful when reporting a problem.'
+          )}
+        </p>
+        <button className="mini" onClick={() => void api.openLogFolder()}>
+          {t('Open Log Folder')}
+        </button>
       </Section>
     </div>
   )
