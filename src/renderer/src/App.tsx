@@ -31,7 +31,7 @@ import Preferences from './Preferences'
 import ProjectPreferences from './ProjectPreferences'
 import Shortcuts from './Shortcuts'
 import { pushUndo, redo, undo } from './undo'
-import { logEvent } from './log'
+import { logEvent, setDebugLog } from './log'
 
 // Workspaces (places you go) vs commands (things you do): the commands all live in the
 // application menu now, so every kind here is somewhere the main area can show.
@@ -107,6 +107,12 @@ export default function App(): React.JSX.Element {
     getTheme().then(setTheme)
     api.getPrefs().then((p) => {
       if (p.sidebarWidth) setSidebarW(p.sidebarWidth)
+      // The renderer keeps its own copy of the DEBUG switch so a suppressed line costs one boolean
+      // test instead of a trip across the bridge. It was only ever set from the Preferences screen,
+      // which means it started false every launch and stayed false unless you happened to open
+      // that page: main said `log.debug enabled=true` and the renderer sent nothing. Here, with the
+      // other preferences, is where it belongs.
+      setDebugLog(p.debugLog === true)
     })
   }, [])
 

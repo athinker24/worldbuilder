@@ -131,6 +131,8 @@ type Pending = {
   /** Everything but `took`, so only genuinely identical events merge — see `shape`. */
   shape: string
   at: Date
+  /** When the LAST of the run arrived — see `over` in settle(). */
+  last: Date
   n: number
   lo: number
   hi: number
@@ -150,6 +152,7 @@ function settle(): void {
   const p = pending
   if (!p) return
   pending = null
+  const span = p.last.getTime() - p.at.getTime()
   const data =
     p.n === 1
       ? p.data
@@ -159,7 +162,14 @@ function settle(): void {
           count: `×${p.n}`,
           ...p.data,
           // The spread, not the last value: with a repeat the interesting thing is the range.
-          ...(Number.isNaN(p.lo) ? {} : { took: p.lo === p.hi ? `${p.lo}ms` : `${p.lo}-${p.hi}ms` })
+          ...(Number.isNaN(p.lo)
+            ? {}
+            : { took: p.lo === p.hi ? `${p.lo}ms` : `${p.lo}-${p.hi}ms` }),
+          // HOW LONG the run lasted. `feature.selected ×6` alone cannot be read: six clicks over
+          // four seconds and six fires inside one frame print identically, and they are a user
+          // being a user versus a bug. Omitted at 0ms, which is the synchronous-loop case and
+          // would just be a column of zeroes.
+          ...(span > 0 ? { over: `${span}ms` } : {})
         }
   sink.write(eventLine(p.level, p.scope, data, p.at))
 }
@@ -185,13 +195,14 @@ function hold(level: Level, scope: string, data: Record<string, unknown>, at: Da
     pending.shape === shape(data)
   ) {
     pending.n++
+    pending.last = at
     if (!Number.isNaN(t)) {
       pending.lo = Number.isNaN(pending.lo) ? t : Math.min(pending.lo, t)
       pending.hi = Number.isNaN(pending.hi) ? t : Math.max(pending.hi, t)
     }
   } else {
     settle()
-    pending = { level, scope, data, at, n: 1, lo: t, hi: t, shape: shape(data) }
+    pending = { level, scope, data, at, last: at, n: 1, lo: t, hi: t, shape: shape(data) }
   }
   if (coalesceTimer) clearTimeout(coalesceTimer)
   coalesceTimer = setTimeout(settle, COALESCE_MS)

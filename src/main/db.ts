@@ -1545,6 +1545,13 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     logEvent('INFO', 'tool.changed', { tool: 'polygon' })
     logEvent('INFO', 'tool.changed', { tool: 'line' })
     logEvent('INFO', 'something.else', {})
+    // A run has to say how LONG it lasted: `feature.selected ×6` reads the same whether it was six
+    // clicks over four seconds or six fires inside one frame, and only one of those is a bug.
+    {
+      const t0 = Date.now()
+      logEvent('INFO', 'clicky.scope', { feature: 116 }, new Date(t0))
+      logEvent('INFO', 'clicky.scope', { feature: 116 }, new Date(t0 + 1500))
+    }
     noteCall('getMap')
     noteCall('updateFeature')
     noteCall('logEvents') // reporting is not something the app was DOING — must stay out of it
@@ -1572,6 +1579,10 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       'events that share a scope but differ in data are NOT merged'
     )
     assert.ok(txt.includes('tool=polygon') && txt.includes('tool=line'), 'and neither is lost')
+    assert.ok(
+      /clicky\.scope.*count=×2 feature=116 over=1500ms/.test(txt),
+      'a coalesced run says how long it lasted, not only how many'
+    )
     assert.ok(txt.includes('ERROR REPORT'), 'an error gets the full block, not a line')
     assert.ok(!txt.includes('logEvents'), 'the act of logging stays out of the trail')
     assert.ok(txt.includes('TypeError: boom'), 'the error itself')
