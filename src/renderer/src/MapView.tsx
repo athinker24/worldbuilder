@@ -69,7 +69,7 @@ import ToolPanel, {
   TravelMode
 } from './ToolPanel'
 import { pushUndo } from './undo'
-import { endFrames, frame, logEvent, logTime } from './log'
+import { endFrames, frame, logCrash, logEvent, logTime } from './log'
 
 L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl })
 
@@ -3372,12 +3372,9 @@ export default function MapView({
       .catch((err) => {
         labelLayer.current = null
         lc.remove()
-        void api.logError(
-          'MapView.labelLayer',
-          String(err?.message ?? err),
-          String(err?.stack ?? ''),
-          { detail: 'WebGL label layer failed to start; map labels are off' }
-        )
+        logCrash('MapView.labelLayer', String(err?.message ?? err), String(err?.stack ?? ''), {
+          detail: 'WebGL label layer failed to start; map labels are off'
+        })
       })
     map.on('move', () => {
       drawLabels()

@@ -76,6 +76,22 @@ export const debugEnabled = (): boolean => debug
  * Nothing in here may be called per frame. The rule is kept by where calls are placed rather than
  * by filtering: a log that has to defend itself against its own callers has already lost.
  */
+/**
+ * How an event reads in the trail: `tool.changed(edit)`, not `tool.changed`.
+ *
+ * Without the value a trail of three tool changes is three identical words, and the one question
+ * it is asked — which tool was live when this broke — is answered on the event lines above and
+ * nowhere in the summary that exists to save reading them. The FIRST value is the identifying one
+ * by construction: these objects are written subject first (`{tool, from}`, `{map, features}`).
+ */
+const trailName = (scope: string, data: Record<string, unknown>): string => {
+  const v = Object.values(data)[0]
+  // A bare `true` says nothing without the key it belonged to — `app.started(false)` is worse
+  // than `app.started`.
+  if (v === undefined || v === null || v === '' || typeof v === 'boolean') return scope
+  return `${scope}(${String(v).slice(0, 20)})`
+}
+
 export function event(
   level: Level,
   scope: string,
@@ -83,7 +99,7 @@ export function event(
   at = new Date()
 ): void {
   if (level === 'DEBUG' && !debug) return
-  ring.remember(scope)
+  ring.remember(trailName(scope, data))
   if (level === 'ERROR') {
     // Written through immediately, and never coalesced: the moment a line is worth keeping is the
     // moment the process might not survive to flush it.

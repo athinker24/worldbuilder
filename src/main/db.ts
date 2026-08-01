@@ -1577,6 +1577,12 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.ok(txt.includes('TypeError: boom'), 'the error itself')
     assert.ok(txt.includes('file=w.dunya dirty=true'), 'context from the app')
     assert.ok(txt.includes('getMap → updateFeature'), 'the call trail — how it got there')
+    // Without the value the trail reads `tool.changed → tool.changed` and the one thing it is
+    // asked — which tool was live — is missing from the summary that exists to save reading.
+    assert.ok(
+      txt.includes('tool.changed(polygon) → tool.changed(line)'),
+      'the trail carries what the event was ABOUT, not only its name'
+    )
     assert.ok(txt.includes('chars]'), 'oversized fields are clipped, not written whole')
     // A logger that throws while reporting is worse than none: unwritable directory, no crash.
     initLog(join(dir, 'nope', ' bad'), '1', () => ({}))

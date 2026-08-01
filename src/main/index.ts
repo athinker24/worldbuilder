@@ -272,6 +272,28 @@ function startMemoryWatch(): void {
   }, MEMORY_SAMPLE_MS).unref?.()
 }
 
+/**
+ * What the renderer was doing, for the `context` line of an error report.
+ *
+ * A failure inside a save is a different bug depending on which map was open and which tool was
+ * live, and main can see none of it — so an `ipc:*` report, which is the most common kind there is,
+ * used to carry a file name and nothing else. But main already RECEIVES every one of these: they
+ * cross the bridge as ordinary events anyway, so remembering the last value of each costs one
+ * assignment and adds no channel, no call site and nothing for a future event to remember to do.
+ */
+const UI_KEYS: Record<string, string> = {
+  'map.changed': 'map',
+  'tool.changed': 'tool',
+  'feature.selected': 'feature',
+  'map.zoomed': 'zoom'
+}
+const ui: Record<string, string> = {}
+function noteUiState(scope: string, data: Record<string, unknown> | undefined): void {
+  const key = UI_KEYS[scope]
+  const v = key ? data?.[key] : undefined
+  if (v != null) ui[key] = String(v).slice(0, 40)
+}
+
 /** Help > Open Error Log, and the same call behind Preferences ▸ Open Log Folder.
  *  Reveals THIS session's file selected rather than opening a folder of 200 sorted by name — the
  *  file a user is being asked for is the run they are in, and picking it out of the list is the
@@ -589,6 +611,7 @@ const mainApi = {
     for (const e of batch.slice(0, 200)) {
       const level = (['INFO', 'WARN', 'ERROR', 'DEBUG'] as const).find((l) => l === e?.level)
       if (!level || typeof e.scope !== 'string') continue
+      noteUiState(e.scope, e.data)
       // The renderer's own stamp, so a batch does not collapse into one instant. Sanity-checked
       // rather than trusted: it crosses from a renderer that may be running hostile content, and
       // a nonsense date would make the whole file unreadable.
@@ -700,6 +723,25 @@ function createWindow(): void {
     }
   })
 
+  // A renderer that DIES writes nothing on its way out: the file simply stops mid-session, which
+  // is the one case where a log is needed most and present least. `oom` is why this is here at all
+  // — a world heavy enough to exhaust the renderer is this app's most likely real crash, and it
+  // leaves the user with a white window and us with a file that just ends. clean-exit is the
+  // ordinary quit and must stay silent, or every close would file an error report.
+  win.webContents.on('render-process-gone', (_e, d) => {
+    if (d.reason === 'clean-exit') return
+    logError('main:render-process-gone', `renderer ${d.reason}`, { exit: d.exitCode })
+  })
+  // Not a crash — a freeze. The user sees the same thing, so the log should be able to tell them
+  // apart afterwards.
+  win.webContents.on('unresponsive', () => logEvent('WARN', 'window.unresponsive'))
+  win.webContents.on('responsive', () => logEvent('INFO', 'window.responsive'))
+  // Without this a broken preload is an app with no window.api: every screen empty, nothing thrown
+  // anywhere the app can see, and no line anywhere saying why.
+  win.webContents.on('preload-error', (_e, p, err) =>
+    logError('main:preload', err, { preload: basename(p) })
+  )
+
   // The app uses no browser permissions (camera, location, notifications…) — all denied.
   // Remote content cannot load anyway; this is a cheap safety latch in case something ever slips.
   win.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
@@ -763,7 +805,7 @@ app.whenReady().then(() => {
   initLog(
     DATA_DIR,
     app.getVersion(),
-    () => ({ file: currentFile ? basename(currentFile) : null, dirty }),
+    () => ({ file: currentFile ? basename(currentFile) : null, dirty, ...ui }),
     { memory: memoryLine() }
   )
   // app.started FIRST: setDebug writes a line of its own, and having it above the line that says
@@ -775,6 +817,14 @@ app.whenReady().then(() => {
   // console nobody is watching in a packaged app.
   process.on('uncaughtException', (err) => logError('main:uncaught', err))
   process.on('unhandledRejection', (err) => logError('main:unhandledRejection', err))
+  // The GPU process, most of all: it dying is exactly what a report of "the map went blank" is,
+  // and it takes no JS with it, so nothing else in the app would ever notice.
+  app.on('child-process-gone', (_e, d) =>
+    logError('main:child-process-gone', `${d.type} ${d.reason}`, {
+      name: d.name,
+      exit: d.exitCode
+    })
+  )
   initDb(DATA_DIR)
   adoptLegacyPrefs() // language/theme out of the settings table — BEFORE the resetWorld() below
   // Everything from here to createWindow() is best-effort. A throw used to escape into the

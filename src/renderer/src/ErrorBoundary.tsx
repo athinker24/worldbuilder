@@ -2,6 +2,7 @@ import { Component, type ReactNode } from 'react'
 import { api, getLanguage, type Lang } from './api'
 import Icon from './icons'
 import { translate } from './i18n'
+import { logCrash } from './log'
 
 // An opened .dunya is written OVER the working copy: if a corrupt/hostile file throws during
 // render, without a boundary the window would sit blank — and the UI for opening a different
@@ -24,7 +25,7 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
     console.error('Caught render error:', error)
     // The component stack is the point of logging here: a render crash's own stack is minified
     // build output, while the component stack names the actual screen that broke.
-    void api.logError('ErrorBoundary', error.message, error.stack ?? '', {
+    logCrash('ErrorBoundary', error.message, error.stack ?? '', {
       // Each raw line already reads "    at Foo (...)" and the stack starts with a blank line —
       // trim + filter before joining, or the printed trail opens with a stray '<' and doubled
       // indentation (seen in the first real crash this caught).

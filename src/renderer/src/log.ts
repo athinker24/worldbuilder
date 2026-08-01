@@ -115,3 +115,22 @@ export function endFrames(what: string): void {
 
 /** Ship whatever is queued. Called when the window is going away. */
 export const flushEvents = (): void => ship()
+
+/**
+ * Report a failure — and ship the queue FIRST, which is the whole reason this exists rather than
+ * calling `api.logError` directly.
+ *
+ * The error goes over the bridge immediately while events wait up to BATCH_MS, so the report's
+ * trail was missing precisely the last half second: the actions that caused it. Both calls are
+ * `invoke` on the same channel and main handles them in order, so shipping first also puts the
+ * events ABOVE the error block in the file, which is the order they happened in.
+ */
+export function logCrash(
+  where: string,
+  message: string,
+  stack: string,
+  ctx: Record<string, unknown>
+): void {
+  ship()
+  void api.logError(where, message, stack, ctx)
+}
