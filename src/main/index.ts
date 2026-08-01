@@ -233,27 +233,40 @@ function memoryLine(): string {
  * In main, so it cannot touch the renderer's frame budget: the map is the thing whose smoothness
  * was paid for, and nothing added for observability may spend it.
  */
-function startMemoryWatch(): void {
-  // -1, not 0: the first sample is a BASELINE, not a change. Starting at zero made every session
-  // open with an invented `memory.changed from=0MB to=901MB`.
-  let last = -1
-  let warned = false
-  setInterval(() => {
-    const total = Math.round(
+const memoryTotalMb = (): number => {
+  try {
+    return Math.round(
       app.getAppMetrics().reduce((s, p) => s + (p.memory?.workingSetSize ?? 0), 0) / 1024
     )
+  } catch {
+    return 0
+  }
+}
+
+// -1 until the baseline is taken. The first SAMPLE is not a change, and treating it as one made
+// every session open with an invented `memory.changed from=0MB to=901MB`.
+let memLast = -1
+/** Called once the renderer has reported in and the real figure has been written. */
+const noteMemoryBaseline = (): void => {
+  memLast = memoryTotalMb()
+}
+
+function startMemoryWatch(): void {
+  let warned = false
+  setInterval(() => {
+    const total = memoryTotalMb()
     if (!total) return
     if (total > MEMORY_WARN_MB && !warned) {
       warned = true
       logEvent('WARN', 'memory.high', { total: `${total}MB`, threshold: `${MEMORY_WARN_MB}MB` })
     } else if (total < MEMORY_WARN_MB * 0.8) warned = false
-    if (last < 0) {
-      last = total // baseline, silently: the app starting is not the app changing
+    if (memLast < 0) {
+      memLast = total // no baseline yet (renderer never reported) — take one, silently
       return
     }
-    if (Math.abs(total - last) >= MEMORY_STEP_MB) {
-      logEvent('INFO', 'memory.changed', { from: `${last}MB`, to: `${total}MB` })
-      last = total
+    if (Math.abs(total - memLast) >= MEMORY_STEP_MB) {
+      logEvent('INFO', 'memory.changed', { from: `${memLast}MB`, to: `${total}MB` })
+      memLast = total
     }
   }, MEMORY_SAMPLE_MS).unref?.()
 }
@@ -579,6 +592,17 @@ const mainApi = {
   /** What only the renderer knows about the session — GPU backend, screen, its own versions. */
   logSessionInfo(info: Record<string, unknown>): void {
     logEvent('INFO', 'renderer.ready', info ?? {})
+    // The app's real weight, recorded once, here. The header's figure is the main process alone —
+    // at startup the renderer and GPU processes do not exist yet — and the sampler only speaks when
+    // memory MOVES, so a short session could open at 63MB, close at 813MB and say nothing in
+    // between. This is the line that answers "what does this world cost on this machine".
+    setTimeout(() => {
+      const m = memoryLine()
+      if (m) {
+        logEvent('INFO', 'memory.baseline', { total: m })
+        noteMemoryBaseline()
+      }
+    }, 2000)
   },
   openLogFolder: (): void => openLogs(),
   getPrefs: (): Prefs => readPrefs(),
@@ -728,8 +752,10 @@ app.whenReady().then(() => {
     () => ({ file: currentFile ? basename(currentFile) : null, dirty }),
     { memory: memoryLine() }
   )
-  logSetDebug(readPrefs().debugLog === true)
+  // app.started FIRST: setDebug writes a line of its own, and having it above the line that says
+  // the app started reads as though the log began mid-sentence.
   logEvent('INFO', 'app.started', { packaged: app.isPackaged, locale: app.getLocale() })
+  logSetDebug(readPrefs().debugLog === true)
   startMemoryWatch()
   // Last resort: anything that escapes every handler still reaches the file rather than a
   // console nobody is watching in a packaged app.
