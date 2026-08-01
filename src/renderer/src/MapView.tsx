@@ -3291,9 +3291,14 @@ export default function MapView({
         // The gesture is over, which is the only moment its frame rate means anything. Silent
         // unless it was genuinely poor for long enough to matter (see log.ts).
         endFrames('zoom')
-        // One line per GESTURE, never per frame: where the user ended up is worth knowing, the
-        // path they took to get there is the noise this log is supposed not to contain.
-        logEvent('INFO', 'map.zoomed', { zoom: map.getZoom().toFixed(2) })
+        // One line per GESTURE, never per frame — and DEBUG even then. At INFO this was 60 of the
+        // first real session's 110 lines and buried everything else: on this map zooming is not an
+        // action a user takes occasionally, it is how they look at anything. It is exactly the
+        // "continuous render updates" the log is not supposed to contain, arriving one settle at a
+        // time instead of one frame at a time. Detailed logging is where it belongs, and it is the
+        // first thing that switch actually turns on. Cost: with the switch off, main no longer
+        // knows the zoom for an error report's context — a renderer error still carries its own.
+        logEvent('DEBUG', 'map.zoomed', { zoom: map.getZoom().toFixed(2) })
         return
       }
       const z = cur + diff * 0.2

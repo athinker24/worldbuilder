@@ -199,8 +199,13 @@ function openWorldFile(path: string): void {
  * `process.memoryUsage()` sees the main process alone, and main is the small one: the growth this
  * app has actually suffered — 4.8 GB of it — was in the renderer. getAppMetrics reports each child
  * separately, so the line says which one is heavy rather than just that something is.
+ *
+ * FIELDS, not a sentence: written as one string under a key it came out as
+ * `total="total=417MB browser=111MB…"` — the key twice, and the whole reading quoted into a single
+ * blob because of the `=` signs inside it. Event data is key=value; anything that hands the logger
+ * a pre-joined string is opting out of the only grammar the file has.
  */
-function memoryLine(): string {
+function memoryFields(): Record<string, string> {
   try {
     const m = app.getAppMetrics()
     const by = (t: string): number =>
@@ -212,20 +217,26 @@ function memoryLine(): string {
     // Zero components are dropped rather than written as 0MB. At startup the renderer and GPU
     // processes do not exist yet, and `renderer=0MB` reads as a measurement rather than as an
     // absence — the header looked wrong the first time it was seen.
-    const parts = [`total=${total}MB`]
+    const out: Record<string, string> = { total: `${total}MB` }
     for (const [label, type] of [
       ['browser', 'Browser'],
       ['renderer', 'Tab'],
       ['gpu', 'GPU']
     ] as const) {
       const v = by(type)
-      if (v) parts.push(`${label}=${v}MB`)
+      if (v) out[label] = `${v}MB`
     }
-    return parts.join(' ')
+    return out
   } catch {
-    return ''
+    return {}
   }
 }
+
+/** The same reading as one string, for the session header — which is a block, not an event line. */
+const memoryLine = (): string =>
+  Object.entries(memoryFields())
+    .map(([k, v]) => `${k}=${v}`)
+    .join(' ')
 
 /**
  * Sample memory on a slow timer and write a line only when it MOVES — a periodic reading that says
@@ -247,6 +258,8 @@ const memoryTotalMb = (): number => {
 // -1 until the baseline is taken. The first SAMPLE is not a change, and treating it as one made
 // every session open with an invented `memory.changed from=0MB to=901MB`.
 let memLast = -1
+/** Claimed the moment the baseline is SCHEDULED — see logSessionInfo for why that matters. */
+let baselineDone = false
 /** Called once the renderer has reported in and the real figure has been written. */
 const noteMemoryBaseline = (): void => {
   memLast = memoryTotalMb()
@@ -632,14 +645,22 @@ const mainApi = {
     // ONCE per session, not per renderer. Opening a project reloads the renderer, so this fires
     // again — and a second line calling itself a baseline is not one. Later movement is the
     // sampler's job, and it does it: the first log to carry this showed 418MB → 866MB correctly.
-    if (memLast < 0)
+    //
+    // The slot is claimed HERE, not inside the timer. Guarding on the result of the timer was the
+    // same bug in a slower disguise: two renderer.ready 1.2s apart both passed the test and both
+    // scheduled, because neither had written anything yet when the other looked.
+    if (!baselineDone) {
+      baselineDone = true
       setTimeout(() => {
-        const m = memoryLine()
-        if (m) {
-          logEvent('INFO', 'memory.baseline', { total: m })
-          noteMemoryBaseline()
+        const m = memoryFields()
+        if (!m.total) {
+          baselineDone = false // nothing measured — let the next renderer try
+          return
         }
+        logEvent('INFO', 'memory.baseline', m)
+        noteMemoryBaseline()
       }, 2000)
+    }
   },
   openLogFolder: (): void => openLogs(),
   getPrefs: (): Prefs => readPrefs(),
@@ -948,7 +969,7 @@ app.whenReady().then(() => {
 // The last line of the session, and the only place the buffered queue is guaranteed to reach the
 // disk. Writes here are synchronous on purpose — 'before-quit' is the last moment there is.
 app.on('before-quit', () => {
-  logEvent('INFO', 'app.closed', { memory: memoryLine() })
+  logEvent('INFO', 'app.closed', memoryFields())
   flushLog()
 })
 

@@ -120,6 +120,12 @@ export default function App(): React.JSX.Element {
     document.documentElement.dataset.theme = theme
   }, [theme])
 
+  // The map list for callbacks that must not rebuild when it changes (see openMap's log line).
+  const mapsRef = useRef<MapRow[]>([])
+  useEffect(() => {
+    mapsRef.current = maps
+  }, [maps])
+
   const refresh = useCallback(async () => {
     const [e, m, f, p] = await Promise.all([
       api.listEntities(search),
@@ -185,7 +191,11 @@ export default function App(): React.JSX.Element {
   const openMap = useCallback(
     (id: number): void => {
       api.setSetting('lastMapId', String(id))
-      logEvent('INFO', 'map.changed', { map: id })
+      // The NAME, falling back to the id. `map=1` is the answer to a question nobody asks; this
+      // line's whole job is to say which map an error happened on. Read through a ref because
+      // taking `maps` as a dependency would rebuild openMap — and every effect holding it — each
+      // time the sidebar refreshes.
+      logEvent('INFO', 'map.changed', { map: mapsRef.current.find((m) => m.id === id)?.name ?? id })
       navigate({ kind: 'map', id })
     },
     [navigate]
