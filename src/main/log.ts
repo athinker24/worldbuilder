@@ -76,4 +76,6 @@ export const noteCall = (method: string): void => {
 
 export const flushLog = logger.flush
 export const logPath = (): string => logger.dir()
+/** THIS session's file. What a user needs to send is the run they just had, not a folder of 200. */
+export const logFile = (): string => logger.file()
 export const logSessionId = logger.id

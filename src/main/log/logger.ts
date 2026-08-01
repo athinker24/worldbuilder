@@ -252,3 +252,4 @@ export const flush = (): void => {
   sink.flush()
 }
 export const dir = (): string => sink.path()
+export const file = (): string => sink.filePath()

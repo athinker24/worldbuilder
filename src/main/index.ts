@@ -23,6 +23,7 @@ import {
   Level,
   logError,
   logEvent,
+  logFile,
   logPath,
   logSetDebug,
   logTime,
@@ -271,10 +272,19 @@ function startMemoryWatch(): void {
   }, MEMORY_SAMPLE_MS).unref?.()
 }
 
-/** Help > Open Error Log. The folder only exists once something has failed, which is the
- *  NORMAL state — so without this the healthiest possible install answers a menu click with a
- *  raw Windows "folder not found" error. Say the true thing instead. */
+/** Help > Open Error Log, and the same call behind Preferences ▸ Open Log Folder.
+ *  Reveals THIS session's file selected rather than opening a folder of 200 sorted by name — the
+ *  file a user is being asked for is the run they are in, and picking it out of the list is the
+ *  step where the wrong one gets sent. Flush first: the buffered tail is the part that matters.
+ *  The folder now always exists (every session writes one), so the fallbacks only speak when the
+ *  log itself could not be written. */
 function openLogs(): void {
+  flushLog()
+  const f = logFile()
+  if (f && existsSync(f)) {
+    shell.showItemInFolder(f)
+    return
+  }
   if (existsSync(logPath())) {
     void shell.openPath(logPath())
     return
@@ -282,8 +292,8 @@ function openLogs(): void {
   dialog.showMessageBoxSync(mainWindow!, {
     type: 'info',
     title: ml('Open Error Log'),
-    message: ml('No errors have been recorded.'),
-    detail: ml('This file appears the first time something goes wrong.')
+    message: ml('No log could be written.'),
+    detail: ml('Check that the Worldbuilder folder in Documents can be written to.')
   })
 }
 
@@ -377,9 +387,9 @@ const MENU_TR: Record<string, string> = {
   'Project Preferences': 'Proje Tercihleri',
   'Keyboard Shortcuts': 'Klavye Kısayolları',
   'Open Error Log': 'Hata Kaydını Aç',
-  'No errors have been recorded.': 'Hiç hata kaydedilmedi.',
-  'This file appears the first time something goes wrong.':
-    'Bu dosya ilk hata oluştuğunda kendiliğinden oluşur.'
+  'No log could be written.': 'Kayıt dosyası yazılamadı.',
+  'Check that the Worldbuilder folder in Documents can be written to.':
+    'Belgeler içindeki Worldbuilder klasörünün yazılabilir olduğunu kontrol edin.'
 }
 const ml = (s: string): string => (readPrefs().language === 'tr' ? (MENU_TR[s] ?? s) : s)
 
