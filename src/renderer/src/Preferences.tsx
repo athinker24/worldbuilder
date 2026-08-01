@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, getDebugLog, Lang, saveDebugLog, saveLanguage, saveTheme, Theme } from './api'
 import Select from './Select'
 import { useT } from './i18n'
-import { setDebugLog } from './log'
+import { logEvent, setDebugLog } from './log'
 import { Row, Section } from './ui'
 
 // APPLICATION preferences: how the app itself behaves, independent of which world is open.
@@ -43,6 +43,7 @@ export default function Preferences({
               const next = v as Lang
               onLangChange(next)
               saveLanguage(next)
+              logEvent('INFO', 'settings.changed', { what: 'language', value: next })
             }}
             options={[
               { value: 'en', label: 'English' },
@@ -57,6 +58,7 @@ export default function Preferences({
               const next = v as Theme
               onThemeChange(next)
               saveTheme(next)
+              logEvent('INFO', 'settings.changed', { what: 'theme', value: next })
             }}
             options={[
               { value: 'dark', label: t('Dark') },

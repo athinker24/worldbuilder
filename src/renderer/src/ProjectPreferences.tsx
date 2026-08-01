@@ -17,6 +17,7 @@ import { confirmDialog } from './dialog'
 import Icon from './icons'
 import Select from './Select'
 import { useT } from './i18n'
+import { logEvent } from './log'
 import { IconButton, Section } from './ui'
 
 // PROJECT configuration: the systems that define the open world's own structure. All three live
@@ -49,14 +50,19 @@ export default function ProjectPreferences(): React.JSX.Element {
     )
   }, [])
 
+  // These two are where the world's STRUCTURE changes — a map-mode dimension, a template — which
+  // is the kind of edit that later explains "the map suddenly looks different". Logged by shape,
+  // never by content: the dimension names are the user's own vocabulary.
   const updateModes = (next: MapModes): void => {
     setModes(next)
     saveMapModes(next)
+    logEvent('INFO', 'settings.changed', { what: 'mapModes', dimensions: next.dims.length })
   }
 
   const updateTpls = (next: EntityTemplate[]): void => {
     setTpls(next)
     saveTemplates(next)
+    logEvent('INFO', 'settings.changed', { what: 'templates', count: next.length })
   }
   const tpl = tpls.find((x) => x.name === activeTpl)
   // Edit the selected template's fields (the whole list is rewritten — the updateModes pattern)

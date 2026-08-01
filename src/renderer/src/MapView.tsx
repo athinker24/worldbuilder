@@ -87,6 +87,13 @@ L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl })
  */
 const EDIT_OPTS = { limitMarkersToCount: 20 }
 
+/**
+ * What a drawing IS, for the log. Geoman calls both a pin and a free-text label 'Marker', so the
+ * active tool is what tells them apart — the same discrimination `pm:create` already makes.
+ */
+const featureKind = (shape: string | undefined, isLabel: boolean): string =>
+  shape === 'Marker' ? (isLabel ? 'label' : 'pin') : shape === 'Line' ? 'path' : 'polygon'
+
 // --- Marker icons are placed with left/top instead of a 3D transform. --------------------------
 // Leaflet's setPosition writes `translate3d(x, y, 0)` on every marker element, and an element
 // carrying its own 3D transform is one Chromium lifts onto its own compositing layer. That is
@@ -1562,6 +1569,10 @@ export default function MapView({
   const removeFeature = async (...fids: number[]): Promise<void> => {
     const all = (await api.getMap(id))?.features ?? []
     const rows = fids.map((fid) => all.find((f) => f.id === fid)).filter((r) => r !== undefined)
+    // Every deletion route lands here — the Del key, delete mode, the context menu — so one line
+    // here covers all of them. `count` because a multi-select delete is ONE undoable action.
+    if (rows.length)
+      logEvent('INFO', 'feature.deleted', { count: rows.length, ids: fids.join(',') })
     for (const fid of fids) await api.deleteFeature(fid)
     if (rows.length) {
       // A deleted-then-recreated row gets a NEW id → identity lives in a mutable ref (the undo pattern)
@@ -2135,6 +2146,11 @@ export default function MapView({
               setExtraSel((e) => (e.includes(f.id) ? e.filter((x) => x !== f.id) : [...e, f.id]))
             return
           }
+          logEvent('INFO', 'feature.selected', {
+            feature: f.id,
+            kind: featKind.current.get(f.id),
+            entity: f.entity_id ?? undefined
+          })
           setSelected(f)
           setExtraSel([])
         }
@@ -3275,6 +3291,9 @@ export default function MapView({
         // The gesture is over, which is the only moment its frame rate means anything. Silent
         // unless it was genuinely poor for long enough to matter (see log.ts).
         endFrames('zoom')
+        // One line per GESTURE, never per frame: where the user ended up is worth knowing, the
+        // path they took to get there is the noise this log is supposed not to contain.
+        logEvent('INFO', 'map.zoomed', { zoom: map.getZoom().toFixed(2) })
         return
       }
       const z = cur + diff * 0.2
@@ -3533,6 +3552,13 @@ export default function MapView({
         style,
         ...(ent ? { entity_id: ent.id } : {})
       })
+      // What was drawn, in the app's own words rather than geoman's. Three sessions in a row this
+      // was the missing line: a feature count going 16 → 17 says something appeared, not what.
+      logEvent('INFO', `${featureKind(shape, isLabelDraw)}.created`, {
+        feature: created.id,
+        entity: ent?.id,
+        year: from
+      })
       const ref: { id: number; eid?: number } = { id: created.id, eid: ent?.id }
       pushUndo({
         undo: async () => {
@@ -3553,6 +3579,10 @@ export default function MapView({
           onChanged()
         }
       })
+      // Drawing one shape ends the tool, and it happens HERE rather than through activateTool —
+      // which is why the log used to show `tool.changed from=none` with no line saying it became
+      // none. The transition is real and belongs in the record like any other.
+      logEvent('INFO', 'tool.changed', { tool: 'none', from: toolRef.current ?? 'none' })
       toolRef.current = null
       setToolState(null)
       await reloadFeatures()

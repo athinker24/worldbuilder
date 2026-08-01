@@ -596,13 +596,17 @@ const mainApi = {
     // at startup the renderer and GPU processes do not exist yet — and the sampler only speaks when
     // memory MOVES, so a short session could open at 63MB, close at 813MB and say nothing in
     // between. This is the line that answers "what does this world cost on this machine".
-    setTimeout(() => {
-      const m = memoryLine()
-      if (m) {
-        logEvent('INFO', 'memory.baseline', { total: m })
-        noteMemoryBaseline()
-      }
-    }, 2000)
+    // ONCE per session, not per renderer. Opening a project reloads the renderer, so this fires
+    // again — and a second line calling itself a baseline is not one. Later movement is the
+    // sampler's job, and it does it: the first log to carry this showed 418MB → 866MB correctly.
+    if (memLast < 0)
+      setTimeout(() => {
+        const m = memoryLine()
+        if (m) {
+          logEvent('INFO', 'memory.baseline', { total: m })
+          noteMemoryBaseline()
+        }
+      }, 2000)
   },
   openLogFolder: (): void => openLogs(),
   getPrefs: (): Prefs => readPrefs(),
