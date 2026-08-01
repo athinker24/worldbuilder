@@ -181,6 +181,8 @@ export class LabelLayer {
   private placed: Placed[] = []
   private res = 1
   private disposed = false
+  /** The last view draw() was given, so a font arriving can re-render without one. */
+  private last: [number, number, number, number, number] | null = null
   private idle: ReturnType<typeof setTimeout> | null = null
   /** Resolves once WebGL is up; every public method is safe to call before then. */
   readonly ready: Promise<void>
@@ -210,6 +212,38 @@ export class LabelLayer {
       })
     // A rejected init must not become an unhandled rejection; the caller inspects `ready`.
     this.ready.catch(() => {})
+    this.watchFonts()
+  }
+
+  /**
+   * Rebuild once the map's fonts have actually arrived.
+   *
+   * A label's texture is exactly as wide as the text measured, and the measurement uses whatever
+   * font the browser has RIGHT THEN. The map's fonts (Cinzel, IM Fell English, MedievalSharp,
+   * Uncial Antiqua) load asynchronously, so a label built before they land is measured in the
+   * fallback serif — then the real glyphs arrive, draw wider than the box that was reserved for
+   * them, and the label is cut off part-way through: `Türkiye` rendering as `Türki`.
+   *
+   * It is the FIRST view of a world that gets it, since nothing has warmed the font cache yet, and
+   * editing any name appears to "fix the map" because that rebuilds every label — by then the
+   * fonts are in. Both were how the bug was finally recognised; neither makes sense for the
+   * texture-level causes it was mistaken for.
+   *
+   * `loadingdone` as well as `ready`: `ready` settles once, and a font whose first use comes later
+   * (a label style nothing had used yet) would land after it and clip exactly the same way.
+   */
+  private watchFonts(): void {
+    const fonts = (globalThis as { document?: { fonts?: FontFaceSet } }).document?.fonts
+    if (!fonts) return
+    const again = (): void => {
+      if (this.disposed) return
+      this.rebuild()
+      // The map is usually still by the time a font lands, so nothing would ask for another frame
+      // and the corrected labels would sit unseen until something else moved.
+      if (this.last) this.draw(...this.last)
+    }
+    void fonts.ready.then(again)
+    fonts.addEventListener('loadingdone', again)
   }
 
   /** Replace the whole label set. Cheap enough to call on every reload — see rebuild(). */
@@ -229,6 +263,7 @@ export class LabelLayer {
   draw(originX: number, originY: number, scale: number, width: number, height: number): void {
     const app = this.app
     if (!app) return
+    this.last = [originX, originY, scale, width, height]
     if (app.renderer.width !== width || app.renderer.height !== height)
       app.renderer.resize(width, height)
     this.root.scale.set(scale)
