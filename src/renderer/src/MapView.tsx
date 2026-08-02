@@ -1592,6 +1592,8 @@ export default function MapView({
           ).id
       }
       pushUndo({
+        label: fids.length > 1 ? 'Delete {n} drawings' : 'Delete drawing',
+        params: { n: fids.length },
         undo: recreate,
         redo: async () => {
           for (const r of refs) await api.deleteFeature(r.id)
@@ -1662,6 +1664,8 @@ export default function MapView({
     }
     const ref = { ids: await make() }
     pushUndo({
+      label: 'Paste {n} drawings',
+      params: { n: ref.ids.length },
       undo: async () => {
         for (const nid of ref.ids) await api.deleteFeature(nid)
       },
@@ -1705,6 +1709,8 @@ export default function MapView({
     await api.updateFeature(f.id, { style: closedStyle })
     const ref = { id: created.id }
     pushUndo({
+      label: 'Change border from {year}',
+      params: { year },
       undo: async () => {
         await api.deleteFeature(ref.id)
         await api.updateFeature(f.id, { style: f.style })
@@ -2203,6 +2209,8 @@ export default function MapView({
           updates: { id: number; old: string; next: string }[]
         ): Promise<void> => {
           pushUndo({
+            label: updates.length > 1 ? 'Move {n} borders' : 'Move a border',
+            params: { n: updates.length },
             undo: async () => {
               for (const u of updates) await api.updateFeature(u.id, { geometry: u.old })
             },
@@ -2826,6 +2834,8 @@ export default function MapView({
     }))
     const childIds = maps.filter((x) => x.parent_map_id === mapId).map((x) => x.id)
     pushUndo({
+      label: 'Delete map "{name}"',
+      params: { name: mapRow.name },
       undo: () => api.restoreMap(mapRow, feats, childIds).then(onChanged),
       redo: () => api.deleteMap(mapId).then(onChanged)
     })
@@ -3071,6 +3081,8 @@ export default function MapView({
       updates.push({ id: eid, old: e.fields, next: JSON.stringify(f) })
     }
     pushUndo({
+      label: 'Conquest in {year}',
+      params: { year },
       undo: async () => {
         for (const u of updates) await api.updateEntity(u.id, { fields: u.old })
       },
@@ -3592,6 +3604,9 @@ export default function MapView({
       })
       const ref: { id: number; eid?: number } = { id: created.id, eid: ent?.id }
       pushUndo({
+        // The KIND is part of the key, not a parameter: as a parameter it would drop the raw
+        // English word into a Turkish sentence ("polygon çizildi").
+        label: `Draw a ${featureKind(shape, isLabelDraw)}`,
         undo: async () => {
           await api.deleteFeature(ref.id)
           if (ref.eid !== undefined) await api.deleteEntity(ref.eid)
@@ -3814,6 +3829,8 @@ export default function MapView({
       const ref = { key, items: selIds.map((fid) => ({ fid, orig: styleOf(fid), latest: '' })) }
       styleEditRef.current = ref
       pushUndo({
+        label: selIds.length > 1 ? 'Restyle {n} drawings' : 'Restyle a drawing',
+        params: { n: selIds.length },
         undo: async () => {
           for (const it of ref.items) await api.updateFeature(it.fid, { style: it.orig })
         },

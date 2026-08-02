@@ -208,7 +208,12 @@ export default function EntityPage({
 
   const save = async (patch: Parameters<typeof api.updateEntity>[1]): Promise<void> => {
     const old = Object.fromEntries(Object.keys(patch).map((k) => [k, entity[k as keyof Entity]]))
-    pushUndo({ undo: () => api.updateEntity(id, old), redo: () => api.updateEntity(id, patch) })
+    pushUndo({
+      label: 'Edit "{name}"',
+      params: { name: entity.name },
+      undo: () => api.updateEntity(id, old),
+      redo: () => api.updateEntity(id, patch)
+    })
     await api.updateEntity(id, patch)
     await reload()
     if ('fields' in patch) await refreshHier()
@@ -463,6 +468,8 @@ export default function EntityPage({
                 onClick={async () => {
                   const ref = { id: c.linkId as number }
                   pushUndo({
+                    label: 'Remove relation',
+                    params: { name: rel },
                     undo: async () => {
                       ref.id = (await api.addLink(id, c.other, rel)).id
                     },
@@ -1010,6 +1017,8 @@ export default function EntityPage({
                   onClick={async () => {
                     const ref = { id: l.id }
                     pushUndo({
+                      label: 'Remove relation',
+                      params: { name: l.relation },
                       undo: async () => {
                         ref.id = (await api.addLink(l.from_id, id, l.relation)).id
                       },
@@ -1074,6 +1083,8 @@ export default function EntityPage({
                 onClick={async () => {
                   const ref = { id: l.id }
                   pushUndo({
+                    label: 'Remove relation',
+                    params: { name: l.relation },
                     undo: async () => {
                       ref.id = (await api.addLink(id, l.to_id, l.relation)).id
                     },

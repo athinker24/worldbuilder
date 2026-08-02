@@ -227,6 +227,14 @@ export default function App(): React.JSX.Element {
     [navigate]
   )
 
+  // What has to happen after the world moves under the UI: the sidebar re-reads and the open page
+  // reloads without remounting. Written once because there are now THREE callers — the Edit menu,
+  // Ctrl+Z, and the History panel's jump — and the first two already had it copied.
+  const afterUndo = useCallback((): void => {
+    refresh()
+    setBump((b) => b + 1)
+  }, [refresh])
+
   // The sidebar "Maps" entry: open a map (last used, else the first, else create one).
   // Switching between maps happens in the map toolbar's dropdown.
   const openMaps = useCallback(async (): Promise<void> => {
@@ -447,12 +455,7 @@ export default function App(): React.JSX.Element {
           })
         case 'edit.undo':
         case 'edit.redo':
-          return void (cmd === 'edit.redo' ? redo() : undo()).then((did) => {
-            if (did) {
-              refresh()
-              setBump((b) => b + 1)
-            }
-          })
+          return void (cmd === 'edit.redo' ? redo() : undo()).then((did) => did && afterUndo())
         case 'edit.prefs':
           return setView({ kind: 'preferences' })
         case 'view.maps':
@@ -468,6 +471,7 @@ export default function App(): React.JSX.Element {
       }
     })
   }, [
+    afterUndo,
     newWorld,
     openWorld,
     openRecent,
@@ -505,12 +509,7 @@ export default function App(): React.JSX.Element {
       ) {
         e.preventDefault()
         const isRedo = e.key.toLowerCase() === 'y' || e.shiftKey
-        ;(isRedo ? redo() : undo()).then((did) => {
-          if (did) {
-            refresh()
-            setBump((b) => b + 1)
-          }
-        })
+        ;(isRedo ? redo() : undo()).then((did) => did && afterUndo())
       } else if (
         (e.key === 'Delete' || e.key === 'Backspace') &&
         !typing &&
@@ -535,7 +534,7 @@ export default function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [refresh, deleteSelected, togglePanels])
+  }, [afterUndo, deleteSelected, togglePanels])
 
   // Sidebar file tree: articles are grouped under user-made folders (fields['folder']); a folder
   // id that no longer exists resolves to root (like map boards' resolveBoard).
@@ -680,6 +679,7 @@ export default function App(): React.JSX.Element {
     if ((old ?? null) === folder) return
     await setEntityFolder(eid, folder)
     pushUndo({
+      label: 'Move to a folder',
       undo: async () => {
         await setEntityFolder(eid, old)
         refresh()
@@ -1206,6 +1206,7 @@ export default function App(): React.JSX.Element {
                 setFocus({ featureId, token: Date.now() })
                 openMap(mapId)
               }}
+              onUndone={afterUndo}
             />
           )}
           {view.kind === 'shortcuts' && <Shortcuts />}

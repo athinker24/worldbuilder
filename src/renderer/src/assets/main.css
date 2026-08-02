@@ -3788,3 +3788,57 @@ a {
   font-size: var(--fs-2);
   margin-bottom: var(--sp-2);
 }
+
+/* --- History (Overview ▸ History): the session's edits, click to jump ---------------------- */
+.hist-list {
+  display: flex;
+  flex-direction: column;
+  max-width: 70ch;
+  margin-top: var(--sp-3);
+}
+
+/* A row is a BUTTON — every one of them is a jump, and a div with a click handler would be
+   unreachable by keyboard on a screen whose whole purpose is recovering from a mistake. */
+.hist-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  min-height: var(--h-sm);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: var(--r-s);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.hist-row:hover {
+  background: var(--surface-hover);
+}
+
+.hist-row.current {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Undone steps are still listed — that is what makes them clickable to go forward again — but
+   they are not part of the world as it stands, and the list has to say which is which. */
+.hist-row.undone .hist-text {
+  color: var(--text-faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--border-strong);
+}
+
+.hist-mark {
+  display: flex;
+  color: var(--accent);
+}
+
+.hist-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

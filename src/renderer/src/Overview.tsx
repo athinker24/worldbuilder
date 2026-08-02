@@ -2,20 +2,23 @@ import { FolderDef } from './api'
 import Atlas from './Atlas'
 import Chronology from './Chronology'
 import Diplomacy from './Diplomacy'
+import History from './History'
 import { useT } from './i18n'
 import { Tabs } from './ui'
 
 // The project-wide workspace: views that answer "what does my world look like as a whole?"
 // rather than "what is this one article?". They used to be three separate sidebar entries.
 // Adding another (Statistics…) is one entry in TABS plus a branch below.
-export type OverviewTab = 'atlas' | 'chronology' | 'relations'
+export type OverviewTab = 'atlas' | 'chronology' | 'relations' | 'history'
 
 const TABS: { key: OverviewTab; label: string }[] = [
   { key: 'atlas', label: 'Atlas' },
   { key: 'chronology', label: 'Chronology' },
   // "Relations" is this view's user-facing name; the component, its props and the link data
   // model are unchanged (it was called Diplomacy).
-  { key: 'relations', label: 'Relations' }
+  { key: 'relations', label: 'Relations' },
+  // Last on purpose: it is where you go when something went wrong, not part of reading the world.
+  { key: 'history', label: 'History' }
 ]
 
 interface Props {
@@ -24,6 +27,8 @@ interface Props {
   folders: FolderDef[]
   onOpenEntity: (id: number) => void
   onLocateFeature: (mapId: number, featureId: number) => void
+  /** What the app does after an undo step — see App's afterUndo. */
+  onUndone: () => void
 }
 
 export default function Overview({
@@ -31,7 +36,8 @@ export default function Overview({
   onTab,
   folders,
   onOpenEntity,
-  onLocateFeature
+  onLocateFeature,
+  onUndone
 }: Props): React.JSX.Element {
   const t = useT()
   // A FRAGMENT, not a wrapper .page: each child renders its own .page, and nesting one inside
@@ -53,6 +59,7 @@ export default function Overview({
         <Chronology onOpenEntity={onOpenEntity} onLocateFeature={onLocateFeature} />
       )}
       {tab === 'relations' && <Diplomacy folders={folders} onOpenEntity={onOpenEntity} />}
+      {tab === 'history' && <History onApplied={onUndone} />}
     </>
   )
 }
