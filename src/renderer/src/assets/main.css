@@ -1267,6 +1267,20 @@ kbd {
   font-size: 16px; /* bigger than the inline column — the point of reading mode */
   line-height: 1.75;
 }
+
+/* A thinner bar for the two panes you READ in. The 10px desktop bar is right where it frames the
+   app — the sidebar, a panel — but beside a column of prose it is another vertical rule competing
+   with the text, which is the one place the chrome should get out of the way. Scoped to these two
+   rather than changed globally: everywhere else the wider target is worth having. */
+.note-body::-webkit-scrollbar,
+.note-focus-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.note-body::-webkit-scrollbar-thumb,
+.note-focus-body::-webkit-scrollbar-thumb {
+  border-width: 1px; /* the global rule insets the thumb by 2px, which at 6px leaves a sliver */
+}
 .note-focus-body-edit {
   flex: 1;
   min-height: 50vh;
