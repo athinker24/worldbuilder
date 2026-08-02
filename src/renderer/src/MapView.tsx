@@ -33,6 +33,7 @@ import {
   saveTimeline,
   FolderDef,
   folderColor,
+  outlineColor,
   personFolderIds,
   WorldMap
 } from './api'
@@ -319,6 +320,11 @@ interface FeatureLayer extends L.Layer {
 // fields we use.
 interface DrawInstance {
   enabled?: () => boolean
+  /** geoman's own "remove last vertex" — the action behind its toolbar button. Private, but the
+   *  dependency is pinned and reimplementing it means reaching into the same half-drawn state. */
+  _removeLastVertex?: () => void
+  /** The vertices placed so far — geoman disables the whole session when the last one goes. */
+  _markers?: unknown[]
   setOptions?: (o: { markerStyle?: L.MarkerOptions }) => void
   setPathOptions?: (o: L.PathOptions) => void
   _hintMarker?: L.Marker
@@ -814,6 +820,8 @@ export default function MapView({
   const selIdsRef = useRef<number[]>([])
   const markedSel = useRef<number[]>([]) // last highlighted set (apply the diff, don't scan all layers)
   const lastMouse = useRef<L.LatLng | null>(null) // Ctrl+V target (last map cursor position)
+  // The same position in SCREEN pixels: what is under the cursor can only be asked of the DOM.
+  const lastPoint = useRef<{ x: number; y: number } | null>(null)
   const clearSel = (): void => {
     setSelected(null)
     setExtraSel([])
@@ -1332,6 +1340,32 @@ export default function MapView({
   }, [selected, tool])
 
   // The single access point to geoman's draw instance (for the untyped internals, see DrawInstance)
+  /**
+   * Delete the vertex the cursor is over, if it is over one. Returns false when it is not.
+   *
+   * The handles are geoman's own markers — invisible (the dots are drawn in WebGL) but real DOM
+   * elements, so what is under the cursor is a question only the DOM can answer. Removal then goes
+   * through GEOMAN's path rather than cutting the coordinates ourselves: it already validates the
+   * minimum vertex count, refreshes its markers and fires pm:update, which is what carries the
+   * change into the undo record and the database.
+   *
+   * They only exist in edit mode, so finding one IS the mode check. And `limitMarkersToCount: 20`
+   * keeps the nearest twenty to the cursor — the one under it is always among them.
+   */
+  const removeVertexUnderCursor = (): boolean => {
+    const p = lastPoint.current
+    if (!p) return false
+    const el = (document.elementFromPoint(p.x, p.y) as HTMLElement | null)?.closest(
+      '.leaflet-marker-icon'
+    )
+    if (!el) return false
+    el.dispatchEvent(
+      // bubbles: Leaflet resolves the target by walking up from the element to its container.
+      new MouseEvent('contextmenu', { bubbles: true, clientX: p.x, clientY: p.y })
+    )
+    return true
+  }
+
   const drawInst = (shape: string): DrawInstance | undefined =>
     (mapRef.current?.pm.Draw as unknown as Record<string, DrawInstance | undefined> | undefined)?.[
       shape
@@ -1903,6 +1937,9 @@ export default function MapView({
         : rank
           ? '#666666' // the rank color is resolved from the parent chain in applyYear
           : (style.color ?? folderColor(folders, f.entity_folder))
+      // A polygon's outline is the darker, calmer relative of its fill (see outlineColor). Lines
+      // and pins keep exactly what the user picked: there the stroke IS the content.
+      const stroke = isPolygon ? outlineColor(color) : color
       const lineOpacity = isLine ? (style.opacity ?? 0.9) : 1
       const dashArray = isLine ? lineDashArray(style.dash, style.weight ?? 3) : ''
       // Fill images only on polygons in their own view (derived modes paint by data)
@@ -1910,7 +1947,7 @@ export default function MapView({
         !derived && isPolygon && style.fillImg ? `url(#${fillPatternId(style.fillImg)})` : color
       const gj = L.geoJSON(JSON.parse(f.geometry), {
         style: {
-          color,
+          color: stroke,
           fillColor,
           fill: !isLine,
           fillOpacity: derived ? 0.55 : (style.fillOpacity ?? 0.25),
@@ -2011,7 +2048,7 @@ export default function MapView({
       if (style.from !== undefined) chYears.add(style.from)
       if (style.to !== undefined) chYears.add(style.to + 1) // the change shows the year after the end
       renderStyle.current.set(f.id, {
-        color,
+        color: stroke,
         fillColor,
         fillImg: !derived && isPolygon ? style.fillImg : undefined,
         fillOpacity: derived ? 0.55 : (style.fillOpacity ?? 0.25),
@@ -2642,7 +2679,7 @@ export default function MapView({
           // (fillColor reverts to flat too — fill images are void in the political mosaic)
           const root = rootOf(eid)
           const c = entColors.current.get(root) ?? '#666666'
-          if (st) st = { ...st, color: c, fillColor: c, fillImg: undefined }
+          if (st) st = { ...st, color: outlineColor(c), fillColor: c, fillImg: undefined }
           labelRoot = carrier.get(root) === fid ? root : -1
         } else if (featArea.current.has(fid)) {
           // Hiding rules apply to POLYGON borders only: when a parent's hand-drawn border is
@@ -2657,7 +2694,7 @@ export default function MapView({
       }
       if (rankOn && st) {
         const c = eid !== undefined ? rungColor(eid) : '#666666'
-        st = { ...st, color: c, fillColor: c, fillImg: undefined }
+        st = { ...st, color: outlineColor(c), fillColor: c, fillImg: undefined }
       }
       // The zoom gate comes last: baseVisible = visibility APART from zoom (refreshZoomVis
       // reads it), then hide when outside the zoom range
@@ -3009,6 +3046,12 @@ export default function MapView({
       const k = e.key.toLowerCase()
       if ((e.key === 'Delete' || e.key === 'Backspace') && has) {
         e.preventDefault()
+        // A vertex under the cursor takes the key first: deleting one point is the smaller,
+        // likelier intent, and losing the whole border to a misplaced Del is expensive.
+        if (removeVertexUnderCursor()) {
+          e.stopImmediatePropagation()
+          return
+        }
         // App has Del too (deletes the ENTITIES selected in the sidebar). Both listen on
         // window, so Del with a map feature selected deleted BOTH. This handler registers in
         // the capture phase → runs before App's and cuts the chain here.
@@ -3441,6 +3484,7 @@ export default function MapView({
     // every move would re-render; read only at paste time)
     map.on('mousemove', (e: L.LeafletMouseEvent) => {
       lastMouse.current = e.latlng
+      lastPoint.current = { x: e.originalEvent.clientX, y: e.originalEvent.clientY }
     })
 
     map.on('zoom zoomend', () => {
@@ -3513,8 +3557,23 @@ export default function MapView({
 
     // Right-click on empty space → tool menu (over a feature the layer handler takes over)
     map.on('contextmenu', (e: L.LeafletMouseEvent) => {
-      if ((e.originalEvent.target as HTMLElement).classList?.contains('leaflet-interactive')) return
+      const el = e.originalEvent.target as HTMLElement
+      // Over a feature the layer handler takes over; over a VERTEX HANDLE geoman removes the
+      // vertex (its removeVertexOn default) — the menu must not steal either.
+      if (el.classList?.contains('leaflet-interactive') || el.closest?.('.leaflet-marker-icon'))
+        return
       e.originalEvent.preventDefault()
+      // WHILE DRAWING it takes back the last vertex instead of opening the menu — the thing you
+      // want the instant you misplace a point, and the button every drawing tool has.
+      //
+      // It keeps the old escape too, without a special case: geoman's own _removeLastVertex
+      // disables the session once the last vertex is gone, so right-clicking your way back out of
+      // a shape leaves the tool exactly as right-click always did.
+      const drawing = drawInst(toolRef.current === 'line' ? 'Line' : 'Polygon')
+      if ((toolRef.current === 'polygon' || toolRef.current === 'line') && drawing?.enabled?.()) {
+        drawing._removeLastVertex?.()
+        return
+      }
       setMenu({
         x: e.originalEvent.clientX,
         y: e.originalEvent.clientY,
@@ -3814,7 +3873,7 @@ export default function MapView({
     const isPolygon = kind === 'polygon'
     const color = style.color ?? folderColor(folders, f.entity_folder)
     renderStyle.current.set(fid, {
-      color,
+      color: isPolygon ? outlineColor(color) : color,
       fillColor: isPolygon && style.fillImg ? `url(#${fillPatternId(style.fillImg)})` : color,
       fillImg: isPolygon ? style.fillImg : undefined,
       fillOpacity: style.fillOpacity ?? 0.25,
