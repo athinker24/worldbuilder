@@ -95,6 +95,7 @@ const TR: Record<string, string> = {
     'Madde adı öner — ↑↓ ile seç, Enter/Tab ile ekle',
   'Close the suggestion list': 'Öneri listesini kapat',
   'Search everything (palette)': 'Her şeyde ara (palet)',
+  'Go to the map (the last one you were on)': 'Haritaya git (en son bulunduğun harita)',
   'Hide every panel (Photoshop style)': 'Tüm panelleri gizle (Photoshop gibi)',
   'Hide panels but keep the map tools': 'Panelleri gizle ama harita araçları kalsın',
   'New world': 'Yeni dünya',

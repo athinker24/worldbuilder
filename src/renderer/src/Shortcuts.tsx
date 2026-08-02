@@ -8,6 +8,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     title: 'General',
     rows: [
       ['Ctrl+K', 'Search everything (palette)'],
+      ['M', 'Go to the map (the last one you were on)'],
       ['Tab', 'Hide every panel (Photoshop style)'],
       ['Shift+Tab', 'Hide panels but keep the map tools'],
       ['Ctrl+N', 'New world'],

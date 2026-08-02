@@ -62,6 +62,7 @@ included) into a single file you can send to someone or open on another computer
 | Shortcut | What it does |
 | --- | --- |
 | `Ctrl+K` | Search everything (palette) |
+| `M` | Go to the map (the last one you were on) |
 | `Ctrl+S` / `Ctrl+Shift+S` | Save world / Save as |
 | `Ctrl+O` | Open world |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |

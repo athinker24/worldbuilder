@@ -3065,7 +3065,10 @@ export default function MapView({
         target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
       if (typing) return
       const has = selIdsRef.current.length > 0
-      const k = e.key.toLowerCase()
+      // Same guard as App's, and it crashed here first: this listener is in the capture phase, so
+      // an event without a `key` took out BOTH handlers — the identical message is why the error
+      // report only showed one of them.
+      const k = (e.key ?? '').toLowerCase()
       if ((e.key === 'Delete' || e.key === 'Backspace') && has) {
         e.preventDefault()
         // A vertex under the cursor takes the key first: deleting one point is the smaller,
