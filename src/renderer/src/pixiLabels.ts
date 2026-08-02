@@ -417,6 +417,24 @@ export class LabelLayer {
   }
 
   /**
+   * Move ONE label, without rebuilding anything.
+   *
+   * For dragging. The honest way — hand setLabels a new list — re-measures and re-lays out every
+   * glyph run in the map, which is far too much to do per frame and would make a drag stutter for
+   * the sake of one moving name. Here the node already exists: this is two numbers on a transform.
+   *
+   * The spec is updated too, so the next setLabels compares equal and skips the rebuild it does
+   * not need — the label is already where the new spec says it is.
+   */
+  moveLabel(id: number, x: number, y: number): void {
+    const p = this.placed.find((q) => q.spec.id === id)
+    if (!p) return
+    p.view.position.set(x, y)
+    p.spec.x = x
+    p.spec.y = y
+  }
+
+  /**
    * The measured size of each label, for whoever has to put a click target over it.
    *
    * MapView estimated it — letters × 0.62em — and an estimate cannot know the font's real metrics,

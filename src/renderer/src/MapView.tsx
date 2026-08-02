@@ -2436,6 +2436,15 @@ export default function MapView({
         // no longer existed. The shape was right and the handles were not, which is exactly what
         // "it deletes but looks different" was.
         layer.on('pm:vertexremoved pm:vertexadded pm:markerdragend', () => refreshHandles())
+        // Live: the glyphs follow the grab box while it is being dragged. Without it the text
+        // waits for the drop and teleports — functional, and it looks broken. One node moved by
+        // two numbers, no re-measure (see moveLabel).
+        layer.on('pm:drag', () => {
+          if (!isLabel) return
+          const at = map.project((layer as L.Marker).getLatLng(), 0)
+          labelLayer.current?.moveLabel(f.id, at.x, at.y)
+          drawLabels()
+        })
         layer.on('pm:dragend', (e) => saveGeometry(e, false))
         layer.on('contextmenu', (e: L.LeafletMouseEvent) => {
           e.originalEvent.preventDefault()
