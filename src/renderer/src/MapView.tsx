@@ -2040,11 +2040,17 @@ export default function MapView({
             minZoom: style.minZoom,
             maxZoom: style.maxZoom
           })
-          // ~0.62em per letter is the same estimate labelDivIcon used to lay the text out, so the
-          // grab area matches what the user sees closely enough to feel exact.
+          // The box that catches clicks, and it has to COVER the glyphs: what it misses falls
+          // through to whatever is underneath, which on a region label is the polygon it names —
+          // so the click selects the region instead of the label. ~0.62em per letter is the same
+          // estimate the text layout uses, plus the letter spacing, which widens the drawn text
+          // and would otherwise leave its ends hanging outside the box. A tenth of a size in
+          // padding on each axis: the box is invisible, and being slightly generous costs nothing
+          // while being slightly short costs the click.
+          const trackW = Number(style.tracking) || 0
           labelHit.current.set(f.id, {
-            w: Math.max(text.length * size * 0.62, size),
-            h: size * 1.2
+            w: Math.max(text.length * size * (0.62 + trackW), size) + size * 0.2,
+            h: size * 1.4
           })
           return L.marker(latlng, {
             icon: L.divIcon({
