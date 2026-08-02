@@ -131,11 +131,15 @@ export default function App(): React.JSX.Element {
     document.documentElement.dataset.theme = theme
   }, [theme])
 
-  // The map list for callbacks that must not rebuild when it changes (see openMap's log line).
+  // The map and article lists for callbacks that must not rebuild when they change — both are only
+  // read to put a NAME in a log line, and taking either as a dependency would rebuild the callback
+  // (and every effect holding it) on each sidebar refresh.
   const mapsRef = useRef<MapRow[]>([])
+  const entitiesRef = useRef<EntityRow[]>([])
   useEffect(() => {
     mapsRef.current = maps
-  }, [maps])
+    entitiesRef.current = entities
+  }, [maps, entities])
 
   const refresh = useCallback(async () => {
     const [e, m, f, p] = await Promise.all([
@@ -256,9 +260,15 @@ export default function App(): React.JSX.Element {
       // switches, and with map.changed now silent on an unchanged map they would have read as
       // nothing at all. This is the one that says what the user actually did, and the one the
       // `feature.locate found=false` warning in MapView needs beside it to mean anything.
+      // With the NAME, like every other line that has one: `entity=21 feature=19` says nothing in
+      // a file someone sent us, and which article was being looked for is the whole question. The
+      // map name comes free with the query and answers the other half — "it took me somewhere
+      // wrong" starts by asking whether it went to the map you expected.
       logEvent('INFO', 'entity.located', {
         entity: entityId,
+        name: entitiesRef.current.find((e) => e.id === entityId)?.name,
         feature: feats[0]?.id,
+        map: feats[0]?.map_name,
         drawings: feats.length
       })
       if (!feats.length) {
