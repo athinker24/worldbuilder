@@ -268,7 +268,6 @@ interface FeatureStyle {
   size?: number
   shape?: PinShape // pin mark from the abstract set; absent = disc (pinIcons)
   font?: string
-  childMapId?: number
   from?: number // year range the feature exists in (timeline); empty = always
   to?: number
   opacity?: number // line (path) opacity
@@ -2480,12 +2479,6 @@ export default function MapView({
             label: t('Move'),
             onClick: () => (setSelected(f), setTool('drag'))
           })
-          if (style.childMapId)
-            items.push({
-              icon: 'map',
-              label: t('Open map'),
-              onClick: () => onNavigate(style.childMapId!)
-            })
           items.push({
             icon: 'clock',
             label: t('Change border from this year'),
@@ -5572,33 +5565,6 @@ export default function MapView({
                     }
                   />
                 </div>
-              </div>
-
-              <div className="panel-block">
-                <label>{t('Child map (door):')}</label>
-                <Select
-                  value={selStyle.childMapId ? String(selStyle.childMapId) : ''}
-                  onChange={async (v) => {
-                    const childMapId = v ? Number(v) : undefined
-                    await api.updateFeature(selected.id, {
-                      style: JSON.stringify({ ...selStyle, childMapId })
-                    })
-                    if (childMapId) await api.updateMap(childMapId, { parent_map_id: id })
-                    onChanged()
-                    setSelected({ ...selected, style: JSON.stringify({ ...selStyle, childMapId }) })
-                  }}
-                  options={[
-                    { value: '', label: t('— none —') },
-                    ...maps
-                      .filter((m) => m.id !== id)
-                      .map((m) => ({ value: String(m.id), label: m.name }))
-                  ]}
-                />
-                {selStyle.childMapId && (
-                  <button className="mini" onClick={() => onNavigate(selStyle.childMapId!)}>
-                    {t('Open map →')}
-                  </button>
-                )}
               </div>
 
               {selected.entity_id && (

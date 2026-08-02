@@ -53,7 +53,6 @@ const TR: Record<string, string> = {
   'Add location': 'Konum ekle',
   Open: 'Aç',
   'Delete mode': 'Silme modu',
-  'Open map': 'Haritayı aç',
   // App.tsx
   'Search…  (Ctrl+K)': 'Ara…  (Ctrl+K)',
   Maps: 'Haritalar',
@@ -549,9 +548,7 @@ const TR: Record<string, string> = {
   'Length: {val} {unit}': 'Uzunluk: {val} {unit}',
   'Area: {val} {unit}²': 'Alan: {val} {unit}²',
   'Perimeter: {val} {unit}': 'Çevre: {val} {unit}',
-  'Child map (door):': 'Çocuk harita (kapı):',
-  '— none —': '— yok —',
-  'Open map →': 'Haritayı aç →'
+  '— none —': '— yok —'
 }
 
 export const LangContext = createContext<Lang>('en')
