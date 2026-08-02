@@ -816,7 +816,7 @@ export default function MapView({
   const shapeSpecs = useRef<ShapeSpec[]>([])
   const freeSpec = useRef(new Map<number, LabelSpec>())
   // Hit-box size in zoom-0 units, scaled onto the transparent icon by updateOverlaySizes.
-  const labelHit = useRef(new Map<number, { w: number; h: number }>())
+  const labelHit = useRef(new Map<number, { w: number; h: number; angle: number }>())
   const labelLayer = useRef<LabelLayer | null>(null)
   // Pin size multipliers; scale with zoom like polygon labels (glued to the map).
   // ar is set only on FREE custom-image pins (height = width / ar; no DOM measurement).
@@ -1641,6 +1641,9 @@ export default function MapView({
         pinEl.style.height = `${h}px`
         pinEl.style.marginLeft = `${-w / 2}px`
         pinEl.style.marginTop = `${-h / 2}px`
+        // Turns with the text. A plain 2D rotate, not a 3D transform — see the _setPos patch for
+        // why that distinction matters on this map.
+        if (hit.angle) pinEl.style.transform = `rotate(${hit.angle}deg)`
       }
     })
     // Polygon name labels and derived region labels need nothing here: they are drawn in WebGL
@@ -2050,7 +2053,10 @@ export default function MapView({
           const trackW = Number(style.tracking) || 0
           labelHit.current.set(f.id, {
             w: Math.max(text.length * size * (0.62 + trackW), size) + size * 0.2,
-            h: size * 1.4
+            h: size * 1.4,
+            // Rotated with CSS rather than inflated: an axis-aligned box around angled text covers
+            // a lot of map that is not the label, and misses the ends that stick out of it.
+            angle: Number(style.angle) || 0
           })
           return L.marker(latlng, {
             icon: L.divIcon({
@@ -2864,6 +2870,12 @@ export default function MapView({
     // one list, one diff, one draw. It clears itself when no mode is active.
     rebuildDerivedLabels(year, rungOwnerAt)
     labelLayer.current?.setLabels(shownLabels.concat(derivedSpecs.current))
+    // The estimate above is a placeholder until the glyphs have been laid out; this is the real
+    // size. Only free labels have a box to correct — a polygon's name is not clickable.
+    for (const [fid, hit] of labelHit.current) {
+      const m = labelLayer.current?.extentOf(fid)
+      if (m) labelHit.current.set(fid, { ...hit, w: m.w + hit.h * 0.15, h: m.h + hit.h * 0.15 })
+    }
     drawLabels()
     // The selected feature's Leaflet layer is added and removed BY this function now, so geoman
     // has to be pointed at it afterwards — enabling edit mode before the layer exists leaves a

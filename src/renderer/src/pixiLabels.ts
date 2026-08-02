@@ -198,6 +198,7 @@ export class LabelLayer {
   private root = new Container()
   private specs: LabelSpec[] = []
   private placed: Placed[] = []
+  private extent = new Map<number, { w: number; h: number }>()
   private res = 1
   private disposed = false
   /** The last view draw() was given, so a font arriving can re-render without one. */
@@ -415,6 +416,18 @@ export class LabelLayer {
     return Math.max(MIN_RES, Math.min(this.res, MAX_GLYPH_PX / Math.max(s.size, 1)))
   }
 
+  /**
+   * The measured size of each label, for whoever has to put a click target over it.
+   *
+   * MapView estimated it — letters × 0.62em — and an estimate cannot know the font's real metrics,
+   * the letter spacing, or how far a curve throws the glyphs off the baseline. What the box misses
+   * falls through to whatever is under the label, which for a region name is the polygon it names.
+   * The layer already lays every glyph out; asking it is free and it is never wrong.
+   */
+  extentOf(id: number): { w: number; h: number } | undefined {
+    return this.extent.get(id)
+  }
+
   private rebuild(): void {
     if (!this.app) return
     // Same family of leak as the shape layer's context (see pixiShapes.rebuild), smaller: a Text
@@ -426,11 +439,17 @@ export class LabelLayer {
     this.root.removeChildren().forEach((c) => c.destroy({ children: true }))
     for (const s of styles) s.destroy()
     this.placed = []
+    this.extent.clear()
     for (const s of this.specs) {
       const node = s.curve === 0 ? this.straight(s) : this.curved(s)
       if (!node) continue
       this.root.addChild(node.view)
       this.placed.push({ spec: s, res: this.resFor(s), ...node })
+      // What the glyphs actually occupy, in the same zoom-0 units everything here works in, and
+      // BEFORE the node's own rotation — which is why the caller can rotate its box instead of
+      // inflating it. For a curved label these are the bounds of the whole arc, glyph by glyph.
+      const b = node.view.getLocalBounds()
+      this.extent.set(s.id, { w: b.width, h: b.height })
     }
   }
 
