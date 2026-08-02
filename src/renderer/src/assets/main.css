@@ -134,6 +134,25 @@
   --tint-2: rgba(255, 255, 255, 0.07);
 }
 
+/* Dark Teal: the dark theme as it was before the greys, kept as a third choice.
+   Only the eight tokens that changed are overridden — accents, borders, shadows
+   and geometry were never tinted and stay with :root. That is the whole shape
+   of a theme here: a data-theme value plus the tokens it disagrees with, which
+   is what would let a user-defined theme be an addition rather than a rewrite.
+   The surface ramp is the original measured one (L* 4.4 / 10.6 / 12.6 / 16.4 /
+   21.4); the greys in :root are these with the hue removed and the ramp moved
+   down 2.5, so the two themes are the same design in two colours. */
+[data-theme='teal'] {
+  --surface-canvas: #0b1012;
+  --surface-sunken: #161e21;
+  --surface: #1a2225;
+  --surface-raised: #212a2e;
+  --surface-float: #2a353a;
+  --text: #dde5e5;
+  --text-muted: #a6b4b3;
+  --text-faint: #879695;
+}
+
 /* Light theme: the SAME role ordering, re-derived — not hand-tuned per token.
    That is what fixes the old inversion, where --bg0 (the map void) was darker
    than --bg2 and so became the darkest thing on a light screen.

@@ -191,6 +191,7 @@ const TR: Record<string, string> = {
   Theme: 'Tema',
   Dark: 'Koyu',
   Light: 'Açık',
+  'Dark Teal': 'Koyu Turkuaz',
 
   // Palette.tsx
   entity: 'madde',

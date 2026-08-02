@@ -62,7 +62,10 @@ export default function Preferences({
             }}
             options={[
               { value: 'dark', label: t('Dark') },
-              { value: 'light', label: t('Light') }
+              { value: 'light', label: t('Light') },
+              // The teal-tinted dark theme this app had before the greys. Kept because it was
+              // someone's taste, not a mistake — and it costs eight token overrides.
+              { value: 'teal', label: t('Dark Teal') }
             ]}
           />
         </Row>
