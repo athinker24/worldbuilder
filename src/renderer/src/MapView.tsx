@@ -88,6 +88,14 @@ L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl })
 const EDIT_OPTS = { limitMarkersToCount: 20 }
 
 /**
+ * The style fields that are PURE PAINT — the ones `renderStyle` carries and `applyYear` can apply
+ * on its own, without the map being rebuilt. Exactly the controls a user drags, which is why this
+ * set is where the cost went. Everything absent from it (label text, from/to, minZoom/maxZoom,
+ * pin image, board, curviness, arrow) is built elsewhere in reloadFeatures and still needs it.
+ */
+const PAINT_KEYS = new Set(['color', 'fillOpacity', 'opacity', 'weight', 'dash'])
+
+/**
  * What a drawing IS, for the log. Geoman calls both a pin and a free-text label 'Marker', so the
  * active tool is what tells them apart — the same discrimination `pm:create` already makes.
  */
@@ -3757,6 +3765,31 @@ export default function MapView({
     key: string
     items: { fid: number; orig: string; latest: string }[]
   } | null>(null)
+  /**
+   * Re-derive ONE feature's paint entry, by the same rules reloadFeatures uses (see the block that
+   * fills renderStyle there — if that changes, this changes with it). Also writes the new style
+   * back into the cached row, so the next real reload does not resurrect the old one.
+   */
+  const repaint = (fid: number, styleJson: string): void => {
+    const f = worldMapRef.current?.features.find((x) => x.id === fid)
+    if (!f) return
+    f.style = styleJson
+    const style = JSON.parse(styleJson || '{}') as FeatureStyle
+    const kind = featKind.current.get(fid)
+    const isLine = kind === 'line'
+    const isPolygon = kind === 'polygon'
+    const color = style.color ?? folderColor(folders, f.entity_folder)
+    renderStyle.current.set(fid, {
+      color,
+      fillColor: isPolygon && style.fillImg ? `url(#${fillPatternId(style.fillImg)})` : color,
+      fillImg: isPolygon ? style.fillImg : undefined,
+      fillOpacity: style.fillOpacity ?? 0.25,
+      weight: style.weight ?? (isLine ? 3 : 2),
+      opacity: isLine ? (style.opacity ?? 0.9) : 1,
+      dashArray: isLine ? lineDashArray(style.dash, style.weight ?? 3) : ''
+    })
+  }
+
   const editSelectedStyle = async (patch: Partial<FeatureStyle>): Promise<void> => {
     if (!selected) return
     const key = selIds.join(',')
@@ -3789,6 +3822,29 @@ export default function MapView({
       })
     )
     setSelected({ ...selected, style: items[0].latest }) // items[0] = the primary (selIds order)
+    // Dragging one slider used to rebuild the whole map on every tick — measured from a real
+    // session: ~75 full reloads in eight seconds, each re-reading the map from SQLite and
+    // recreating every layer, to change the opacity of one polygon.
+    //
+    // It never needed to. The paint properties live in `renderStyle`, and `applyYear` repaints
+    // from that ref without touching the database — which is exactly why the YEAR slider is
+    // smooth. A style edit can take the same road, as long as it only touches paint: anything
+    // else (label text, year range, zoom limits, pin image, board) is built elsewhere in
+    // reloadFeatures and still needs the full pass. Derived modes are excluded too — there the
+    // colour comes from the mode, not the feature, and recomputing it here would fight applyYear.
+    // Polygons and paths only. A pin or a label carries its colour in a divIcon that is BUILT in
+    // reloadFeatures, and applyYear never rebuilds one — so the fast path would have made the
+    // colour picker silently do nothing on a pin. They keep the full pass; they are also not what
+    // produces the storm, since the sliders that fire per tick belong to shapes.
+    const shapes = items.every((it) => {
+      const k = featKind.current.get(it.fid)
+      return k === 'polygon' || k === 'line'
+    })
+    if (shapes && !activeModeRef.current && Object.keys(patch).every((k) => PAINT_KEYS.has(k))) {
+      for (const it of items) repaint(it.fid, it.latest)
+      applyYear(yearRef.current)
+      return
+    }
     await reloadFeatures('style')
   }
 
