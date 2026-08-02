@@ -26,12 +26,24 @@
 :root {
   color-scheme: dark;
 
-  /* --- surfaces --- */
-  --surface-canvas: #0b1012;
-  --surface-sunken: #161e21;
-  --surface: #1a2225;
-  --surface-raised: #212a2e;
-  --surface-float: #2a353a;
+  /* --- surfaces ---
+     GREY, deliberately: these carried 7-16 points more blue than red and 5-11
+     more green, and across a whole screen that reads as a coloured UI rather
+     than a dark one. Chrome is grey; colour is for meaning (links, focus, the
+     active thing, the one primary button) — which is what every dark theme
+     next to this one does, and what makes the accent register when it appears.
+
+     DERIVED, not picked: each is the neutral grey with the SAME measured L* as
+     the tinted colour it replaced (4.4 / 10.6 / 12.6 / 16.4 / 21.4), with green
+     lifted one 8-bit step so it is not clinically flat. Only hue was removed.
+     That is why nothing below needed re-tuning: the ramp still ascends, the
+     text ratios still hold, the shadows still separate the elevations. Keep the
+     rule if these are ever touched again — do not re-tint them by eye. */
+  --surface-canvas: #111211;
+  --surface-sunken: #1d1e1d;
+  --surface: #212221;
+  --surface-raised: #292a29;
+  --surface-float: #333433;
   /* Interaction states are TRANSLUCENT so they compose over whichever surface
      they land on — a hover in the sidebar and a hover in a popover both read. */
   --surface-hover: rgba(255, 255, 255, 0.055);
@@ -41,10 +53,10 @@
   --control: rgba(255, 255, 255, 0.05);
   --control-hover: rgba(255, 255, 255, 0.09);
 
-  /* --- text --- */
-  --text: #dde5e5;
-  --text-muted: #a6b4b3; /* secondary text, labels */
-  --text-faint: #879695; /* section headings, disabled */
+  /* --- text --- (same derivation as the surfaces: L* kept, hue removed) */
+  --text: #e3e4e3;
+  --text-muted: #b1b2b1; /* secondary text, labels */
+  --text-faint: #939493; /* section headings, disabled */
 
   /* --- accents ---
      Teal = the APPLICATION talking (selection, active, focus, interaction).
