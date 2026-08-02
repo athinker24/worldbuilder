@@ -463,6 +463,17 @@ function repairImportedJson(): number {
   return fixed
 }
 
+/**
+ * How big the open world is. For the log, where a duration means nothing without it: 100 ms is slow
+ * for four articles and fast for four thousand, and every performance report so far has had to be
+ * read without knowing which. Three counts, once per open — not a per-call cost.
+ */
+export const worldStats = (): Record<string, number> => {
+  const n = (t: string): number =>
+    Number((db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n)
+  return { entities: n('entities'), maps: n('maps'), features: n('features') }
+}
+
 /** Does the working copy hold anything worth keeping? (avoids a pointless snapshot on blank launch) */
 export function hasContent(): boolean {
   return (
@@ -1540,6 +1551,21 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     >
     assert.equal(f2['parent'], 'current', 'the existing English value must win')
     assert.ok(!('\u00fcst' in f2))
+  }
+
+  // Three COUNT queries, but they run at open time inside a logTime: a wrong table name here would
+  // throw where the app is least able to explain itself.
+  {
+    const s = worldStats()
+    assert.deepEqual(
+      Object.keys(s).sort(),
+      ['entities', 'features', 'maps'],
+      'worldStats reports the three tables an open should describe'
+    )
+    assert.ok(
+      Object.values(s).every((v) => Number.isInteger(v) && v >= 0),
+      'and each of them as a number — a wrong table name would throw here, not at open time'
+    )
   }
 
   db.close()

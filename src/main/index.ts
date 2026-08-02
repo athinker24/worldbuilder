@@ -13,6 +13,7 @@ import {
   packWorld,
   resetWorld,
   unpackWorld,
+  worldStats,
   NOT_A_WORLD,
   WORLD_TOO_LARGE,
   api as dbApi
@@ -339,7 +340,9 @@ function openGuarded(path: string): boolean {
   const done = logTime('project.open', { file: basename(path) })
   try {
     openWorldFile(path)
-    done()
+    // Measured AFTER the open, so the counts describe the world that was just loaded rather than
+    // the one being replaced.
+    done(worldStats())
     return true
   } catch (err) {
     const code = err instanceof Error ? err.message : ''
