@@ -1382,6 +1382,30 @@ export default function MapView({
     return true
   }
 
+  /**
+   * The paint an article is already drawn in ON THIS MAP — what a drawing joining it should look
+   * like. Read from this map on purpose: the point is matching what sits next to it, and a drawing
+   * on another map is not that. Same geometry kind first; a pin's colour on a polygon would be a
+   * strange thing to inherit.
+   *
+   * One rule, two callers — drawing into an article and linking an existing drawing to one — so
+   * the two cannot drift into producing different results for the same intent.
+   */
+  const lookOf = (entityId: number, want: 'polygon' | 'line' | 'point'): Partial<FeatureStyle> => {
+    const kind = (g: string): string =>
+      g.includes('"Polygon"') ? 'polygon' : g.includes('"LineString"') ? 'line' : 'point'
+    const mine = (worldMapRef.current?.features ?? []).filter((f) => f.entity_id === entityId)
+    const src = mine.find((f) => kind(f.geometry) === want) ?? mine[0]
+    if (!src) return {}
+    const st = JSON.parse(src.style || '{}') as FeatureStyle
+    const out: Partial<FeatureStyle> = {}
+    // Appearance only. Never `from`/`to`, `text`, `board` or the zoom range: those say WHERE and
+    // WHEN a drawing is, not what it looks like, and inheriting them would move it.
+    for (const k of ['color', 'fillOpacity', 'weight', 'opacity', 'dash'] as const)
+      if (st[k] !== undefined) (out as Record<string, unknown>)[k] = st[k]
+    return out
+  }
+
   const drawInst = (shape: string): DrawInstance | undefined =>
     (mapRef.current?.pm.Draw as unknown as Record<string, DrawInstance | undefined> | undefined)?.[
       shape
@@ -3670,15 +3694,11 @@ export default function MapView({
       // purpose — the point is matching what is next to it, and a drawing on another map is not.
       // Same kind first (a pin's colour on a polygon would be a strange thing to inherit), then
       // whatever the article is drawn as.
-      if (into) {
-        const kind = (g: string): string =>
-          g.includes('"Polygon"') ? 'polygon' : g.includes('"LineString"') ? 'line' : 'point'
-        const want = shape === 'Line' ? 'line' : shape === 'Marker' ? 'point' : 'polygon'
-        const mine = (worldMapRef.current?.features ?? []).filter((f) => f.entity_id === into.id)
-        const src = mine.find((f) => kind(f.geometry) === want) ?? mine[0]
-        const color = src && (JSON.parse(src.style || '{}') as FeatureStyle).color
-        if (color) (styleObj as Record<string, unknown>).color = color
-      }
+      if (into)
+        Object.assign(
+          styleObj,
+          lookOf(into.id, shape === 'Line' ? 'line' : shape === 'Marker' ? 'point' : 'polygon')
+        )
       // Bind to the active board (when boards exist) → visible only on it
       if (boardsRef.current.list.length)
         (styleObj as Record<string, unknown>).board = boardsRef.current.active
@@ -4123,11 +4143,64 @@ export default function MapView({
     }
   }
 
+  /**
+   * An article left with no drawings and nothing written in it, after its only drawing moved to
+   * another article. Those are the ones this app creates by itself — every drawing is born with a
+   * "New region" — so cleaning them up is undoing our own bookkeeping, not deleting the user's work.
+   *
+   * Hence the test: no features left anywhere (not just this map), no body, no links, no fields.
+   * Anything written keeps the article, whatever became of its drawing.
+   */
+  const dropIfOrphan = async (entityId: number): Promise<void> => {
+    const [featIds, ent] = await Promise.all([
+      api.entityFeatureIds(entityId),
+      api.getEntity(entityId)
+    ])
+    if (!ent || featIds.length) return
+    const fields = JSON.parse(ent.fields || '{}') as Record<string, unknown>
+    const written =
+      ent.content.trim() !== '' ||
+      ent.outLinks.length > 0 ||
+      ent.inLinks.length > 0 ||
+      Object.values(fields).some((v) => String(v ?? '').trim() !== '')
+    if (written) return
+    const row = {
+      id: ent.id,
+      name: ent.name,
+      content: ent.content,
+      fields: ent.fields,
+      created_at: ent.created_at
+    }
+    await api.deleteEntity(entityId)
+    // Undoable even though it is automatic: silent deletion with no way back is not something to
+    // do on the user's behalf, however empty the row. No links or features to restore — that is
+    // precisely what qualified it.
+    pushUndo({
+      label: 'Remove the emptied article',
+      params: { name: ent.name },
+      undo: () => api.restoreEntity(row, [], []).then(onChanged),
+      redo: () => api.deleteEntity(entityId).then(onChanged)
+    })
+  }
+
   const linkEntity = async (entityId: number): Promise<void> => {
-    await api.updateFeature(selected!.id, { entity_id: entityId })
+    const feat = selected!
+    const prev = feat.entity_id
+    if (prev === entityId) return
+    const kind = featKind.current.get(feat.id)
+    const look = lookOf(
+      entityId,
+      kind === 'line' ? 'line' : kind === 'polygon' ? 'polygon' : 'point'
+    )
+    const style = JSON.stringify({ ...(JSON.parse(feat.style || '{}') as FeatureStyle), ...look })
+    await api.updateFeature(feat.id, { entity_id: entityId, style })
+    // The article this drawing came from is usually one the app invented at draw time; with the
+    // drawing gone it is an empty row nobody asked for.
+    if (prev !== null) await dropIfOrphan(prev)
     setLinkName('')
+    onChanged()
     await reloadFeatures('link')
-    setSelected((await api.getMap(id))?.features.find((f) => f.id === selected!.id) ?? null)
+    setSelected((await api.getMap(id))?.features.find((f) => f.id === feat.id) ?? null)
   }
 
   return (
@@ -5256,7 +5329,7 @@ export default function MapView({
                 )}
               </div>
 
-              {selected.entity_id ? (
+              {selected.entity_id && (
                 <div className="panel-block">
                   <button
                     className="mini"
@@ -5275,41 +5348,46 @@ export default function MapView({
                     {t('Unlink entity')}
                   </button>
                 </div>
-              ) : (
-                <div className="panel-block">
-                  <label>{t('Link to entity:')}</label>
-                  <input
-                    list="entity-list-map"
-                    placeholder={t('search entity…')}
-                    value={linkName}
-                    onChange={(e) => setLinkName(e.target.value)}
-                  />
-                  <datalist id="entity-list-map">
-                    {allEntities
-                      .filter((en) => !(en.folder && personFolders.has(en.folder)))
-                      .map((en) => (
-                        <option key={en.id} value={en.name} />
-                      ))}
-                  </datalist>
-                  <button
-                    className="mini"
-                    onClick={async () => {
-                      if (!linkName.trim()) return
-                      const found = allEntities.find(
-                        (en) => en.name === linkName && !(en.folder && personFolders.has(en.folder))
-                      )
-                      if (found) return linkEntity(found.id)
-                      const { id: newId } = await api.createEntity({ name: linkName.trim() })
-                      setAllEntities(await api.listEntities())
-                      onChanged()
-                      await linkEntity(newId)
-                    }}
-                  >
-                    <Icon name="plus" size={12} />
-                    {t('Link / Create')}
-                  </button>
-                </div>
               )}
+              {/* Shown whether or not the drawing is already bound. It used to appear ONLY when it
+                  was not — and since every drawing is born with its own article, that state barely
+                  exists, so moving an islet into its region meant unlinking first to reveal the
+                  field that does it. One step now, and the emptied article goes with it. */}
+              <div className="panel-block">
+                <label>
+                  {selected.entity_id ? t('Move to another article:') : t('Link to entity:')}
+                </label>
+                <input
+                  list="entity-list-map"
+                  placeholder={t('search entity…')}
+                  value={linkName}
+                  onChange={(e) => setLinkName(e.target.value)}
+                />
+                <datalist id="entity-list-map">
+                  {allEntities
+                    .filter((en) => !(en.folder && personFolders.has(en.folder)))
+                    .map((en) => (
+                      <option key={en.id} value={en.name} />
+                    ))}
+                </datalist>
+                <button
+                  className="mini"
+                  onClick={async () => {
+                    if (!linkName.trim()) return
+                    const found = allEntities.find(
+                      (en) => en.name === linkName && !(en.folder && personFolders.has(en.folder))
+                    )
+                    if (found) return linkEntity(found.id)
+                    const { id: newId } = await api.createEntity({ name: linkName.trim() })
+                    setAllEntities(await api.listEntities())
+                    onChanged()
+                    await linkEntity(newId)
+                  }}
+                >
+                  <Icon name="plus" size={12} />
+                  {t('Link / Create')}
+                </button>
+              </div>
             </div>
             {/* The bound article, shown as its identity RAIL — the same sections
                 the full page renders, so the inspector and the page are visibly

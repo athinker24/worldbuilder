@@ -193,6 +193,8 @@ const TR: Record<string, string> = {
   // History panel (Overview ▸ History) — the labels come from pushUndo call sites, so the English
   // text there IS the key here.
   'Add to article:': 'Şu maddeye ekle:',
+  'Move to another article:': 'Başka maddeye taşı:',
+  'Remove the emptied article': 'Boşalan madde silindi',
   'new article each time': 'her seferinde yeni madde',
   History: 'Geçmiş',
   Opened: 'Açıldı',
