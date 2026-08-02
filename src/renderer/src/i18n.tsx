@@ -53,7 +53,6 @@ const TR: Record<string, string> = {
   'Add location': 'Konum ekle',
   Open: 'Aç',
   'Delete mode': 'Silme modu',
-  'Open map': 'Haritayı aç',
   // App.tsx
   'Search…  (Ctrl+K)': 'Ara…  (Ctrl+K)',
   Maps: 'Haritalar',
@@ -193,6 +192,9 @@ const TR: Record<string, string> = {
   // History panel (Overview ▸ History) — the labels come from pushUndo call sites, so the English
   // text there IS the key here.
   'Add to article:': 'Şu maddeye ekle:',
+  'Move to the top level': 'En üst seviyeye taşı',
+  'Move under "{name}"': '"{name}" altına taşı',
+  'inside "{name}"': '"{name}" içinde',
   Halo: 'Hale',
   'No halo': 'Hale yok',
   'Light halo': 'Açık hale',
@@ -546,9 +548,7 @@ const TR: Record<string, string> = {
   'Length: {val} {unit}': 'Uzunluk: {val} {unit}',
   'Area: {val} {unit}²': 'Alan: {val} {unit}²',
   'Perimeter: {val} {unit}': 'Çevre: {val} {unit}',
-  'Child map (door):': 'Çocuk harita (kapı):',
-  '— none —': '— yok —',
-  'Open map →': 'Haritayı aç →'
+  '— none —': '— yok —'
 }
 
 export const LangContext = createContext<Lang>('en')

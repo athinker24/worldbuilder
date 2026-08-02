@@ -2,6 +2,25 @@ import { resolve } from 'path'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
+/**
+ * TRIAL — the Agentation annotation toolbar (try/agentation branch).
+ *
+ * The toolbar posts annotations to the MCP server's HTTP endpoint, which `default-src 'self'`
+ * forbids. Widened HERE rather than in index.html, and only in dev, because the CSP is the spine
+ * of this app's security contract: a shipped build must not carry an exception made for a
+ * development tool. `apply: 'serve'` is what guarantees that — the packaged build never runs this.
+ */
+const agentationCsp = {
+  name: 'agentation-dev-csp',
+  apply: 'serve' as const,
+  transformIndexHtml(html: string): string {
+    return html.replace(
+      "default-src 'self';",
+      "default-src 'self'; connect-src 'self' http://localhost:4747;"
+    )
+  }
+}
+
 export default defineConfig({
   main: {},
   preload: {},
@@ -20,6 +39,6 @@ export default defineConfig({
     // fixing those needs sourcemaps, which ship megabytes and the source with them — not worth it
     // until an unreadable stack from a packaged build actually costs us something.
     esbuild: { keepNames: true },
-    plugins: [react()]
+    plugins: [react(), agentationCsp]
   }
 })

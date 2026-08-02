@@ -1267,6 +1267,20 @@ kbd {
   font-size: 16px; /* bigger than the inline column — the point of reading mode */
   line-height: 1.75;
 }
+
+/* A thinner bar for the two panes you READ in. The 10px desktop bar is right where it frames the
+   app — the sidebar, a panel — but beside a column of prose it is another vertical rule competing
+   with the text, which is the one place the chrome should get out of the way. Scoped to these two
+   rather than changed globally: everywhere else the wider target is worth having. */
+.note-body::-webkit-scrollbar,
+.note-focus-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.note-body::-webkit-scrollbar-thumb,
+.note-focus-body::-webkit-scrollbar-thumb {
+  border-width: 1px; /* the global rule insets the thumb by 2px, which at 6px leaves a sliver */
+}
 .note-focus-body-edit {
   flex: 1;
   min-height: 50vh;
@@ -3578,8 +3592,11 @@ a {
 
 /* The measure belongs to running PROSE, not to the column: note tabs, relation
    rows and the editor all want the full width, while a 2000px line of body text
-   is unreadable. */
-.entity-doc .content-view {
+   is unreadable.
+   ...which is what this said while doing the opposite to notes: a note body carries
+   `content-view` as well, so it was capped at 74ch inside a full-width bordered tab and sat
+   short of its own frame. The exclusions say out loud what the sentence above already claimed. */
+.entity-doc .content-view:not(.note-body):not(.note-focus-body) {
   max-width: 74ch;
 }
 
