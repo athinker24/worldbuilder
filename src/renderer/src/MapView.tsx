@@ -4676,7 +4676,7 @@ export default function MapView({
                   (position:relative) like the other floats, so opening the 380px inspector shrinks
                   that box and they slide left with it — no collision handling needed. Inside the
                   !exporting guard so neither lands in the exported PNG. */}
-              {!hideTools && <MapToolbar active={tool} onTool={activateTool} />}
+              {!hideTools && !histOpen && <MapToolbar active={tool} onTool={activateTool} />}
               {/* …and out of the way while History is open: both float against the same right
                   edge, and the tool settings are not what you are looking at when you are stepping
                   back through the session. It comes back on its own — the condition is derived,

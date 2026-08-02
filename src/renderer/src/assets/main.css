@@ -3050,7 +3050,11 @@ a {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 901;
+  /* Above the map floats (1600), not below them. A menu you just opened is the top thing on the
+     screen by definition; at 901 the floating tool palette drew straight over it — which is what
+     the History panel appeared to "not fix" when only the popover was hidden. Applies to all four
+     toolbar menus: Maps, Boards, Layers, History. */
+  z-index: 1700;
   width: 260px;
   background: var(--surface-float);
   border-radius: var(--r-m);
