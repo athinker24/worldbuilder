@@ -140,6 +140,9 @@ export function migrateLegacyKeys(): number {
   const rel = db.prepare(`UPDATE links SET relation = ? WHERE relation = ?`)
   for (const [from, to] of Object.entries(RELATION_RENAMES))
     changed += Number(rel.run(to, from).changes ?? 0)
+  // Silent until now, and it rewrites rows on every launch and every open. A world that keeps
+  // reporting migrations is one where something is writing the old keys back.
+  if (changed) logEvent('INFO', 'data.migrated', { rows: changed })
   return changed
 }
 
@@ -149,12 +152,21 @@ export function backupIfNeeded(): void {
   mkdirSync(backupsDir, { recursive: true })
   const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
   const target = join(backupsDir, `world-${today}.db`)
-  if (!existsSync(target)) copyFileSync(dbFile, target)
+  const made = !existsSync(target)
+  if (made) copyFileSync(dbFile, target)
   const cutoff = Date.now() - BACKUP_KEEP_DAYS * 24 * 60 * 60 * 1000
+  let dropped = 0
   for (const name of readdirSync(backupsDir)) {
     const p = join(backupsDir, name)
-    if (statSync(p).mtimeMs < cutoff) unlinkSync(p)
+    if (statSync(p).mtimeMs < cutoff) {
+      unlinkSync(p)
+      dropped++
+    }
   }
+  // Restoring is manual, so the only thing between a bad day and lost work is knowing a copy was
+  // taken — and that it was taken BEFORE whatever went wrong. Nothing is said on the launches that
+  // find today's copy already there.
+  if (made || dropped) logEvent('INFO', 'project.backup', { daily: today, dropped })
 }
 
 // --- The .dunya file format (like Wonderdraft's own file): EVERYTHING in one file ---
@@ -379,7 +391,12 @@ function repairImportedJson(): number {
       return false
     }
   }
+  // Counted per column, not just totalled: this is the one place in the app that DISCARDS a user's
+  // data without asking, and "3 rows repaired" does not tell them what they lost. `geometry=3` says
+  // three drawings are now dots at the origin; `fields=9` says nine articles lost their metadata.
+  const byKind: Record<string, number> = {}
   const repair = <T extends { id: number; v: string }>(
+    kind: string,
     rows: T[],
     ok: (v: string) => boolean,
     sql: string,
@@ -390,21 +407,25 @@ function repairImportedJson(): number {
       if (!ok(r.v)) {
         st.run(def, r.id)
         fixed++
+        byKind[kind] = (byKind[kind] ?? 0) + 1
       }
   }
   repair(
+    'fields',
     db.prepare(`SELECT id, fields AS v FROM entities`).all() as { id: number; v: string }[],
     isPlainObject,
     `UPDATE entities SET fields = ? WHERE id = ?`,
     '{}'
   )
   repair(
+    'style',
     db.prepare(`SELECT id, style AS v FROM features`).all() as { id: number; v: string }[],
     isPlainObject,
     `UPDATE features SET style = ? WHERE id = ?`,
     '{}'
   )
   repair(
+    'layers',
     db.prepare(`SELECT id, layers AS v FROM maps`).all() as { id: number; v: string }[],
     isArray,
     `UPDATE maps SET layers = ? WHERE id = ?`,
@@ -417,6 +438,7 @@ function repairImportedJson(): number {
   // rule here is that rows are never dropped, and a stray pin at the origin is visible and
   // fixable, whereas a deleted drawing is silently gone.
   repair(
+    'geometry',
     db.prepare(`SELECT id, geometry AS v FROM features`).all() as { id: number; v: string }[],
     isPlainObject,
     `UPDATE features SET geometry = ? WHERE id = ?`,
@@ -433,7 +455,11 @@ function repairImportedJson(): number {
     if (isPlainObject(r.value) || isArray(r.value)) continue
     del.run(r.key)
     fixed++
+    byKind.settings = (byKind.settings ?? 0) + 1
   }
+  // WARN, not INFO: nothing else in the app throws a user's data away, and the only trace it used
+  // to leave was the data being gone. A clean file stays silent.
+  if (fixed) logEvent('WARN', 'data.repaired', { rows: fixed, ...byKind })
   return fixed
 }
 
@@ -491,6 +517,9 @@ function pruneUnusedAssets(): number {
       removed++
     }
   }
+  // Files deleted with no UI and no undo. Conservative by design, but "my image is gone" deserves
+  // a line saying how many went and when — the count against `kept` is the whole diagnosis.
+  if (removed) logEvent('INFO', 'assets.pruned', { removed, kept: files.length - removed })
   return removed
 }
 
