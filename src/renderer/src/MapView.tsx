@@ -250,6 +250,10 @@ const stockUpdateStyle = (L.SVG.prototype as unknown as SvgRenderer)._updateStyl
   if (path && layer.options.weight !== undefined) {
     path.style.setProperty('--w', String(layer.options.weight))
     if (layer instanceof L.Polygon) path.style.setProperty('--mz', '1')
+    // The stylesheet floors the width at 0.75px so a hairline survives the smallest zooms — but a
+    // weight of ZERO is a choice, not a small number, and the floor was quietly turning it back
+    // into a 1px line. An inline width beats the stylesheet and says exactly that.
+    path.style.strokeWidth = layer.options.weight === 0 ? '0' : ''
   }
 }
 
