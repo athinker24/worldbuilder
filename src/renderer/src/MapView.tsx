@@ -1641,9 +1641,6 @@ export default function MapView({
         pinEl.style.height = `${h}px`
         pinEl.style.marginLeft = `${-w / 2}px`
         pinEl.style.marginTop = `${-h / 2}px`
-        // Turns with the text. A plain 2D rotate, not a 3D transform — see the _setPos patch for
-        // why that distinction matters on this map.
-        if (hit.angle) pinEl.style.transform = `rotate(${hit.angle}deg)`
       }
     })
     // Polygon name labels and derived region labels need nothing here: they are drawn in WebGL
@@ -2872,9 +2869,26 @@ export default function MapView({
     labelLayer.current?.setLabels(shownLabels.concat(derivedSpecs.current))
     // The estimate above is a placeholder until the glyphs have been laid out; this is the real
     // size. Only free labels have a box to correct — a polygon's name is not clickable.
+    //
+    // The angle is folded in HERE, as the axis-aligned box around the rotated text, rather than by
+    // rotating the element: `transform` is the property Leaflet's drag writes, and two writers on
+    // one property is why dragging a label stopped working and left it in the wrong place.
+    // Everything is derived from the measurement each time, never from the previous value — a
+    // padding added to its own result creeps upward every time this runs.
     for (const [fid, hit] of labelHit.current) {
       const m = labelLayer.current?.extentOf(fid)
-      if (m) labelHit.current.set(fid, { ...hit, w: m.w + hit.h * 0.15, h: m.h + hit.h * 0.15 })
+      if (!m) continue
+      const pad = m.h * 0.15
+      const w = m.w + pad
+      const h = m.h + pad
+      const a = (hit.angle * Math.PI) / 180
+      const cos = Math.abs(Math.cos(a))
+      const sin = Math.abs(Math.sin(a))
+      labelHit.current.set(fid, {
+        ...hit,
+        w: w * cos + h * sin,
+        h: w * sin + h * cos
+      })
     }
     drawLabels()
     // The selected feature's Leaflet layer is added and removed BY this function now, so geoman
