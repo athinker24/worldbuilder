@@ -3592,8 +3592,11 @@ a {
 
 /* The measure belongs to running PROSE, not to the column: note tabs, relation
    rows and the editor all want the full width, while a 2000px line of body text
-   is unreadable. */
-.entity-doc .content-view {
+   is unreadable.
+   ...which is what this said while doing the opposite to notes: a note body carries
+   `content-view` as well, so it was capped at 74ch inside a full-width bordered tab and sat
+   short of its own frame. The exclusions say out loud what the sentence above already claimed. */
+.entity-doc .content-view:not(.note-body):not(.note-focus-body) {
   max-width: 74ch;
 }
 
