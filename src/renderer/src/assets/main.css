@@ -33,17 +33,19 @@
      active thing, the one primary button) — which is what every dark theme
      next to this one does, and what makes the accent register when it appears.
 
-     DERIVED, not picked: each is the neutral grey with the SAME measured L* as
-     the tinted colour it replaced (4.4 / 10.6 / 12.6 / 16.4 / 21.4), with green
-     lifted one 8-bit step so it is not clinically flat. Only hue was removed.
-     That is why nothing below needed re-tuning: the ramp still ascends, the
-     text ratios still hold, the shadows still separate the elevations. Keep the
-     rule if these are ever touched again — do not re-tint them by eye. */
-  --surface-canvas: #111211;
-  --surface-sunken: #1d1e1d;
-  --surface: #212221;
-  --surface-raised: #292a29;
-  --surface-float: #333433;
+     DERIVED, not picked: neutral greys at the measured L* of the tinted colours
+     they replaced, then the whole ramp taken down 2.5 L* on request — as ONE
+     shift, so the spacing between the steps is untouched and elevation reads
+     exactly as before. Green is lifted one 8-bit step so the grey is not
+     clinically flat. Keep the method if these are touched again: move the ramp,
+     do not re-tint it by eye. Verified after the move — L* 4.2 / 9.1 / 11.1 /
+     14.5 / 19.3, strictly ascending, and text 13.1:1, muted 7.9:1, faint 5.5:1,
+     accent 7.7:1 against the workspace surface. */
+  --surface-canvas: #0e0f0e;
+  --surface-sunken: #191a19;
+  --surface: #1d1e1d;
+  --surface-raised: #242524;
+  --surface-float: #2e2f2e;
   /* Interaction states are TRANSLUCENT so they compose over whichever surface
      they land on — a hover in the sidebar and a hover in a popover both read. */
   --surface-hover: rgba(255, 255, 255, 0.055);
