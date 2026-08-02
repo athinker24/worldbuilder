@@ -2341,6 +2341,16 @@ export default function MapView({
               polySpec.current.set(f.id, { ...spec, x: at.x, y: at.y })
               applyYear(yearRef.current)
             }
+            // The same problem for a FREE LABEL, and it was missed: the glyphs are drawn from
+            // freeSpec, not from the layer, so dragging one moved its marker and its row in the
+            // database while the text stayed where it started — until something else forced a
+            // reload. What moves is the grab box; the text has to be told.
+            const fs = freeSpec.current.get(f.id)
+            if (fs && isLabel) {
+              const at = map.project((layer as L.Marker).getLatLng(), 0)
+              freeSpec.current.set(f.id, { ...fs, x: at.x, y: at.y })
+              applyYear(yearRef.current)
+            }
           }
         }
         // Snapshot synchronous, commit on the serial chain — reloads never clobber each other.
