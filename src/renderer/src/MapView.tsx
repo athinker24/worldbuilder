@@ -3822,6 +3822,15 @@ export default function MapView({
       })
     )
     setSelected({ ...selected, style: items[0].latest }) // items[0] = the primary (selIds order)
+    // The edit itself. Its only trace used to be the reload it caused, so removing that reload
+    // made a real action invisible — the same trap as `entity.located`: an event recorded through
+    // its own side effect disappears the moment the side effect is optimised away.
+    // Called per tick, and left to the coalescer: a drag becomes one line with a count and a span.
+    // Which key changed is part of the shape, so switching sliders mid-gesture starts a new line.
+    logEvent('INFO', 'style.changed', {
+      what: Object.keys(patch).join(','),
+      features: items.length
+    })
     // Dragging one slider used to rebuild the whole map on every tick — measured from a real
     // session: ~75 full reloads in eight seconds, each re-reading the map from SQLite and
     // recreating every layer, to change the opacity of one polygon.
