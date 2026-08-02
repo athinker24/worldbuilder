@@ -3796,9 +3796,9 @@ a {
   /* It lives in a toolbar dropdown, so it has to be bounded in both directions: long enough to
      read, short enough not to run off the map, and scrolling once the session gets going. */
   min-width: 240px;
-  /* About six rows. It scrolls itself to the current step (see History.tsx), which is what makes
+  /* About four rows. It scrolls itself to the current step (see History.tsx), which is what makes
      a short window usable — Photoshop's panel grows downward too and never asks you to chase it. */
-  max-height: 172px;
+  max-height: 120px;
   overflow-y: auto;
 }
 
