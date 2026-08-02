@@ -96,9 +96,14 @@ export default function App(): React.JSX.Element {
   // rebuilt Leaflet, refetched every feature and re-fitted the view on each return,
   // so coming back from an article threw away where you were on the map.
   const [mapId, setMapId] = useState<number | null>(null)
+  // Which map is already open, for callbacks that must not rebuild when it changes (openMap).
+  const mapIdRef = useRef<number | null>(null)
   useEffect(() => {
     if (view.kind === 'map') setMapId(view.id)
   }, [view])
+  useEffect(() => {
+    mapIdRef.current = mapId
+  }, [mapId])
   const [hidden, setHidden] = useState<null | 'panels' | 'all'>(null)
   const [sidebarW, setSidebarW] = useState(260)
 
@@ -196,12 +201,23 @@ export default function App(): React.JSX.Element {
   // Every switch between maps goes through here, which is why the log line does too.
   const openMap = useCallback(
     (id: number): void => {
-      api.setSetting('lastMapId', String(id))
-      // The NAME, falling back to the id. `map=1` is the answer to a question nobody asks; this
-      // line's whole job is to say which map an error happened on. Read through a ref because
-      // taking `maps` as a dependency would rebuild openMap — and every effect holding it — each
-      // time the sidebar refreshes.
-      logEvent('INFO', 'map.changed', { map: mapsRef.current.find((m) => m.id === id)?.name ?? id })
+      // Only when the map ACTUALLY changes. Locating eleven articles that all live on one map used
+      // to write eleven `map.changed` lines, and anyone reading that file — a person or a model —
+      // would conclude the user had switched maps eleven times. A log that is merely incomplete
+      // costs you a question; one that is wrong costs you the investigation.
+      // It also stopped the document being marked unsaved by looking at it: `setSetting` matches
+      // main's dirty-flag regex, so re-writing the same value flagged the world and woke auto-save.
+      if (mapIdRef.current !== id) {
+        api.setSetting('lastMapId', String(id))
+        // The NAME, falling back to the id. `map=1` is the answer to a question nobody asks; this
+        // line's whole job is to say which map an error happened on. Read through a ref because
+        // taking `maps` as a dependency would rebuild openMap — and every effect holding it — each
+        // time the sidebar refreshes.
+        logEvent('INFO', 'map.changed', {
+          map: mapsRef.current.find((m) => m.id === id)?.name ?? id
+        })
+      }
+      // Always: you may be on an article, and going back to the map is the point of the click.
       navigate({ kind: 'map', id })
     },
     [navigate]
@@ -236,6 +252,15 @@ export default function App(): React.JSX.Element {
   const locateEntity = useCallback(
     async (entityId: number): Promise<void> => {
       const feats = await api.featuresByEntity(entityId)
+      // The action itself, which had no line of its own — so eleven of these read as eleven map
+      // switches, and with map.changed now silent on an unchanged map they would have read as
+      // nothing at all. This is the one that says what the user actually did, and the one the
+      // `feature.locate found=false` warning in MapView needs beside it to mean anything.
+      logEvent('INFO', 'entity.located', {
+        entity: entityId,
+        feature: feats[0]?.id,
+        drawings: feats.length
+      })
       if (!feats.length) {
         alertDialog(translate(lang, 'This entity is not marked on any map yet.'))
         return
