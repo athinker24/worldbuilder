@@ -26,12 +26,26 @@
 :root {
   color-scheme: dark;
 
-  /* --- surfaces --- */
-  --surface-canvas: #0b1012;
-  --surface-sunken: #161e21;
-  --surface: #1a2225;
-  --surface-raised: #212a2e;
-  --surface-float: #2a353a;
+  /* --- surfaces ---
+     GREY, deliberately: these carried 7-16 points more blue than red and 5-11
+     more green, and across a whole screen that reads as a coloured UI rather
+     than a dark one. Chrome is grey; colour is for meaning (links, focus, the
+     active thing, the one primary button) — which is what every dark theme
+     next to this one does, and what makes the accent register when it appears.
+
+     DERIVED, not picked: neutral greys at the measured L* of the tinted colours
+     they replaced, then the whole ramp taken down 2.5 L* on request — as ONE
+     shift, so the spacing between the steps is untouched and elevation reads
+     exactly as before. Green is lifted one 8-bit step so the grey is not
+     clinically flat. Keep the method if these are touched again: move the ramp,
+     do not re-tint it by eye. Verified after the move — L* 4.2 / 9.1 / 11.1 /
+     14.5 / 19.3, strictly ascending, and text 13.1:1, muted 7.9:1, faint 5.5:1,
+     accent 7.7:1 against the workspace surface. */
+  --surface-canvas: #0e0f0e;
+  --surface-sunken: #191a19;
+  --surface: #1d1e1d;
+  --surface-raised: #242524;
+  --surface-float: #2e2f2e;
   /* Interaction states are TRANSLUCENT so they compose over whichever surface
      they land on — a hover in the sidebar and a hover in a popover both read. */
   --surface-hover: rgba(255, 255, 255, 0.055);
@@ -41,10 +55,10 @@
   --control: rgba(255, 255, 255, 0.05);
   --control-hover: rgba(255, 255, 255, 0.09);
 
-  /* --- text --- */
-  --text: #dde5e5;
-  --text-muted: #a6b4b3; /* secondary text, labels */
-  --text-faint: #879695; /* section headings, disabled */
+  /* --- text --- (same derivation as the surfaces: L* kept, hue removed) */
+  --text: #e3e4e3;
+  --text-muted: #b1b2b1; /* secondary text, labels */
+  --text-faint: #939493; /* section headings, disabled */
 
   /* --- accents ---
      Teal = the APPLICATION talking (selection, active, focus, interaction).
@@ -118,6 +132,25 @@
   --gold: #d9a441; /* ruler mark + active measurement — predates the redesign */
   --tint-1: rgba(255, 255, 255, 0.03);
   --tint-2: rgba(255, 255, 255, 0.07);
+}
+
+/* Dark Teal: the dark theme as it was before the greys, kept as a third choice.
+   Only the eight tokens that changed are overridden — accents, borders, shadows
+   and geometry were never tinted and stay with :root. That is the whole shape
+   of a theme here: a data-theme value plus the tokens it disagrees with, which
+   is what would let a user-defined theme be an addition rather than a rewrite.
+   The surface ramp is the original measured one (L* 4.4 / 10.6 / 12.6 / 16.4 /
+   21.4); the greys in :root are these with the hue removed and the ramp moved
+   down 2.5, so the two themes are the same design in two colours. */
+[data-theme='teal'] {
+  --surface-canvas: #0b1012;
+  --surface-sunken: #161e21;
+  --surface: #1a2225;
+  --surface-raised: #212a2e;
+  --surface-float: #2a353a;
+  --text: #dde5e5;
+  --text-muted: #a6b4b3;
+  --text-faint: #879695;
 }
 
 /* Light theme: the SAME role ordering, re-derived — not hand-tuned per token.

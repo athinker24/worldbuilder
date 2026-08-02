@@ -548,12 +548,17 @@ export async function getLanguage(): Promise<Lang> {
 
 export const saveLanguage = (lang: Lang): Promise<void> => api.savePrefs({ language: lang })
 
-// Theme — dark (teal) is the default; App.tsx writes <html data-theme>, all colors come from CSS tokens.
-export type Theme = 'dark' | 'light'
+// Theme — neutral grey dark is the default; App.tsx writes <html data-theme>, all colors come from
+// CSS tokens. A theme IS a data-theme value plus a token block in main.css and nothing else, which
+// is what would make a user-defined one an addition rather than a rewrite.
+export type Theme = 'dark' | 'light' | 'teal'
+const THEMES: Theme[] = ['dark', 'light', 'teal']
 
 export async function getTheme(): Promise<Theme> {
   const { theme } = await api.getPrefs()
-  return theme === 'light' ? 'light' : 'dark'
+  // An unknown value falls back rather than reaching the DOM: prefs.json is hand-editable, and a
+  // stray data-theme would leave every token at its :root value with no way to tell why.
+  return THEMES.find((t) => t === theme) ?? 'dark'
 }
 
 export const saveTheme = (theme: Theme): Promise<void> => api.savePrefs({ theme })
