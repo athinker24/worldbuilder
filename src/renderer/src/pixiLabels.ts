@@ -57,6 +57,18 @@ export type LabelSpec = {
    */
   minZoom?: number
   maxZoom?: number
+  /**
+   * The halo, as a choice rather than a constant. Dark text on a pale wash wants a PAPER-coloured
+   * one; the old fixed black behind white text is what made every name look like a game HUD over
+   * a printed map. 'none' is a real option: over flat colour a halo is only noise.
+   */
+  halo?: 'none' | 'light' | 'dark'
+  /** Halo thickness as a fraction of the font size (0.08 = the old fixed value). */
+  haloWidth?: number
+  /** Letter spacing as a fraction of the font size. Half of what makes a name read as cartography. */
+  tracking?: number
+  bold?: boolean
+  italic?: boolean
 }
 
 /**
@@ -88,7 +100,14 @@ const same = (a: LabelSpec[], b: LabelSpec[]): boolean => {
       x.color !== y.color ||
       x.font !== y.font ||
       x.minZoom !== y.minZoom ||
-      x.maxZoom !== y.maxZoom
+      x.maxZoom !== y.maxZoom ||
+      // Without these an edit to any of them would leave the old texture on screen: `same` is what
+      // decides whether the scene is rebuilt at all.
+      x.halo !== y.halo ||
+      x.haloWidth !== y.haloWidth ||
+      x.tracking !== y.tracking ||
+      x.bold !== y.bold ||
+      x.italic !== y.italic
     )
       return false
   }
@@ -341,13 +360,27 @@ export class LabelLayer {
   // ---------------------------------------------------------------------------------------
 
   private styleFor(s: LabelSpec): TextStyle {
+    const halo = s.halo ?? 'dark'
     return new TextStyle({
       fontFamily: [s.font, 'serif'],
       fontSize: s.size,
+      fontWeight: s.bold ? 'bold' : 'normal',
+      fontStyle: s.italic ? 'italic' : 'normal',
+      // In the same units as the size, so tracking follows the text when it scales with the map.
+      letterSpacing: s.size * (s.tracking ?? 0),
       fill: s.color,
-      // The halo, same technique and proportion as the CSS `paint-order: stroke` it replaces —
-      // and in WebGL it really is free, drawn in the same pass as the glyph.
-      stroke: { color: '#000000', alpha: HALO_ALPHA, width: s.size * HALO, join: 'round' },
+      // Drawn under the fill in the same pass, so half the width is hidden and the visible rim is
+      // half of what is asked for — the reason the old fixed 0.08 reads as 0.04.
+      ...(halo === 'none'
+        ? {}
+        : {
+            stroke: {
+              color: halo === 'light' ? '#ffffff' : '#000000',
+              alpha: HALO_ALPHA,
+              width: s.size * (s.haloWidth ?? HALO),
+              join: 'round' as const
+            }
+          }),
       align: 'center'
     })
   }

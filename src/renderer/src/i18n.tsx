@@ -193,6 +193,17 @@ const TR: Record<string, string> = {
   // History panel (Overview ▸ History) — the labels come from pushUndo call sites, so the English
   // text there IS the key here.
   'Add to article:': 'Şu maddeye ekle:',
+  Halo: 'Hale',
+  'No halo': 'Hale yok',
+  'Light halo': 'Açık hale',
+  'Dark halo': 'Koyu hale',
+  'Halo thickness: {val}': 'Hale kalınlığı: {val}',
+  'Letter spacing: {val}': 'Harf aralığı: {val}',
+  Bold: 'Kalın',
+  Italic: 'Eğik',
+  'Show the name on the map': 'Adı haritada göster',
+  'Place a label with the 🏷 tool and bind it to the same article.':
+    '🏷 aletiyle bir etiket koy ve aynı maddeye bağla.',
   'Move to another article:': 'Başka maddeye taşı:',
   'Remove the emptied article': 'Boşalan madde silindi',
   'new article each time': 'her seferinde yeni madde',

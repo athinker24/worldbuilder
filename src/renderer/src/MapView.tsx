@@ -59,6 +59,9 @@ import ToolPanel, {
   DEFAULT_DRAW,
   DrawSettings,
   FONTS,
+  HALO_LABELS,
+  LABEL_HALOS,
+  LabelHalo,
   LINE_ARROWS,
   LINE_DASHES,
   LineArrow,
@@ -282,6 +285,12 @@ interface FeatureStyle {
   board?: string // id of the board (drawing layer) it belongs to — matches settings.mapBoards
   minZoom?: number // hide below this zoom (declutter pins/labels when zoomed out)
   maxZoom?: number // hide above this zoom
+  halo?: LabelHalo // label halo: paper-coloured, dark, or none (see pixiLabels)
+  haloWidth?: number // halo thickness, fraction of the font size
+  tracking?: number // letter spacing, fraction of the font size
+  bold?: boolean
+  italic?: boolean
+  hideName?: boolean // polygon: do not draw the article's name on it (place a label instead)
 }
 
 interface Props {
@@ -2020,6 +2029,11 @@ export default function MapView({
             size,
             angle: Number(style.angle) || 0,
             curve: Number(style.curve) || 0,
+            halo: style.halo,
+            haloWidth: style.haloWidth,
+            tracking: style.tracking,
+            bold: style.bold,
+            italic: style.italic,
             // The declutter range travels WITH the label: the WebGL layer re-checks it every
             // frame, which is the only way it can appear and disappear mid-zoom (refreshZoomVis
             // reaches the Leaflet grab box and nothing else).
@@ -2145,7 +2159,10 @@ export default function MapView({
             ar: style.img && style.imgFree ? (style.imgAR ?? 1) : undefined
           })
         // No tooltip on a label — its text is already visible
-        if (f.entity_name && !derived && !isLabel) {
+        // hideName: the article's name is not drawn on this polygon. For a shape whose automatic
+        // label lands badly — an archipelago, a crescent, anything the centroid falls outside —
+        // the answer is a real label placed by hand, not a better guess at where to put this one.
+        if (f.entity_name && !derived && !isLabel && !style.hideName) {
           // escapeHtml is REQUIRED (both branches): a string tooltip/label renders via innerHTML
           // — an entity NAMED `<img onerror=…>` in a shared .dunya would run code with no click.
           if (isPolygon) {
@@ -3648,8 +3665,10 @@ export default function MapView({
       const shape = (e as { shape?: string }).shape
       // Label and pin tools are both 'Marker' to geoman → the active tool disambiguates
       const isLabelDraw = toolRef.current === 'label'
-      // The article the drawing joins, if one was picked (a free-text label joins nothing).
-      const into = isLabelDraw ? null : drawIntoRef.current
+      // The article the drawing joins, if one was picked. A LABEL may join one as well — that is
+      // what replaces a polygon's own name: the name is turned off and a hand-placed label bound
+      // to the same article says it instead. It still creates nothing when no target is set.
+      const into = drawIntoRef.current
       const from = yearRef.current
       const styleObj =
         shape === 'Marker' && isLabelDraw
@@ -3660,6 +3679,11 @@ export default function MapView({
               size: s.label.size,
               angle: s.label.angle,
               curve: s.label.curve,
+              halo: s.label.halo,
+              haloWidth: s.label.haloWidth,
+              tracking: s.label.tracking,
+              bold: s.label.bold,
+              italic: s.label.italic,
               from
             }
           : shape === 'Marker'
@@ -3694,7 +3718,9 @@ export default function MapView({
       // purpose — the point is matching what is next to it, and a drawing on another map is not.
       // Same kind first (a pin's colour on a polygon would be a strange thing to inherit), then
       // whatever the article is drawn as.
-      if (into)
+      // Not for a label: its whole appearance is what the user is choosing, and inheriting a
+      // polygon's fill opacity and outline weight would only litter its style with dead keys.
+      if (into && !isLabelDraw)
         Object.assign(
           styleObj,
           lookOf(into.id, shape === 'Line' ? 'line' : shape === 'Marker' ? 'point' : 'polygon')
@@ -4869,7 +4895,10 @@ export default function MapView({
                   {/* Draw into an existing article instead of making a new one per drawing — the
                       islets of an archipelago, the exclaves of a realm. Only for the tools that
                       would create an article: a free-text label never does. */}
-                  {(tool === 'polygon' || tool === 'line' || tool === 'marker') && (
+                  {(tool === 'polygon' ||
+                    tool === 'line' ||
+                    tool === 'marker' ||
+                    tool === 'label') && (
                     <div className="panel-block">
                       <label>{t('Add to article:')}</label>
                       {drawInto ? (
@@ -5038,13 +5067,33 @@ export default function MapView({
                       value={selStyle.weight ?? 2}
                       onChange={(e) => editSelectedStyle({ weight: Number(e.target.value) })}
                     />
-                    <label>{t('Label font')}</label>
-                    <Select
-                      value={selStyle.font ?? 'Cinzel'}
-                      style={{ fontFamily: selStyle.font ?? 'Cinzel' }}
-                      onChange={(v) => editSelectedStyle({ font: v })}
-                      options={FONTS.map((f) => ({ value: f, label: f, style: { fontFamily: f } }))}
-                    />
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={!selStyle.hideName}
+                        onChange={(e) => editSelectedStyle({ hideName: !e.target.checked })}
+                      />{' '}
+                      {t('Show the name on the map')}
+                    </label>
+                    {selStyle.hideName ? (
+                      <p className="hint">
+                        {t('Place a label with the 🏷 tool and bind it to the same article.')}
+                      </p>
+                    ) : (
+                      <>
+                        <label>{t('Label font')}</label>
+                        <Select
+                          value={selStyle.font ?? 'Cinzel'}
+                          style={{ fontFamily: selStyle.font ?? 'Cinzel' }}
+                          onChange={(v) => editSelectedStyle({ font: v })}
+                          options={FONTS.map((f) => ({
+                            value: f,
+                            label: f,
+                            style: { fontFamily: f }
+                          }))}
+                        />
+                      </>
+                    )}
                     <label>{t('Fill image (click again to remove)')}</label>
                     <ImageStrip
                       img={selStyle.fillImg}
@@ -5161,6 +5210,58 @@ export default function MapView({
                       value={selStyle.curve ?? 0}
                       onChange={(e) => editSelectedStyle({ curve: Number(e.target.value) })}
                     />
+                    <label>{t('Halo')}</label>
+                    <Select
+                      value={selStyle.halo ?? 'dark'}
+                      onChange={(v) => editSelectedStyle({ halo: v as LabelHalo })}
+                      options={LABEL_HALOS.map((h) => ({ value: h, label: t(HALO_LABELS[h]) }))}
+                    />
+                    {(selStyle.halo ?? 'dark') !== 'none' && (
+                      <>
+                        <label>
+                          {t('Halo thickness: {val}', {
+                            val: (selStyle.haloWidth ?? 0.08).toFixed(2)
+                          })}
+                        </label>
+                        <input
+                          type="range"
+                          min={0.02}
+                          max={0.2}
+                          step={0.01}
+                          value={selStyle.haloWidth ?? 0.08}
+                          onChange={(e) => editSelectedStyle({ haloWidth: Number(e.target.value) })}
+                        />
+                      </>
+                    )}
+                    <label>
+                      {t('Letter spacing: {val}', { val: (selStyle.tracking ?? 0).toFixed(2) })}
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={0.5}
+                      step={0.01}
+                      value={selStyle.tracking ?? 0}
+                      onChange={(e) => editSelectedStyle({ tracking: Number(e.target.value) })}
+                    />
+                    <div className="field-row">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={selStyle.bold ?? false}
+                          onChange={(e) => editSelectedStyle({ bold: e.target.checked })}
+                        />{' '}
+                        {t('Bold')}
+                      </label>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={selStyle.italic ?? false}
+                          onChange={(e) => editSelectedStyle({ italic: e.target.checked })}
+                        />{' '}
+                        {t('Italic')}
+                      </label>
+                    </div>
                     {zoomVisControls()}
                   </>
                 ) : (

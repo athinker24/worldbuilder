@@ -72,6 +72,11 @@ export interface DrawSettings {
     size: number
     angle: number
     curve: number // -100..100; 0 = straight (SVG textPath arc)
+    halo: LabelHalo // paper-coloured behind dark ink, dark behind light text, or none at all
+    haloWidth: number // fraction of the font size
+    tracking: number // letter spacing, fraction of the font size
+    bold: boolean
+    italic: boolean
   }
 }
 
@@ -79,7 +84,27 @@ export const DEFAULT_DRAW: DrawSettings = {
   marker: { size: 1, color: '#c0603a' },
   polygon: { color: '#7bb3ff', fillOpacity: 0.25, weight: 2, font: 'Cinzel' },
   line: { color: '#b08968', weight: 3, opacity: 0.9, dash: 'solid', arrow: 'none', curviness: 0 },
-  label: { text: '', color: '#ffffff', font: 'Cinzel', size: 1, angle: 0, curve: 0 }
+  label: {
+    text: '',
+    color: '#ffffff',
+    font: 'Cinzel',
+    size: 1,
+    angle: 0,
+    curve: 0,
+    halo: 'dark',
+    haloWidth: 0.08,
+    tracking: 0,
+    bold: false,
+    italic: false
+  }
+}
+
+export type LabelHalo = 'none' | 'light' | 'dark'
+export const LABEL_HALOS: LabelHalo[] = ['none', 'light', 'dark']
+export const HALO_LABELS: Record<LabelHalo, string> = {
+  none: 'No halo',
+  light: 'Light halo',
+  dark: 'Dark halo'
 }
 
 export const LINE_ARROWS: LineArrow[] = ['none', 'end']
@@ -520,6 +545,76 @@ export default function ToolPanel({
               }
             />
             <p className="hint">{t('Gentle curves read best; sharp ones crowd the letters.')}</p>
+            <label>{t('Halo')}</label>
+            <Select
+              value={settings.label.halo}
+              onChange={(v) =>
+                onSettings({ ...settings, label: { ...settings.label, halo: v as LabelHalo } })
+              }
+              options={LABEL_HALOS.map((h) => ({ value: h, label: t(HALO_LABELS[h]) }))}
+            />
+            {settings.label.halo !== 'none' && (
+              <>
+                <label>
+                  {t('Halo thickness: {val}', { val: settings.label.haloWidth.toFixed(2) })}
+                </label>
+                <input
+                  type="range"
+                  min={0.02}
+                  max={0.2}
+                  step={0.01}
+                  value={settings.label.haloWidth}
+                  onChange={(e) =>
+                    onSettings({
+                      ...settings,
+                      label: { ...settings.label, haloWidth: Number(e.target.value) }
+                    })
+                  }
+                />
+              </>
+            )}
+            <label>{t('Letter spacing: {val}', { val: settings.label.tracking.toFixed(2) })}</label>
+            <input
+              type="range"
+              min={0}
+              max={0.5}
+              step={0.01}
+              value={settings.label.tracking}
+              onChange={(e) =>
+                onSettings({
+                  ...settings,
+                  label: { ...settings.label, tracking: Number(e.target.value) }
+                })
+              }
+            />
+            <div className="field-row">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.label.bold}
+                  onChange={(e) =>
+                    onSettings({
+                      ...settings,
+                      label: { ...settings.label, bold: e.target.checked }
+                    })
+                  }
+                />{' '}
+                {t('Bold')}
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.label.italic}
+                  onChange={(e) =>
+                    onSettings({
+                      ...settings,
+                      label: { ...settings.label, italic: e.target.checked }
+                    })
+                  }
+                />{' '}
+                {t('Italic')}
+              </label>
+            </div>
           </>
         )}
         {active === 'scale' && (
