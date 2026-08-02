@@ -26,6 +26,8 @@ let dbFile: string
 let backupsDir: string
 let notesDir: string
 const BACKUP_KEEP_DAYS = 30
+/** …and no more than this many, however recent. See backupIfNeeded for why both are needed. */
+const BACKUP_KEEP_FILES = 60
 
 const SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -155,15 +157,39 @@ export function backupIfNeeded(): void {
   const target = join(backupsDir, `world-${today}.db`)
   const made = !existsSync(target)
   if (made) copyFileSync(dbFile, target)
+  // BOTH limits, cheapest first — the same pair the session log keeps, and for the same reason.
+  // Age alone bounds nothing: a backup is taken on every launch and again on every file opened, so
+  // three weeks of ordinary use came to 297 files and 8.4 GB without one of them being old enough
+  // to prune. Age answers the machine left alone for months; count answers the busy afternoon.
   const cutoff = Date.now() - BACKUP_KEEP_DAYS * 24 * 60 * 60 * 1000
   let dropped = 0
-  for (const name of readdirSync(backupsDir)) {
-    const p = join(backupsDir, name)
-    if (statSync(p).mtimeMs < cutoff) {
+  const drop = (p: string): void => {
+    try {
       unlinkSync(p)
       dropped++
+    } catch {
+      /* a backup that will not delete is not worth failing a launch over */
     }
   }
+  // WHEN THE BACKUP WAS TAKEN, which is not its mtime. `copyFileSync` uses CopyFileEx on Windows
+  // and that copies the source's timestamps, so a backup of a world.db untouched for a month is
+  // born already older than the cutoff — and was deleted on the very next launch, silently, which
+  // is the one case a backup exists for. birthtime is the file's own creation; mtime is the
+  // fallback for filesystems that do not keep one.
+  const takenAt = (p: string): number => {
+    const s = statSync(p)
+    return s.birthtimeMs > 0 ? s.birthtimeMs : s.mtimeMs
+  }
+  const left: { p: string; at: number }[] = []
+  for (const name of readdirSync(backupsDir)) {
+    const p = join(backupsDir, name)
+    const at = takenAt(p)
+    if (at < cutoff) drop(p)
+    else left.push({ p, at })
+  }
+  // Newest kept: the copy taken seconds before something went wrong is the one worth having.
+  left.sort((a, b) => b.at - a.at)
+  for (const f of left.slice(BACKUP_KEEP_FILES)) drop(f.p)
   // Restoring is manual, so the only thing between a bad day and lost work is knowing a copy was
   // taken — and that it was taken BEFORE whatever went wrong. Nothing is said on the launches that
   // find today's copy already there.
@@ -331,7 +357,14 @@ export function unpackWorld(sourcePath: string): void {
       const name = basename(row.name)
       if (name && name !== '.' && name !== '..') writeFileSync(join(assetsDir, name), row.data)
     }
-    db.exec(`DROP TABLE assets`) // keep the working copy lean (the images live on disk)
+    db.exec(`DROP TABLE assets`) // the images live on disk now
+    // VACUUM, or the drop above frees pages without shrinking the FILE — which is what the line
+    // above claimed to do and did not. Measured on a real working copy: 102.4 MB, of which 26 206
+    // of 26 217 pages were free; vacuumed, 40 KB. Every backup copied that 102 MB, and three weeks
+    // of them came to 8.4 GB of almost pure empty space. It is also cheap exactly when it matters:
+    // the space to reclaim is proportional to the images just extracted, and this runs once per
+    // open, next to work that already reads and writes all of them.
+    db.exec(`VACUUM`)
   }
   dropForeignTables() // assets is consumed by here, so anything left over is not ours
   repairImportedJson() // reset malformed JSON columns to defaults (rationale below)
@@ -1333,6 +1366,33 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.ok(readdirSync(join(dir, 'backups')).length >= 1)
   const manual = api.backupNow()
   assert.ok(existsSync(manual))
+  // Retention by COUNT, not only by age. Age alone bounds nothing: a copy is taken on every launch
+  // and again on every file opened, and three weeks of that reached 297 files without one being
+  // old enough to prune.
+  {
+    const bdir = join(dir, 'backups')
+    for (let i = 0; i < 70; i++) writeFileSync(join(bdir, `world-filler-${i}.db`), 'x')
+    // Taken AFTER the filler, so it is genuinely the newest — which is the property being tested.
+    const newest = api.backupNow()
+    backupIfNeeded()
+    const left = readdirSync(bdir)
+    assert.ok(
+      left.length <= BACKUP_KEEP_FILES,
+      `count cap: ${left.length} files left, expected at most ${BACKUP_KEEP_FILES}`
+    )
+    // The newest survive: the copy taken seconds before something went wrong is the one wanted.
+    assert.ok(left.includes(basename(newest)), 'the most recent backup must not be pruned')
+    // Age is judged by when the BACKUP was taken, not by the mtime it inherited. copyFileSync
+    // copies the source's timestamps on Windows, so a copy of a world untouched for a month was
+    // born older than the cutoff and deleted on the next launch — silently, and exactly when it
+    // was the only copy that mattered.
+    const stale = join(bdir, 'world-stale-source.db')
+    writeFileSync(stale, 'x')
+    const long = new Date(Date.now() - (BACKUP_KEEP_DAYS + 10) * 86_400_000)
+    utimesSync(stale, long, long) // an old mtime on a file created just now, as a copy would have
+    backupIfNeeded()
+    assert.ok(existsSync(stale), 'a fresh backup of an old world must not be pruned as old')
+  }
   // .dunya pack/unpack round trip: the image is embedded; after the working copy is overwritten
   // and reopened, both data and image come back intact, and no assets table remains
   writeFileSync(join(dir, 'assets', 'test.png'), Buffer.from([1, 2, 3]))
@@ -1349,6 +1409,14 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.equal(api.getSetting('worldFile'), dunya)
   assert.ok(
     !db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assets'`).get()
+  )
+  // …and the FILE shrank with it. Dropping the table frees pages without shrinking the file, so
+  // the working copy kept the full weight of every image it had ever unpacked: 102.4 MB measured
+  // on a real one, 26 206 of 26 217 pages free, and every backup copied it. VACUUM leaves none.
+  assert.equal(
+    Object.values(db.prepare(`PRAGMA freelist_count`).get() as object)[0],
+    0,
+    'unpackWorld must VACUUM: a dropped assets table leaves the file at its old size'
   )
   // Malicious .dunya: an embedded image name must not write OUTSIDE assets/ (shared file!)
   {
