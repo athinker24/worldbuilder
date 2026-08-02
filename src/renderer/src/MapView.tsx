@@ -3621,6 +3621,8 @@ export default function MapView({
       const shape = (e as { shape?: string }).shape
       // Label and pin tools are both 'Marker' to geoman → the active tool disambiguates
       const isLabelDraw = toolRef.current === 'label'
+      // The article the drawing joins, if one was picked (a free-text label joins nothing).
+      const into = isLabelDraw ? null : drawIntoRef.current
       const from = yearRef.current
       const styleObj =
         shape === 'Marker' && isLabelDraw
@@ -3660,6 +3662,20 @@ export default function MapView({
                   fillImg: s.polygon.fillImg,
                   from
                 }
+      // Joining an article means looking like it: an islet drawn into a region should come out
+      // the region's colour, not the colour the tool happened to be set to. Read from THIS map on
+      // purpose — the point is matching what is next to it, and a drawing on another map is not.
+      // Same kind first (a pin's colour on a polygon would be a strange thing to inherit), then
+      // whatever the article is drawn as.
+      if (into) {
+        const kind = (g: string): string =>
+          g.includes('"Polygon"') ? 'polygon' : g.includes('"LineString"') ? 'line' : 'point'
+        const want = shape === 'Line' ? 'line' : shape === 'Marker' ? 'point' : 'polygon'
+        const mine = (worldMapRef.current?.features ?? []).filter((f) => f.entity_id === into.id)
+        const src = mine.find((f) => kind(f.geometry) === want) ?? mine[0]
+        const color = src && (JSON.parse(src.style || '{}') as FeatureStyle).color
+        if (color) (styleObj as Record<string, unknown>).color = color
+      }
       // Bind to the active board (when boards exist) → visible only on it
       if (boardsRef.current.list.length)
         (styleObj as Record<string, unknown>).board = boardsRef.current.active
@@ -3678,7 +3694,6 @@ export default function MapView({
       // A target set in the tool popover wins: the drawing joins that article and NOTHING is
       // created — which is also what makes undo right, since `ref.eid` stays undefined and the
       // article the user picked is not deleted when the drawing is.
-      const into = entName ? drawIntoRef.current : null
       const ent = into ?? (entName ? await api.createEntity({ name: entName }) : null)
       const created = await api.createFeature({
         map_id: id,
