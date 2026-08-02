@@ -18,7 +18,7 @@ const LEGACY = /^error[-.]/
 
 let dir = ''
 let file = ''
-let queue: string[] = []
+let queue: { at: number; text: string }[] = []
 let timer: ReturnType<typeof setTimeout> | null = null
 let capped = false
 
@@ -42,7 +42,16 @@ export const flush = (): void => {
     timer = null
   }
   if (!file || !queue.length) return
-  const text = queue.join('\r\n') + '\r\n'
+  // Sorted by when it HAPPENED, not by when it reached here. Renderer events carry their own stamp
+  // and arrive up to BATCH_MS late, so a main-process line written in between used to print above
+  // an event that happened before it — and a reader, a model most of all, trusts line order over
+  // the timestamps. The window is one flush, which comfortably covers the batch delay. V8's sort is
+  // stable, so lines from the same millisecond keep the order they were written in.
+  const text =
+    queue
+      .sort((a, b) => a.at - b.at)
+      .map((q) => q.text)
+      .join('\r\n') + '\r\n'
   queue = []
   try {
     appendFileSync(file, text, 'utf8')
@@ -51,9 +60,9 @@ export const flush = (): void => {
   }
 }
 
-export const write = (text: string, now = false): void => {
+export const write = (text: string, now = false, at = Date.now()): void => {
   if (!file || capped) return
-  queue.push(text)
+  queue.push({ at, text })
   if (now) flush()
   else schedule()
   // Checked after writing, so the line that crossed the limit is kept whole rather than half.

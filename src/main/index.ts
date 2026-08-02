@@ -918,12 +918,17 @@ app.whenReady().then(() => {
     // hasOwn: prototype members like 'constructor' must not count as methods
     if (!Object.hasOwn(mainApi, method)) throw new Error(`Bilinmeyen api metodu: ${method}`)
     const fn = (mainApi as Record<string, (...a: unknown[]) => unknown>)[method]
-    noteCall(method) // the trail that turns a stack into a reproduction
     // Dirty flag: mutation methods mean changes since the last save (ponytail: a method-name
     // heuristic — get/list/search/export do not match, save/open manage themselves)
     if (/^(create|update|delete|add|set|restore|retype|import|pick)/.test(method)) {
       dirty = true
       updateTitle()
+      // The trail records the same set, and for the same reason the flag does: these are the calls
+      // that CHANGED something. Recording every call instead filled forty of the fifty slots with
+      // `getPrefs → listEntities → getSetting ×7` — the app polling itself on boot and every
+      // render — and pushed the user's actual actions off the end. Reads lose nothing by being
+      // absent: when one of them is what failed, the report's `where` line names it.
+      noteCall(method)
     }
     // Logged AND rethrown: the renderer still gets its rejection and decides what to show,
     // the file gets the detail the user cannot be expected to relay.

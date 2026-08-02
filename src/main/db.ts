@@ -1552,10 +1552,21 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       logEvent('INFO', 'clicky.scope', { feature: 116 }, new Date(t0))
       logEvent('INFO', 'clicky.scope', { feature: 116 }, new Date(t0 + 1500))
     }
-    noteCall('getMap')
+    // Lines are written in the order things HAPPENED, not the order they arrived: renderer events
+    // carry their own stamp and reach main up to half a second late, and a reader trusts the order
+    // of the lines over the clock in them.
+    {
+      const t0 = Date.now()
+      logEvent('INFO', 'arrived.second', {}, new Date(t0 + 40))
+      logEvent('INFO', 'happened.first', {}, new Date(t0 - 300))
+    }
+    noteCall('updateEntity') // only mutations reach the trail — index.ts is where reads are dropped
     noteCall('updateFeature')
     noteCall('logEvents') // reporting is not something the app was DOING — must stay out of it
-    logError('ipc:updateFeature', new TypeError('boom'), { extra: 'x'.repeat(2000) })
+    logError('ipc:updateFeature', new TypeError('boom'), {
+      extra: 'x'.repeat(2000),
+      component: 'at MapView (MapView.tsx:365) < at App (App.tsx:33)'
+    })
     flushLog()
 
     const txt = readFileSync(only(), 'utf8')
@@ -1587,7 +1598,14 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.ok(!txt.includes('logEvents'), 'the act of logging stays out of the trail')
     assert.ok(txt.includes('TypeError: boom'), 'the error itself')
     assert.ok(txt.includes('file=w.dunya dirty=true'), 'context from the app')
-    assert.ok(txt.includes('getMap → updateFeature'), 'the call trail — how it got there')
+    assert.ok(txt.includes('updateEntity → updateFeature'), 'the call trail — how it got there')
+    assert.ok(
+      txt.indexOf('happened.first') < txt.indexOf('arrived.second'),
+      'lines are ordered by when the event happened, not by when it was written'
+    )
+    // The component stack names the screen that broke; it is the most valuable field a render crash
+    // has and far too long to sit inside the context line.
+    assert.ok(/\nscreen {4}at MapView/.test(txt), 'the component stack gets its own row')
     // Without the value the trail reads `tool.changed → tool.changed` and the one thing it is
     // asked — which tool was live — is missing from the summary that exists to save reading.
     assert.ok(

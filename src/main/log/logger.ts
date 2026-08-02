@@ -89,7 +89,10 @@ const trailName = (scope: string, data: Record<string, unknown>): string => {
   // A bare `true` says nothing without the key it belonged to — `app.started(false)` is worse
   // than `app.started`.
   if (v === undefined || v === null || v === '' || typeof v === 'boolean') return scope
-  return `${scope}(${String(v).slice(0, 20)})`
+  const s = String(v)
+  // Nothing rather than a value cut mid-word: `renderer.ready(ANGLE (AMD, AMD Rade)` is noise
+  // wearing the shape of information. A trail value is an identifier or it is not worth having.
+  return s.length > 20 ? scope : `${scope}(${s})`
 }
 
 export function event(
@@ -104,7 +107,7 @@ export function event(
     // Written through immediately, and never coalesced: the moment a line is worth keeping is the
     // moment the process might not survive to flush it.
     settle()
-    sink.write(eventLine(level, scope, data, at), true)
+    sink.write(eventLine(level, scope, data, at), true, at.getTime())
     return
   }
   hold(level, scope, data, at)
@@ -171,7 +174,7 @@ function settle(): void {
           // would just be a column of zeroes.
           ...(span > 0 ? { over: `${span}ms` } : {})
         }
-  sink.write(eventLine(p.level, p.scope, data, p.at))
+  sink.write(eventLine(p.level, p.scope, data, p.at), false, p.at.getTime())
 }
 
 /**
@@ -255,6 +258,13 @@ export function error(where: string, err: unknown, extra: Record<string, unknown
     const headline = `${name ? `${name}: ` : ''}${msg}`
     const body = stackLines[0] === headline ? stackLines.slice(1) : stackLines
 
+    // The frames that are OURS. A React render crash arrives as one useful line followed by nine of
+    // react-dom's internals, and the report is read by someone scanning for a file they recognise.
+    // Kept whole when filtering would empty it — a stack from inside a library is still a stack.
+    const own = body.filter((l) => !l.includes('node_modules'))
+    // `component` is the component STACK, which names the screen that broke — the most valuable
+    // field a render crash has, and far too long to sit inside the context line.
+    const { component, ...rest } = extra
     ring.remember(`error:${where}`)
     settle() // a held line must not surface AFTER the error it came before
     sink.write(
@@ -262,9 +272,10 @@ export function error(where: string, err: unknown, extra: Record<string, unknown
         block(`ERROR REPORT  ·  session ${sessionId}  ·  ${stamp()}`, [
           ['error', clip(headline, 500)],
           ['where', where],
-          ['context', clip(kv({ ...context(), ...extra }), 800)],
+          ['context', clip(kv({ ...context(), ...rest }), 800)],
+          ['screen', component ? clip(String(component), 500).replace(/ < /g, '\n< ') : ''],
           ['last', ring.trail()],
-          ['stack', body.slice(0, 25).join('\n')]
+          ['stack', (own.length ? own : body).slice(0, 25).join('\n')]
         ]),
       true
     )
