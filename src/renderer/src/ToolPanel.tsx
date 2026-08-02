@@ -240,10 +240,11 @@ export default function ToolPanel({
                 })
               }
             />
+            {/* 0 = no outline. Only the polygon offers it — a path is nothing but its stroke. */}
             <label>{t('Outline thickness: {val}px', { val: settings.polygon.weight })}</label>
             <input
               type="range"
-              min={1}
+              min={0}
               max={10}
               step={1}
               value={settings.polygon.weight}

@@ -4018,7 +4018,9 @@ export default function MapView({
         ? null
         : (deltaY: number) => {
             const dir = deltaY < 0 ? 1 : -1 // wheel up = grow
-            const wclamp = (v: number, max: number): number => Math.max(1, Math.min(max, v))
+            // min: a polygon may have no outline (its fill still shows it), a path may not.
+            const wclamp = (v: number, max: number, min = 1): number =>
+              Math.max(min, Math.min(max, v))
             const sclamp = (v: number): number => Math.max(0.5, Math.min(10, Number(v.toFixed(2))))
             if (!selected) {
               const d = drawRef.current
@@ -4030,7 +4032,7 @@ export default function MapView({
               else if (tool === 'polygon')
                 updateDrawSettings({
                   ...d,
-                  polygon: { ...d.polygon, weight: wclamp(d.polygon.weight + dir, 10) }
+                  polygon: { ...d.polygon, weight: wclamp(d.polygon.weight + dir, 10, 0) }
                 })
               else if (tool === 'marker')
                 updateDrawSettings({
@@ -4047,7 +4049,11 @@ export default function MapView({
             if (selIsLine || selIsPolygon) {
               const max = selIsLine ? 12 : 10
               editSelectedStyle({
-                weight: wclamp((selStyle.weight ?? (selIsLine ? 3 : 2)) + dir, max)
+                weight: wclamp(
+                  (selStyle.weight ?? (selIsLine ? 3 : 2)) + dir,
+                  max,
+                  selIsLine ? 1 : 0
+                )
               })
             } else {
               editSelectedStyle({ size: sclamp((selStyle.size ?? 1) + dir * 0.25) })
@@ -4864,10 +4870,12 @@ export default function MapView({
                       value={selStyle.fillOpacity ?? 0.25}
                       onChange={(e) => editSelectedStyle({ fillOpacity: Number(e.target.value) })}
                     />
+                    {/* 0 = no outline at all. A polygon still reads as one from its fill; a PATH
+                        would simply vanish, which is why only this one goes down to zero. */}
                     <label>{t('Outline thickness: {val}px', { val: selStyle.weight ?? 2 })}</label>
                     <input
                       type="range"
-                      min={1}
+                      min={0}
                       max={10}
                       step={1}
                       value={selStyle.weight ?? 2}
