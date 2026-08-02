@@ -3796,7 +3796,9 @@ a {
   /* It lives in a toolbar dropdown, so it has to be bounded in both directions: long enough to
      read, short enough not to run off the map, and scrolling once the session gets going. */
   min-width: 240px;
-  max-height: 320px;
+  /* About eight rows. It scrolls itself to the current step (see History.tsx), which is what makes
+     a short window usable — Photoshop's panel grows downward too and never asks you to chase it. */
+  max-height: 240px;
   overflow-y: auto;
 }
 
@@ -3829,10 +3831,12 @@ a {
 
 /* Undone steps are still listed — that is what makes them clickable to go forward again — but
    they are not part of the world as it stands, and the list has to say which is which. */
+/* DIMMED, not struck through. These steps are not deleted — they are what you would lose by
+   carrying on from here, which is exactly the distinction Photoshop's dimming makes. A line
+   through them claims they are already gone. */
 .hist-row.undone .hist-text {
   color: var(--text-faint);
-  text-decoration: line-through;
-  text-decoration-color: var(--border-strong);
+  opacity: 0.7;
 }
 
 .hist-mark {
