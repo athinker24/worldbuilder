@@ -871,6 +871,15 @@ export default function MapView({
   // Person entities cannot be bound to the map (see EntityPage — they exist for family/dynasty fields)
   const personFolders = personFolderIds(folders) // people cannot be bound to the map
   const [linkName, setLinkName] = useState('')
+  // "Draw into" — the article the next drawings join instead of each making its own. The islands
+  // of an archipelago, the exclaves of a realm: pieces of one thing, drawn one after another.
+  // Session-only and reset by a map switch (this component remounts): a target that survived a
+  // restart would silently attach tomorrow's drawings to yesterday's article.
+  const [drawInto, setDrawInto] = useState<{ id: number; name: string } | null>(null)
+  // Read by pm:create, which is registered once at map setup and would otherwise close over the
+  // value this component had on its first render. Written in an effect, like every other ref here.
+  const drawIntoRef = useRef<typeof drawInto>(null)
+  const [drawIntoName, setDrawIntoName] = useState('')
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [hudZoom, setHudZoom] = useState<number | null>(null)
   const hudTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -1336,6 +1345,9 @@ export default function MapView({
   }
 
   // Move the edit vertex markers to the selected feature when selection or tool changes
+  useEffect(() => {
+    drawIntoRef.current = drawInto
+  }, [drawInto])
   useEffect(() => {
     selectedRef.current = selected
     syncEditMode()
@@ -3663,7 +3675,11 @@ export default function MapView({
           : shape === 'Line'
             ? t('New path')
             : t('New region')
-      const ent = entName ? await api.createEntity({ name: entName }) : null
+      // A target set in the tool popover wins: the drawing joins that article and NOTHING is
+      // created — which is also what makes undo right, since `ref.eid` stays undefined and the
+      // article the user picked is not deleted when the drawing is.
+      const into = entName ? drawIntoRef.current : null
+      const ent = into ?? (entName ? await api.createEntity({ name: entName }) : null)
       const created = await api.createFeature({
         map_id: id,
         geometry,
@@ -3677,7 +3693,8 @@ export default function MapView({
         entity: ent?.id,
         year: from
       })
-      const ref: { id: number; eid?: number } = { id: created.id, eid: ent?.id }
+      // eid is what undo deletes along with the drawing — so ONLY when this draw created it.
+      const ref: { id: number; eid?: number } = { id: created.id, eid: into ? undefined : ent?.id }
       pushUndo({
         // The KIND is part of the key, not a parameter: as a parameter it would drop the raw
         // English word into a Turkish sentence ("polygon çizildi").
@@ -4758,6 +4775,51 @@ export default function MapView({
                   so closing History restores whatever the tool state already was. */}
               {tool && !selected && !hidePanels && !histOpen && (
                 <div className="map-tool-popover">
+                  {/* Draw into an existing article instead of making a new one per drawing — the
+                      islets of an archipelago, the exclaves of a realm. Only for the tools that
+                      would create an article: a free-text label never does. */}
+                  {(tool === 'polygon' || tool === 'line' || tool === 'marker') && (
+                    <div className="panel-block">
+                      <label>{t('Add to article:')}</label>
+                      {drawInto ? (
+                        <button className="mini" onClick={() => setDrawInto(null)}>
+                          <Icon name="unlink" size={12} />
+                          {drawInto.name}
+                        </button>
+                      ) : (
+                        <>
+                          <input
+                            // Its own id: two datalists with one id is invalid HTML even when
+                            // they cannot appear together (tool popover vs selected panel).
+                            list="entity-list-draw"
+                            placeholder={t('new article each time')}
+                            value={drawIntoName}
+                            onChange={(e) => {
+                              setDrawIntoName(e.target.value)
+                              // Chosen from the list = chosen: no second click to confirm what the
+                              // datalist already made unambiguous.
+                              const hit = allEntities.find(
+                                (en) =>
+                                  en.name === e.target.value &&
+                                  !(en.folder && personFolders.has(en.folder))
+                              )
+                              if (hit) {
+                                setDrawInto({ id: hit.id, name: hit.name })
+                                setDrawIntoName('')
+                              }
+                            }}
+                          />
+                          <datalist id="entity-list-draw">
+                            {allEntities
+                              .filter((en) => !(en.folder && personFolders.has(en.folder)))
+                              .map((en) => (
+                                <option key={en.id} value={en.name} />
+                              ))}
+                          </datalist>
+                        </>
+                      )}
+                    </div>
+                  )}
                   <ToolPanel
                     active={tool}
                     settings={drawSettings}
