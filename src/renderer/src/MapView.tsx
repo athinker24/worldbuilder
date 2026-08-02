@@ -940,7 +940,7 @@ export default function MapView({
   const dimValue = useRef(new Map<number, string>())
   // Derived-mode region labels. Their base size is baked into the icon, so zoom only writes
   // `--lz` on each — nothing else about them is needed on the hot path.
-  const derivedLabels = useRef<L.Marker[]>([])
+  const derivedSpecs = useRef<LabelSpec[]>([])
   const derivedSig = useRef('') // fid:group signature — no work on year ticks where ownership is unchanged
   // Mosaic-governed entities (year-independent): those appearing in ANY year of the base
   // polygons' parent histories. Their own drawings never show in the default view — on full
@@ -1554,15 +1554,10 @@ export default function MapView({
         pinEl.style.marginTop = `${-h / 2}px`
       }
     })
-    // Derived-mode labels (on the map, outside the featureGroup): same pattern as free labels
-    // — one fontSize write, no DOM measuring (SVG em sizing scales text + arc together)
-    for (const m of derivedLabels.current) {
-      if (!bounds.contains(m.getLatLng())) continue
-      const el = (m as unknown as { _icon?: HTMLElement })._icon
-      if (el) el.style.setProperty('--lz', String(scale)) // base is baked; see labelDivIcon
-    }
-    // Polygon name labels need nothing here: they are drawn in WebGL and the whole set follows
-    // the zoom from one container matrix (see drawLabels / pixiLabels.ts).
+    // Polygon name labels and derived region labels need nothing here: they are drawn in WebGL
+    // and the whole set follows the zoom from one container matrix (see drawLabels /
+    // pixiLabels.ts). Derived labels were the last text on this path — a per-frame write per
+    // label, which is exactly what the WebGL move exists to stop doing.
     // Stroke widths (see patch 3): one property on the pane, inherited by every path, instead
     // of a setStyle per feature per frame. Anchored at zoom 0, so a weight of 3 means 3 MAP
     // pixels — the unit the geometry itself is in.
@@ -1824,11 +1819,9 @@ export default function MapView({
     entNames.current.clear()
     featArea.current.clear()
     labelGeo.current.clear()
+    derivedSpecs.current = []
     dimValue.current.clear()
-    // Derived labels live on the map, not in the featureGroup — fg.clearLayers() won't remove them
-    for (const m of derivedLabels.current) m.remove()
-    derivedLabels.current = []
-    derivedSig.current = ''
+    derivedSig.current = '' // the geometry summary is about to be rebuilt: force a recompute
     for (const e of h.entities) {
       const recs = getParents(e.fields)
       if (recs.length) parentHist.current.set(e.id, recs)
@@ -2378,10 +2371,17 @@ export default function MapView({
   // (that year's rank owner / paint value) union-find into one component (adjacency = shared
   // vertex grid cell, guaranteed by geoman snapping); each component gets a name label tilted
   // along its long axis (PCA) with a slight arc, font scaled to component width, none when
-  // tiny. The labels are not DB features — transient markers added straight to the map (NOT
-  // the featureGroup: exempt from fg.clearLayers churn, updateOverlaySizes eachLayer and
-  // geoman edit mode). interactive:false is critical — conquest clicks must fall through to
-  // the polygon below.
+  // tiny. The labels are not DB features — they are specs handed to the WebGL label layer along
+  // with the polygon names, and applyYear owns the one setLabels call that carries both.
+  //
+  // They were DOM markers until they were the LAST text on the map that still was, which meant
+  // updateOverlaySizes wrote a font size per label per frame — the exact cost the WebGL move
+  // exists to remove, and it only showed in the two modes that use them. Two footguns went with
+  // them: `interactive:false` (a canvas takes no clicks, so conquest clicks fall through by
+  // construction) and staying out of the featureGroup to dodge clearLayers churn.
+  //
+  // They now obey LOD_HIDE_ABOVE like every other name — zoom past the region and its name goes,
+  // which is what a map is expected to do and what polygon names already did.
   const rebuildDerivedLabels = (
     year: number,
     rungOwnerAt: (eid: number) => number | null
@@ -2389,8 +2389,7 @@ export default function MapView({
     const map = mapRef.current
     const mode = activeModeRef.current
     const clear = (): void => {
-      for (const m of derivedLabels.current) m.remove()
-      derivedLabels.current = []
+      derivedSpecs.current = []
       derivedSig.current = ''
     }
     if (!map || !mode || !layersRef.current.label) {
@@ -2424,9 +2423,12 @@ export default function MapView({
     }
     // 2. Signature: on ticks with unchanged ownership, touch nothing (playback is free)
     const sig = items.map((i) => `${i.fid}:${i.key}`).join('|')
+    // Unchanged ownership: keep the specs already built. They are handed to setLabels again by
+    // the caller either way, so returning early costs nothing and keeps a year tick free.
     if (sig === derivedSig.current) return
     clear()
     derivedSig.current = sig
+    const specs: LabelSpec[] = []
     // 3. Union-find: same-group polygons sharing a vertex cell form one component
     const parent = new Map<number, number>()
     const find = (x: number): number => {
@@ -2484,13 +2486,22 @@ export default function MapView({
       // Spread the text over ~80% of the main axis: labelDivIcon estimates ~0.62em per letter
       const base = Math.min(300, (extent * 0.8) / (0.62 * Math.max(4, text.length)))
       if (base < LABEL_MIN) continue // a tiny region gets no label
-      const m = L.marker([cy, cx], {
-        icon: labelDivIcon({ text, color: '#ffffff', angle, curve: 10 }, base),
-        interactive: false,
-        pmIgnore: true
-      } as L.MarkerOptions).addTo(map)
-      derivedLabels.current.push(m)
+      // Negative ids: these are not features, and the layer diffs by id — a collision with a real
+      // feature's label would make one of the two vanish depending on rebuild order.
+      const p = map.project(L.latLng(cy, cx), 0)
+      specs.push({
+        id: -1 - specs.length,
+        x: p.x,
+        y: p.y,
+        text,
+        color: '#ffffff',
+        font: 'Cinzel', // labelDivIcon's default, which is what these looked like as DOM
+        size: base,
+        angle,
+        curve: 10
+      })
     }
+    derivedSpecs.current = specs
   }
 
   // Applying the year: (1) hide/restore features outside their year range, (2) in rank mode
@@ -2729,13 +2740,15 @@ export default function MapView({
     shapeLayer.current?.setShapes(shownShapes)
     shapeLayer.current?.setHidden(editingId)
     drawShapes()
-    labelLayer.current?.setLabels(shownLabels)
+    // Derived region labels are built BEFORE the hand-off, because they go out in the same call:
+    // one list, one diff, one draw. It clears itself when no mode is active.
+    rebuildDerivedLabels(year, rungOwnerAt)
+    labelLayer.current?.setLabels(shownLabels.concat(derivedSpecs.current))
     drawLabels()
     // The selected feature's Leaflet layer is added and removed BY this function now, so geoman
     // has to be pointed at it afterwards — enabling edit mode before the layer exists leaves a
     // polygon you can select but whose vertex handles never appear.
     syncEditMode()
-    rebuildDerivedLabels(year, rungOwnerAt) // mod yoksa kendini temizler
     updateOverlaySizes() // re-added label/pin sizes settle onto the current zoom
     markSelection() // layers were rebuilt → rewrite the selection highlight
   }
