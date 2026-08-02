@@ -484,7 +484,7 @@ export default function App(): React.JSX.Element {
     lang
   ])
 
-  // Global shortcuts: Ctrl+K palette, Ctrl+Z undo, Del, Alt+←/→ history.
+  // Global shortcuts: Ctrl+K palette, M map, Ctrl+Z undo, Del, Alt+←/→ history.
   // Ctrl+N/O/S/Shift+S and F1 are NOT here — the menu owns those accelerators, and handling them
   // in both places would fire every command twice. Undo/redo stay here on purpose: the menu
   // advertises Ctrl+Z without registering it, so this typing guard keeps textarea undo working.
@@ -492,7 +492,19 @@ export default function App(): React.JSX.Element {
     const onKey = (e: KeyboardEvent): void => {
       const t = e.target as HTMLElement
       const typing = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable
-      if (e.ctrlKey && e.key.toLowerCase() === 'k') {
+      // `e.key` is a string on every keydown the spec describes, and one arrived without it —
+      // twice, while typing into a field, taking down the whole handler with a TypeError. Reading
+      // it safely costs nothing; the WARN is there because the next occurrence should tell us what
+      // the event WAS instead of leaving us to guess again.
+      const key = e.key ?? ''
+      if (!e.key)
+        logEvent('WARN', 'key.unknown', {
+          type: e.type,
+          code: e.code || '(none)',
+          trusted: e.isTrusted,
+          target: t.tagName
+        })
+      if (e.ctrlKey && key.toLowerCase() === 'k') {
         e.preventDefault()
         setPalette((p) => !p)
       } else if (e.key === 'Tab' && !typing && t.tagName !== 'SELECT' && t.tagName !== 'BUTTON') {
@@ -503,12 +515,22 @@ export default function App(): React.JSX.Element {
       } else if (e.key === 'Escape') {
         setPalette(false)
       } else if (
-        e.ctrlKey &&
-        (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y') &&
-        !typing
+        key.toLowerCase() === 'm' &&
+        !typing &&
+        t.tagName !== 'SELECT' &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.metaKey
       ) {
+        // Jump to the map. A bare letter, so the modifier check is the whole guard: Ctrl+M and
+        // friends belong to whoever else wants them. Same function as the sidebar's Maps row —
+        // the map you were last on, else the first, else a new one. SELECT is excluded next to the
+        // typing guard, as it is for Tab: a letter in a dropdown is its type-ahead, not a shortcut.
         e.preventDefault()
-        const isRedo = e.key.toLowerCase() === 'y' || e.shiftKey
+        openMaps()
+      } else if (e.ctrlKey && (key.toLowerCase() === 'z' || key.toLowerCase() === 'y') && !typing) {
+        e.preventDefault()
+        const isRedo = key.toLowerCase() === 'y' || e.shiftKey
         ;(isRedo ? redo() : undo()).then((did) => did && afterUndo())
       } else if (
         (e.key === 'Delete' || e.key === 'Backspace') &&
@@ -534,7 +556,7 @@ export default function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [afterUndo, deleteSelected, togglePanels])
+  }, [afterUndo, deleteSelected, togglePanels, openMaps])
 
   // Sidebar file tree: articles are grouped under user-made folders (fields['folder']); a folder
   // id that no longer exists resolves to root (like map boards' resolveBoard).

@@ -589,6 +589,34 @@ export async function pushRecentColor(hex: string): Promise<string[]> {
 }
 
 // Deterministic color from a string for unassigned values (hex — ColorPicker-compatible)
+/**
+ * A polygon's OUTLINE, from its fill colour: darker and less saturated.
+ *
+ * Drawing both with one colour makes the outline glow against its own fill — worst on light
+ * colours, where a saturated stroke at full strength reads as neon against a pale interior. Every
+ * paper map does the opposite: the line is the darker relative of the area it encloses.
+ *
+ * Derived rather than picked, so it follows whatever colour the user chooses and needs no second
+ * control. Polygons only — on a path or a pin the stroke IS the content, and dimming what someone
+ * picked would be answering a question they did not ask.
+ */
+export function outlineColor(fill: string): string {
+  const m = /^#?([\da-f]{6})$/i.exec(fill.trim())
+  if (!m) return fill // a pattern url, a css name, anything not a plain hex: leave it alone
+  const n = parseInt(m[1], 16)
+  const rgb = [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+  // Toward the colour's own grey (its luminance) takes the saturation out without shifting hue,
+  // then a flat multiply darkens it. Both are small on purpose: this must read as the same colour.
+  const grey = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+  return (
+    '#' +
+    rgb
+      .map((v) => Math.round((v + (grey - v) * 0.25) * 0.72))
+      .map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0'))
+      .join('')
+  )
+}
+
 export function autoColor(seed: string): string {
   let hash = 0
   for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0

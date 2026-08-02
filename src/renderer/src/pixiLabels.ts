@@ -57,6 +57,18 @@ export type LabelSpec = {
    */
   minZoom?: number
   maxZoom?: number
+  /**
+   * The halo, as a choice rather than a constant. Dark text on a pale wash wants a PAPER-coloured
+   * one; the old fixed black behind white text is what made every name look like a game HUD over
+   * a printed map. 'none' is a real option: over flat colour a halo is only noise.
+   */
+  halo?: 'none' | 'light' | 'dark'
+  /** Halo thickness as a fraction of the font size (0.08 = the old fixed value). */
+  haloWidth?: number
+  /** Letter spacing as a fraction of the font size. Half of what makes a name read as cartography. */
+  tracking?: number
+  bold?: boolean
+  italic?: boolean
 }
 
 /**
@@ -88,7 +100,14 @@ const same = (a: LabelSpec[], b: LabelSpec[]): boolean => {
       x.color !== y.color ||
       x.font !== y.font ||
       x.minZoom !== y.minZoom ||
-      x.maxZoom !== y.maxZoom
+      x.maxZoom !== y.maxZoom ||
+      // Without these an edit to any of them would leave the old texture on screen: `same` is what
+      // decides whether the scene is rebuilt at all.
+      x.halo !== y.halo ||
+      x.haloWidth !== y.haloWidth ||
+      x.tracking !== y.tracking ||
+      x.bold !== y.bold ||
+      x.italic !== y.italic
     )
       return false
   }
@@ -179,6 +198,7 @@ export class LabelLayer {
   private root = new Container()
   private specs: LabelSpec[] = []
   private placed: Placed[] = []
+  private extent = new Map<number, { w: number; h: number }>()
   private res = 1
   private disposed = false
   /** The last view draw() was given, so a font arriving can re-render without one. */
@@ -341,13 +361,27 @@ export class LabelLayer {
   // ---------------------------------------------------------------------------------------
 
   private styleFor(s: LabelSpec): TextStyle {
+    const halo = s.halo ?? 'dark'
     return new TextStyle({
       fontFamily: [s.font, 'serif'],
       fontSize: s.size,
+      fontWeight: s.bold ? 'bold' : 'normal',
+      fontStyle: s.italic ? 'italic' : 'normal',
+      // In the same units as the size, so tracking follows the text when it scales with the map.
+      letterSpacing: s.size * (s.tracking ?? 0),
       fill: s.color,
-      // The halo, same technique and proportion as the CSS `paint-order: stroke` it replaces —
-      // and in WebGL it really is free, drawn in the same pass as the glyph.
-      stroke: { color: '#000000', alpha: HALO_ALPHA, width: s.size * HALO, join: 'round' },
+      // Drawn under the fill in the same pass, so half the width is hidden and the visible rim is
+      // half of what is asked for — the reason the old fixed 0.08 reads as 0.04.
+      ...(halo === 'none'
+        ? {}
+        : {
+            stroke: {
+              color: halo === 'light' ? '#ffffff' : '#000000',
+              alpha: HALO_ALPHA,
+              width: s.size * (s.haloWidth ?? HALO),
+              join: 'round' as const
+            }
+          }),
       align: 'center'
     })
   }
@@ -382,6 +416,36 @@ export class LabelLayer {
     return Math.max(MIN_RES, Math.min(this.res, MAX_GLYPH_PX / Math.max(s.size, 1)))
   }
 
+  /**
+   * Move ONE label, without rebuilding anything.
+   *
+   * For dragging. The honest way — hand setLabels a new list — re-measures and re-lays out every
+   * glyph run in the map, which is far too much to do per frame and would make a drag stutter for
+   * the sake of one moving name. Here the node already exists: this is two numbers on a transform.
+   *
+   * The spec is updated too, so the next setLabels compares equal and skips the rebuild it does
+   * not need — the label is already where the new spec says it is.
+   */
+  moveLabel(id: number, x: number, y: number): void {
+    const p = this.placed.find((q) => q.spec.id === id)
+    if (!p) return
+    p.view.position.set(x, y)
+    p.spec.x = x
+    p.spec.y = y
+  }
+
+  /**
+   * The measured size of each label, for whoever has to put a click target over it.
+   *
+   * MapView estimated it — letters × 0.62em — and an estimate cannot know the font's real metrics,
+   * the letter spacing, or how far a curve throws the glyphs off the baseline. What the box misses
+   * falls through to whatever is under the label, which for a region name is the polygon it names.
+   * The layer already lays every glyph out; asking it is free and it is never wrong.
+   */
+  extentOf(id: number): { w: number; h: number } | undefined {
+    return this.extent.get(id)
+  }
+
   private rebuild(): void {
     if (!this.app) return
     // Same family of leak as the shape layer's context (see pixiShapes.rebuild), smaller: a Text
@@ -393,11 +457,17 @@ export class LabelLayer {
     this.root.removeChildren().forEach((c) => c.destroy({ children: true }))
     for (const s of styles) s.destroy()
     this.placed = []
+    this.extent.clear()
     for (const s of this.specs) {
       const node = s.curve === 0 ? this.straight(s) : this.curved(s)
       if (!node) continue
       this.root.addChild(node.view)
       this.placed.push({ spec: s, res: this.resFor(s), ...node })
+      // What the glyphs actually occupy, in the same zoom-0 units everything here works in, and
+      // BEFORE the node's own rotation — which is why the caller can rotate its box instead of
+      // inflating it. For a curved label these are the bounds of the whole arc, glyph by glyph.
+      const b = node.view.getLocalBounds()
+      this.extent.set(s.id, { w: b.width, h: b.height })
     }
   }
 

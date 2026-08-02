@@ -33,6 +33,7 @@ import {
   saveTimeline,
   FolderDef,
   folderColor,
+  outlineColor,
   personFolderIds,
   WorldMap
 } from './api'
@@ -58,6 +59,9 @@ import ToolPanel, {
   DEFAULT_DRAW,
   DrawSettings,
   FONTS,
+  HALO_LABELS,
+  LABEL_HALOS,
+  LabelHalo,
   LINE_ARROWS,
   LINE_DASHES,
   LineArrow,
@@ -249,6 +253,10 @@ const stockUpdateStyle = (L.SVG.prototype as unknown as SvgRenderer)._updateStyl
   if (path && layer.options.weight !== undefined) {
     path.style.setProperty('--w', String(layer.options.weight))
     if (layer instanceof L.Polygon) path.style.setProperty('--mz', '1')
+    // The stylesheet floors the width at 0.75px so a hairline survives the smallest zooms — but a
+    // weight of ZERO is a choice, not a small number, and the floor was quietly turning it back
+    // into a 1px line. An inline width beats the stylesheet and says exactly that.
+    path.style.strokeWidth = layer.options.weight === 0 ? '0' : ''
   }
 }
 
@@ -277,6 +285,12 @@ interface FeatureStyle {
   board?: string // id of the board (drawing layer) it belongs to — matches settings.mapBoards
   minZoom?: number // hide below this zoom (declutter pins/labels when zoomed out)
   maxZoom?: number // hide above this zoom
+  halo?: LabelHalo // label halo: paper-coloured, dark, or none (see pixiLabels)
+  haloWidth?: number // halo thickness, fraction of the font size
+  tracking?: number // letter spacing, fraction of the font size
+  bold?: boolean
+  italic?: boolean
+  hideName?: boolean // polygon: do not draw the article's name on it (place a label instead)
 }
 
 interface Props {
@@ -319,6 +333,11 @@ interface FeatureLayer extends L.Layer {
 // fields we use.
 interface DrawInstance {
   enabled?: () => boolean
+  /** geoman's own "remove last vertex" — the action behind its toolbar button. Private, but the
+   *  dependency is pinned and reimplementing it means reaching into the same half-drawn state. */
+  _removeLastVertex?: () => void
+  /** The vertices placed so far — geoman disables the whole session when the last one goes. */
+  _markers?: unknown[]
   setOptions?: (o: { markerStyle?: L.MarkerOptions }) => void
   setPathOptions?: (o: L.PathOptions) => void
   _hintMarker?: L.Marker
@@ -797,7 +816,7 @@ export default function MapView({
   const shapeSpecs = useRef<ShapeSpec[]>([])
   const freeSpec = useRef(new Map<number, LabelSpec>())
   // Hit-box size in zoom-0 units, scaled onto the transparent icon by updateOverlaySizes.
-  const labelHit = useRef(new Map<number, { w: number; h: number }>())
+  const labelHit = useRef(new Map<number, { w: number; h: number; angle: number }>())
   const labelLayer = useRef<LabelLayer | null>(null)
   // Pin size multipliers; scale with zoom like polygon labels (glued to the map).
   // ar is set only on FREE custom-image pins (height = width / ar; no DOM measurement).
@@ -814,6 +833,8 @@ export default function MapView({
   const selIdsRef = useRef<number[]>([])
   const markedSel = useRef<number[]>([]) // last highlighted set (apply the diff, don't scan all layers)
   const lastMouse = useRef<L.LatLng | null>(null) // Ctrl+V target (last map cursor position)
+  // The same position in SCREEN pixels: what is under the cursor can only be asked of the DOM.
+  const lastPoint = useRef<{ x: number; y: number } | null>(null)
   const clearSel = (): void => {
     setSelected(null)
     setExtraSel([])
@@ -859,6 +880,15 @@ export default function MapView({
   // Person entities cannot be bound to the map (see EntityPage — they exist for family/dynasty fields)
   const personFolders = personFolderIds(folders) // people cannot be bound to the map
   const [linkName, setLinkName] = useState('')
+  // "Draw into" — the article the next drawings join instead of each making its own. The islands
+  // of an archipelago, the exclaves of a realm: pieces of one thing, drawn one after another.
+  // Session-only and reset by a map switch (this component remounts): a target that survived a
+  // restart would silently attach tomorrow's drawings to yesterday's article.
+  const [drawInto, setDrawInto] = useState<{ id: number; name: string } | null>(null)
+  // Read by pm:create, which is registered once at map setup and would otherwise close over the
+  // value this component had on its first render. Written in an effect, like every other ref here.
+  const drawIntoRef = useRef<typeof drawInto>(null)
+  const [drawIntoName, setDrawIntoName] = useState('')
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [hudZoom, setHudZoom] = useState<number | null>(null)
   const hudTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -1325,6 +1355,9 @@ export default function MapView({
 
   // Move the edit vertex markers to the selected feature when selection or tool changes
   useEffect(() => {
+    drawIntoRef.current = drawInto
+  }, [drawInto])
+  useEffect(() => {
     selectedRef.current = selected
     syncEditMode()
     // syncEditMode reads only refs; listing it would re-run this on every render instead.
@@ -1332,6 +1365,56 @@ export default function MapView({
   }, [selected, tool])
 
   // The single access point to geoman's draw instance (for the untyped internals, see DrawInstance)
+  /**
+   * Delete the vertex the cursor is over, if it is over one. Returns false when it is not.
+   *
+   * The handles are geoman's own markers — invisible (the dots are drawn in WebGL) but real DOM
+   * elements, so what is under the cursor is a question only the DOM can answer. Removal then goes
+   * through GEOMAN's path rather than cutting the coordinates ourselves: it already validates the
+   * minimum vertex count, refreshes its markers and fires pm:update, which is what carries the
+   * change into the undo record and the database.
+   *
+   * They only exist in edit mode, so finding one IS the mode check. And `limitMarkersToCount: 20`
+   * keeps the nearest twenty to the cursor — the one under it is always among them.
+   */
+  const removeVertexUnderCursor = (): boolean => {
+    const p = lastPoint.current
+    if (!p) return false
+    const el = (document.elementFromPoint(p.x, p.y) as HTMLElement | null)?.closest(
+      '.leaflet-marker-icon'
+    )
+    if (!el) return false
+    el.dispatchEvent(
+      // bubbles: Leaflet resolves the target by walking up from the element to its container.
+      new MouseEvent('contextmenu', { bubbles: true, clientX: p.x, clientY: p.y })
+    )
+    return true
+  }
+
+  /**
+   * The paint an article is already drawn in ON THIS MAP — what a drawing joining it should look
+   * like. Read from this map on purpose: the point is matching what sits next to it, and a drawing
+   * on another map is not that. Same geometry kind first; a pin's colour on a polygon would be a
+   * strange thing to inherit.
+   *
+   * One rule, two callers — drawing into an article and linking an existing drawing to one — so
+   * the two cannot drift into producing different results for the same intent.
+   */
+  const lookOf = (entityId: number, want: 'polygon' | 'line' | 'point'): Partial<FeatureStyle> => {
+    const kind = (g: string): string =>
+      g.includes('"Polygon"') ? 'polygon' : g.includes('"LineString"') ? 'line' : 'point'
+    const mine = (worldMapRef.current?.features ?? []).filter((f) => f.entity_id === entityId)
+    const src = mine.find((f) => kind(f.geometry) === want) ?? mine[0]
+    if (!src) return {}
+    const st = JSON.parse(src.style || '{}') as FeatureStyle
+    const out: Partial<FeatureStyle> = {}
+    // Appearance only. Never `from`/`to`, `text`, `board` or the zoom range: those say WHERE and
+    // WHEN a drawing is, not what it looks like, and inheriting them would move it.
+    for (const k of ['color', 'fillOpacity', 'weight', 'opacity', 'dash'] as const)
+      if (st[k] !== undefined) (out as Record<string, unknown>)[k] = st[k]
+    return out
+  }
+
   const drawInst = (shape: string): DrawInstance | undefined =>
     (mapRef.current?.pm.Draw as unknown as Record<string, DrawInstance | undefined> | undefined)?.[
       shape
@@ -1903,6 +1986,9 @@ export default function MapView({
         : rank
           ? '#666666' // the rank color is resolved from the parent chain in applyYear
           : (style.color ?? folderColor(folders, f.entity_folder))
+      // A polygon's outline is the darker, calmer relative of its fill (see outlineColor). Lines
+      // and pins keep exactly what the user picked: there the stroke IS the content.
+      const stroke = isPolygon ? outlineColor(color) : color
       const lineOpacity = isLine ? (style.opacity ?? 0.9) : 1
       const dashArray = isLine ? lineDashArray(style.dash, style.weight ?? 3) : ''
       // Fill images only on polygons in their own view (derived modes paint by data)
@@ -1910,7 +1996,7 @@ export default function MapView({
         !derived && isPolygon && style.fillImg ? `url(#${fillPatternId(style.fillImg)})` : color
       const gj = L.geoJSON(JSON.parse(f.geometry), {
         style: {
-          color,
+          color: stroke,
           fillColor,
           fill: !isLine,
           fillOpacity: derived ? 0.55 : (style.fillOpacity ?? 0.25),
@@ -1943,17 +2029,31 @@ export default function MapView({
             size,
             angle: Number(style.angle) || 0,
             curve: Number(style.curve) || 0,
+            halo: style.halo,
+            haloWidth: style.haloWidth,
+            tracking: style.tracking,
+            bold: style.bold,
+            italic: style.italic,
             // The declutter range travels WITH the label: the WebGL layer re-checks it every
             // frame, which is the only way it can appear and disappear mid-zoom (refreshZoomVis
             // reaches the Leaflet grab box and nothing else).
             minZoom: style.minZoom,
             maxZoom: style.maxZoom
           })
-          // ~0.62em per letter is the same estimate labelDivIcon used to lay the text out, so the
-          // grab area matches what the user sees closely enough to feel exact.
+          // The box that catches clicks, and it has to COVER the glyphs: what it misses falls
+          // through to whatever is underneath, which on a region label is the polygon it names —
+          // so the click selects the region instead of the label. ~0.62em per letter is the same
+          // estimate the text layout uses, plus the letter spacing, which widens the drawn text
+          // and would otherwise leave its ends hanging outside the box. A tenth of a size in
+          // padding on each axis: the box is invisible, and being slightly generous costs nothing
+          // while being slightly short costs the click.
+          const trackW = Number(style.tracking) || 0
           labelHit.current.set(f.id, {
-            w: Math.max(text.length * size * 0.62, size),
-            h: size * 1.2
+            w: Math.max(text.length * size * (0.62 + trackW), size) + size * 0.2,
+            h: size * 1.4,
+            // Rotated with CSS rather than inflated: an axis-aligned box around angled text covers
+            // a lot of map that is not the label, and misses the ends that stick out of it.
+            angle: Number(style.angle) || 0
           })
           return L.marker(latlng, {
             icon: L.divIcon({
@@ -2011,7 +2111,7 @@ export default function MapView({
       if (style.from !== undefined) chYears.add(style.from)
       if (style.to !== undefined) chYears.add(style.to + 1) // the change shows the year after the end
       renderStyle.current.set(f.id, {
-        color,
+        color: stroke,
         fillColor,
         fillImg: !derived && isPolygon ? style.fillImg : undefined,
         fillOpacity: derived ? 0.55 : (style.fillOpacity ?? 0.25),
@@ -2068,7 +2168,10 @@ export default function MapView({
             ar: style.img && style.imgFree ? (style.imgAR ?? 1) : undefined
           })
         // No tooltip on a label — its text is already visible
-        if (f.entity_name && !derived && !isLabel) {
+        // hideName: the article's name is not drawn on this polygon. For a shape whose automatic
+        // label lands badly — an archipelago, a crescent, anything the centroid falls outside —
+        // the answer is a real label placed by hand, not a better guess at where to put this one.
+        if (f.entity_name && !derived && !isLabel && !style.hideName) {
           // escapeHtml is REQUIRED (both branches): a string tooltip/label renders via innerHTML
           // — an entity NAMED `<img onerror=…>` in a shared .dunya would run code with no click.
           if (isPolygon) {
@@ -2238,6 +2341,16 @@ export default function MapView({
               polySpec.current.set(f.id, { ...spec, x: at.x, y: at.y })
               applyYear(yearRef.current)
             }
+            // The same problem for a FREE LABEL, and it was missed: the glyphs are drawn from
+            // freeSpec, not from the layer, so dragging one moved its marker and its row in the
+            // database while the text stayed where it started — until something else forced a
+            // reload. What moves is the grab box; the text has to be told.
+            const fs = freeSpec.current.get(f.id)
+            if (fs && isLabel) {
+              const at = map.project((layer as L.Marker).getLatLng(), 0)
+              freeSpec.current.set(f.id, { ...fs, x: at.x, y: at.y })
+              applyYear(yearRef.current)
+            }
           }
         }
         // Snapshot synchronous, commit on the serial chain — reloads never clobber each other.
@@ -2317,6 +2430,21 @@ export default function MapView({
         // Weld applies to vertex editing; not to whole-polygon dragging — a move means
         // "detach from the neighbour", it must not tow the neighbour along.
         layer.on('pm:update', (e) => saveGeometry(e, true))
+        // The dots are read off the live layer, so anything that CHANGES the vertex list has to
+        // redraw them. Dragging did (above); adding and removing did not — so a deleted vertex
+        // left its dot behind and the midpoints either side of it kept pointing at an edge that
+        // no longer existed. The shape was right and the handles were not, which is exactly what
+        // "it deletes but looks different" was.
+        layer.on('pm:vertexremoved pm:vertexadded pm:markerdragend', () => refreshHandles())
+        // Live: the glyphs follow the grab box while it is being dragged. Without it the text
+        // waits for the drop and teleports — functional, and it looks broken. One node moved by
+        // two numbers, no re-measure (see moveLabel).
+        layer.on('pm:drag', () => {
+          if (!isLabel) return
+          const at = map.project((layer as L.Marker).getLatLng(), 0)
+          labelLayer.current?.moveLabel(f.id, at.x, at.y)
+          drawLabels()
+        })
         layer.on('pm:dragend', (e) => saveGeometry(e, false))
         layer.on('contextmenu', (e: L.LeafletMouseEvent) => {
           e.originalEvent.preventDefault()
@@ -2642,7 +2770,7 @@ export default function MapView({
           // (fillColor reverts to flat too — fill images are void in the political mosaic)
           const root = rootOf(eid)
           const c = entColors.current.get(root) ?? '#666666'
-          if (st) st = { ...st, color: c, fillColor: c, fillImg: undefined }
+          if (st) st = { ...st, color: outlineColor(c), fillColor: c, fillImg: undefined }
           labelRoot = carrier.get(root) === fid ? root : -1
         } else if (featArea.current.has(fid)) {
           // Hiding rules apply to POLYGON borders only: when a parent's hand-drawn border is
@@ -2657,7 +2785,7 @@ export default function MapView({
       }
       if (rankOn && st) {
         const c = eid !== undefined ? rungColor(eid) : '#666666'
-        st = { ...st, color: c, fillColor: c, fillImg: undefined }
+        st = { ...st, color: outlineColor(c), fillColor: c, fillImg: undefined }
       }
       // The zoom gate comes last: baseVisible = visibility APART from zoom (refreshZoomVis
       // reads it), then hide when outside the zoom range
@@ -2758,6 +2886,29 @@ export default function MapView({
     // one list, one diff, one draw. It clears itself when no mode is active.
     rebuildDerivedLabels(year, rungOwnerAt)
     labelLayer.current?.setLabels(shownLabels.concat(derivedSpecs.current))
+    // The estimate above is a placeholder until the glyphs have been laid out; this is the real
+    // size. Only free labels have a box to correct — a polygon's name is not clickable.
+    //
+    // The angle is folded in HERE, as the axis-aligned box around the rotated text, rather than by
+    // rotating the element: `transform` is the property Leaflet's drag writes, and two writers on
+    // one property is why dragging a label stopped working and left it in the wrong place.
+    // Everything is derived from the measurement each time, never from the previous value — a
+    // padding added to its own result creeps upward every time this runs.
+    for (const [fid, hit] of labelHit.current) {
+      const m = labelLayer.current?.extentOf(fid)
+      if (!m) continue
+      const pad = m.h * 0.15
+      const w = m.w + pad
+      const h = m.h + pad
+      const a = (hit.angle * Math.PI) / 180
+      const cos = Math.abs(Math.cos(a))
+      const sin = Math.abs(Math.sin(a))
+      labelHit.current.set(fid, {
+        ...hit,
+        w: w * cos + h * sin,
+        h: w * sin + h * cos
+      })
+    }
     drawLabels()
     // The selected feature's Leaflet layer is added and removed BY this function now, so geoman
     // has to be pointed at it afterwards — enabling edit mode before the layer exists leaves a
@@ -3006,9 +3157,18 @@ export default function MapView({
         target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
       if (typing) return
       const has = selIdsRef.current.length > 0
-      const k = e.key.toLowerCase()
+      // Same guard as App's, and it crashed here first: this listener is in the capture phase, so
+      // an event without a `key` took out BOTH handlers — the identical message is why the error
+      // report only showed one of them.
+      const k = (e.key ?? '').toLowerCase()
       if ((e.key === 'Delete' || e.key === 'Backspace') && has) {
         e.preventDefault()
+        // A vertex under the cursor takes the key first: deleting one point is the smaller,
+        // likelier intent, and losing the whole border to a misplaced Del is expensive.
+        if (removeVertexUnderCursor()) {
+          e.stopImmediatePropagation()
+          return
+        }
         // App has Del too (deletes the ENTITIES selected in the sidebar). Both listen on
         // window, so Del with a map feature selected deleted BOTH. This handler registers in
         // the capture phase → runs before App's and cuts the chain here.
@@ -3441,6 +3601,7 @@ export default function MapView({
     // every move would re-render; read only at paste time)
     map.on('mousemove', (e: L.LeafletMouseEvent) => {
       lastMouse.current = e.latlng
+      lastPoint.current = { x: e.originalEvent.clientX, y: e.originalEvent.clientY }
     })
 
     map.on('zoom zoomend', () => {
@@ -3513,8 +3674,23 @@ export default function MapView({
 
     // Right-click on empty space → tool menu (over a feature the layer handler takes over)
     map.on('contextmenu', (e: L.LeafletMouseEvent) => {
-      if ((e.originalEvent.target as HTMLElement).classList?.contains('leaflet-interactive')) return
+      const el = e.originalEvent.target as HTMLElement
+      // Over a feature the layer handler takes over; over a VERTEX HANDLE geoman removes the
+      // vertex (its removeVertexOn default) — the menu must not steal either.
+      if (el.classList?.contains('leaflet-interactive') || el.closest?.('.leaflet-marker-icon'))
+        return
       e.originalEvent.preventDefault()
+      // WHILE DRAWING it takes back the last vertex instead of opening the menu — the thing you
+      // want the instant you misplace a point, and the button every drawing tool has.
+      //
+      // It keeps the old escape too, without a special case: geoman's own _removeLastVertex
+      // disables the session once the last vertex is gone, so right-clicking your way back out of
+      // a shape leaves the tool exactly as right-click always did.
+      const drawing = drawInst(toolRef.current === 'line' ? 'Line' : 'Polygon')
+      if ((toolRef.current === 'polygon' || toolRef.current === 'line') && drawing?.enabled?.()) {
+        drawing._removeLastVertex?.()
+        return
+      }
       setMenu({
         x: e.originalEvent.clientX,
         y: e.originalEvent.clientY,
@@ -3540,6 +3716,10 @@ export default function MapView({
       const shape = (e as { shape?: string }).shape
       // Label and pin tools are both 'Marker' to geoman → the active tool disambiguates
       const isLabelDraw = toolRef.current === 'label'
+      // The article the drawing joins, if one was picked. A LABEL may join one as well — that is
+      // what replaces a polygon's own name: the name is turned off and a hand-placed label bound
+      // to the same article says it instead. It still creates nothing when no target is set.
+      const into = drawIntoRef.current
       const from = yearRef.current
       const styleObj =
         shape === 'Marker' && isLabelDraw
@@ -3550,6 +3730,11 @@ export default function MapView({
               size: s.label.size,
               angle: s.label.angle,
               curve: s.label.curve,
+              halo: s.label.halo,
+              haloWidth: s.label.haloWidth,
+              tracking: s.label.tracking,
+              bold: s.label.bold,
+              italic: s.label.italic,
               from
             }
           : shape === 'Marker'
@@ -3579,6 +3764,18 @@ export default function MapView({
                   fillImg: s.polygon.fillImg,
                   from
                 }
+      // Joining an article means looking like it: an islet drawn into a region should come out
+      // the region's colour, not the colour the tool happened to be set to. Read from THIS map on
+      // purpose — the point is matching what is next to it, and a drawing on another map is not.
+      // Same kind first (a pin's colour on a polygon would be a strange thing to inherit), then
+      // whatever the article is drawn as.
+      // Not for a label: its whole appearance is what the user is choosing, and inheriting a
+      // polygon's fill opacity and outline weight would only litter its style with dead keys.
+      if (into && !isLabelDraw)
+        Object.assign(
+          styleObj,
+          lookOf(into.id, shape === 'Line' ? 'line' : shape === 'Marker' ? 'point' : 'polygon')
+        )
       // Bind to the active board (when boards exist) → visible only on it
       if (boardsRef.current.list.length)
         (styleObj as Record<string, unknown>).board = boardsRef.current.active
@@ -3594,7 +3791,10 @@ export default function MapView({
           : shape === 'Line'
             ? t('New path')
             : t('New region')
-      const ent = entName ? await api.createEntity({ name: entName }) : null
+      // A target set in the tool popover wins: the drawing joins that article and NOTHING is
+      // created — which is also what makes undo right, since `ref.eid` stays undefined and the
+      // article the user picked is not deleted when the drawing is.
+      const ent = into ?? (entName ? await api.createEntity({ name: entName }) : null)
       const created = await api.createFeature({
         map_id: id,
         geometry,
@@ -3608,7 +3808,8 @@ export default function MapView({
         entity: ent?.id,
         year: from
       })
-      const ref: { id: number; eid?: number } = { id: created.id, eid: ent?.id }
+      // eid is what undo deletes along with the drawing — so ONLY when this draw created it.
+      const ref: { id: number; eid?: number } = { id: created.id, eid: into ? undefined : ent?.id }
       pushUndo({
         // The KIND is part of the key, not a parameter: as a parameter it would drop the raw
         // English word into a Turkish sentence ("polygon çizildi").
@@ -3814,7 +4015,7 @@ export default function MapView({
     const isPolygon = kind === 'polygon'
     const color = style.color ?? folderColor(folders, f.entity_folder)
     renderStyle.current.set(fid, {
-      color,
+      color: isPolygon ? outlineColor(color) : color,
       fillColor: isPolygon && style.fillImg ? `url(#${fillPatternId(style.fillImg)})` : color,
       fillImg: isPolygon ? style.fillImg : undefined,
       fillOpacity: style.fillOpacity ?? 0.25,
@@ -3953,7 +4154,9 @@ export default function MapView({
         ? null
         : (deltaY: number) => {
             const dir = deltaY < 0 ? 1 : -1 // wheel up = grow
-            const wclamp = (v: number, max: number): number => Math.max(1, Math.min(max, v))
+            // min: a polygon may have no outline (its fill still shows it), a path may not.
+            const wclamp = (v: number, max: number, min = 1): number =>
+              Math.max(min, Math.min(max, v))
             const sclamp = (v: number): number => Math.max(0.5, Math.min(10, Number(v.toFixed(2))))
             if (!selected) {
               const d = drawRef.current
@@ -3965,7 +4168,7 @@ export default function MapView({
               else if (tool === 'polygon')
                 updateDrawSettings({
                   ...d,
-                  polygon: { ...d.polygon, weight: wclamp(d.polygon.weight + dir, 10) }
+                  polygon: { ...d.polygon, weight: wclamp(d.polygon.weight + dir, 10, 0) }
                 })
               else if (tool === 'marker')
                 updateDrawSettings({
@@ -3982,7 +4185,11 @@ export default function MapView({
             if (selIsLine || selIsPolygon) {
               const max = selIsLine ? 12 : 10
               editSelectedStyle({
-                weight: wclamp((selStyle.weight ?? (selIsLine ? 3 : 2)) + dir, max)
+                weight: wclamp(
+                  (selStyle.weight ?? (selIsLine ? 3 : 2)) + dir,
+                  max,
+                  selIsLine ? 1 : 0
+                )
               })
             } else {
               editSelectedStyle({ size: sclamp((selStyle.size ?? 1) + dir * 0.25) })
@@ -4013,11 +4220,64 @@ export default function MapView({
     }
   }
 
+  /**
+   * An article left with no drawings and nothing written in it, after its only drawing moved to
+   * another article. Those are the ones this app creates by itself — every drawing is born with a
+   * "New region" — so cleaning them up is undoing our own bookkeeping, not deleting the user's work.
+   *
+   * Hence the test: no features left anywhere (not just this map), no body, no links, no fields.
+   * Anything written keeps the article, whatever became of its drawing.
+   */
+  const dropIfOrphan = async (entityId: number): Promise<void> => {
+    const [featIds, ent] = await Promise.all([
+      api.entityFeatureIds(entityId),
+      api.getEntity(entityId)
+    ])
+    if (!ent || featIds.length) return
+    const fields = JSON.parse(ent.fields || '{}') as Record<string, unknown>
+    const written =
+      ent.content.trim() !== '' ||
+      ent.outLinks.length > 0 ||
+      ent.inLinks.length > 0 ||
+      Object.values(fields).some((v) => String(v ?? '').trim() !== '')
+    if (written) return
+    const row = {
+      id: ent.id,
+      name: ent.name,
+      content: ent.content,
+      fields: ent.fields,
+      created_at: ent.created_at
+    }
+    await api.deleteEntity(entityId)
+    // Undoable even though it is automatic: silent deletion with no way back is not something to
+    // do on the user's behalf, however empty the row. No links or features to restore — that is
+    // precisely what qualified it.
+    pushUndo({
+      label: 'Remove the emptied article',
+      params: { name: ent.name },
+      undo: () => api.restoreEntity(row, [], []).then(onChanged),
+      redo: () => api.deleteEntity(entityId).then(onChanged)
+    })
+  }
+
   const linkEntity = async (entityId: number): Promise<void> => {
-    await api.updateFeature(selected!.id, { entity_id: entityId })
+    const feat = selected!
+    const prev = feat.entity_id
+    if (prev === entityId) return
+    const kind = featKind.current.get(feat.id)
+    const look = lookOf(
+      entityId,
+      kind === 'line' ? 'line' : kind === 'polygon' ? 'polygon' : 'point'
+    )
+    const style = JSON.stringify({ ...(JSON.parse(feat.style || '{}') as FeatureStyle), ...look })
+    await api.updateFeature(feat.id, { entity_id: entityId, style })
+    // The article this drawing came from is usually one the app invented at draw time; with the
+    // drawing gone it is an empty row nobody asked for.
+    if (prev !== null) await dropIfOrphan(prev)
     setLinkName('')
+    onChanged()
     await reloadFeatures('link')
-    setSelected((await api.getMap(id))?.features.find((f) => f.id === selected!.id) ?? null)
+    setSelected((await api.getMap(id))?.features.find((f) => f.id === feat.id) ?? null)
   }
 
   return (
@@ -4683,6 +4943,54 @@ export default function MapView({
                   so closing History restores whatever the tool state already was. */}
               {tool && !selected && !hidePanels && !histOpen && (
                 <div className="map-tool-popover">
+                  {/* Draw into an existing article instead of making a new one per drawing — the
+                      islets of an archipelago, the exclaves of a realm. Only for the tools that
+                      would create an article: a free-text label never does. */}
+                  {(tool === 'polygon' ||
+                    tool === 'line' ||
+                    tool === 'marker' ||
+                    tool === 'label') && (
+                    <div className="panel-block">
+                      <label>{t('Add to article:')}</label>
+                      {drawInto ? (
+                        <button className="mini" onClick={() => setDrawInto(null)}>
+                          <Icon name="unlink" size={12} />
+                          {drawInto.name}
+                        </button>
+                      ) : (
+                        <>
+                          <input
+                            // Its own id: two datalists with one id is invalid HTML even when
+                            // they cannot appear together (tool popover vs selected panel).
+                            list="entity-list-draw"
+                            placeholder={t('new article each time')}
+                            value={drawIntoName}
+                            onChange={(e) => {
+                              setDrawIntoName(e.target.value)
+                              // Chosen from the list = chosen: no second click to confirm what the
+                              // datalist already made unambiguous.
+                              const hit = allEntities.find(
+                                (en) =>
+                                  en.name === e.target.value &&
+                                  !(en.folder && personFolders.has(en.folder))
+                              )
+                              if (hit) {
+                                setDrawInto({ id: hit.id, name: hit.name })
+                                setDrawIntoName('')
+                              }
+                            }}
+                          />
+                          <datalist id="entity-list-draw">
+                            {allEntities
+                              .filter((en) => !(en.folder && personFolders.has(en.folder)))
+                              .map((en) => (
+                                <option key={en.id} value={en.name} />
+                              ))}
+                          </datalist>
+                        </>
+                      )}
+                    </div>
+                  )}
                   <ToolPanel
                     active={tool}
                     settings={drawSettings}
@@ -4799,22 +5107,44 @@ export default function MapView({
                       value={selStyle.fillOpacity ?? 0.25}
                       onChange={(e) => editSelectedStyle({ fillOpacity: Number(e.target.value) })}
                     />
+                    {/* 0 = no outline at all. A polygon still reads as one from its fill; a PATH
+                        would simply vanish, which is why only this one goes down to zero. */}
                     <label>{t('Outline thickness: {val}px', { val: selStyle.weight ?? 2 })}</label>
                     <input
                       type="range"
-                      min={1}
+                      min={0}
                       max={10}
                       step={1}
                       value={selStyle.weight ?? 2}
                       onChange={(e) => editSelectedStyle({ weight: Number(e.target.value) })}
                     />
-                    <label>{t('Label font')}</label>
-                    <Select
-                      value={selStyle.font ?? 'Cinzel'}
-                      style={{ fontFamily: selStyle.font ?? 'Cinzel' }}
-                      onChange={(v) => editSelectedStyle({ font: v })}
-                      options={FONTS.map((f) => ({ value: f, label: f, style: { fontFamily: f } }))}
-                    />
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={!selStyle.hideName}
+                        onChange={(e) => editSelectedStyle({ hideName: !e.target.checked })}
+                      />{' '}
+                      {t('Show the name on the map')}
+                    </label>
+                    {selStyle.hideName ? (
+                      <p className="hint">
+                        {t('Place a label with the 🏷 tool and bind it to the same article.')}
+                      </p>
+                    ) : (
+                      <>
+                        <label>{t('Label font')}</label>
+                        <Select
+                          value={selStyle.font ?? 'Cinzel'}
+                          style={{ fontFamily: selStyle.font ?? 'Cinzel' }}
+                          onChange={(v) => editSelectedStyle({ font: v })}
+                          options={FONTS.map((f) => ({
+                            value: f,
+                            label: f,
+                            style: { fontFamily: f }
+                          }))}
+                        />
+                      </>
+                    )}
                     <label>{t('Fill image (click again to remove)')}</label>
                     <ImageStrip
                       img={selStyle.fillImg}
@@ -4931,6 +5261,58 @@ export default function MapView({
                       value={selStyle.curve ?? 0}
                       onChange={(e) => editSelectedStyle({ curve: Number(e.target.value) })}
                     />
+                    <label>{t('Halo')}</label>
+                    <Select
+                      value={selStyle.halo ?? 'dark'}
+                      onChange={(v) => editSelectedStyle({ halo: v as LabelHalo })}
+                      options={LABEL_HALOS.map((h) => ({ value: h, label: t(HALO_LABELS[h]) }))}
+                    />
+                    {(selStyle.halo ?? 'dark') !== 'none' && (
+                      <>
+                        <label>
+                          {t('Halo thickness: {val}', {
+                            val: (selStyle.haloWidth ?? 0.08).toFixed(2)
+                          })}
+                        </label>
+                        <input
+                          type="range"
+                          min={0.02}
+                          max={0.2}
+                          step={0.01}
+                          value={selStyle.haloWidth ?? 0.08}
+                          onChange={(e) => editSelectedStyle({ haloWidth: Number(e.target.value) })}
+                        />
+                      </>
+                    )}
+                    <label>
+                      {t('Letter spacing: {val}', { val: (selStyle.tracking ?? 0).toFixed(2) })}
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={0.5}
+                      step={0.01}
+                      value={selStyle.tracking ?? 0}
+                      onChange={(e) => editSelectedStyle({ tracking: Number(e.target.value) })}
+                    />
+                    <div className="field-row">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={selStyle.bold ?? false}
+                          onChange={(e) => editSelectedStyle({ bold: e.target.checked })}
+                        />{' '}
+                        {t('Bold')}
+                      </label>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={selStyle.italic ?? false}
+                          onChange={(e) => editSelectedStyle({ italic: e.target.checked })}
+                        />{' '}
+                        {t('Italic')}
+                      </label>
+                    </div>
                     {zoomVisControls()}
                   </>
                 ) : (
@@ -5099,7 +5481,7 @@ export default function MapView({
                 )}
               </div>
 
-              {selected.entity_id ? (
+              {selected.entity_id && (
                 <div className="panel-block">
                   <button
                     className="mini"
@@ -5118,41 +5500,46 @@ export default function MapView({
                     {t('Unlink entity')}
                   </button>
                 </div>
-              ) : (
-                <div className="panel-block">
-                  <label>{t('Link to entity:')}</label>
-                  <input
-                    list="entity-list-map"
-                    placeholder={t('search entity…')}
-                    value={linkName}
-                    onChange={(e) => setLinkName(e.target.value)}
-                  />
-                  <datalist id="entity-list-map">
-                    {allEntities
-                      .filter((en) => !(en.folder && personFolders.has(en.folder)))
-                      .map((en) => (
-                        <option key={en.id} value={en.name} />
-                      ))}
-                  </datalist>
-                  <button
-                    className="mini"
-                    onClick={async () => {
-                      if (!linkName.trim()) return
-                      const found = allEntities.find(
-                        (en) => en.name === linkName && !(en.folder && personFolders.has(en.folder))
-                      )
-                      if (found) return linkEntity(found.id)
-                      const { id: newId } = await api.createEntity({ name: linkName.trim() })
-                      setAllEntities(await api.listEntities())
-                      onChanged()
-                      await linkEntity(newId)
-                    }}
-                  >
-                    <Icon name="plus" size={12} />
-                    {t('Link / Create')}
-                  </button>
-                </div>
               )}
+              {/* Shown whether or not the drawing is already bound. It used to appear ONLY when it
+                  was not — and since every drawing is born with its own article, that state barely
+                  exists, so moving an islet into its region meant unlinking first to reveal the
+                  field that does it. One step now, and the emptied article goes with it. */}
+              <div className="panel-block">
+                <label>
+                  {selected.entity_id ? t('Move to another article:') : t('Link to entity:')}
+                </label>
+                <input
+                  list="entity-list-map"
+                  placeholder={t('search entity…')}
+                  value={linkName}
+                  onChange={(e) => setLinkName(e.target.value)}
+                />
+                <datalist id="entity-list-map">
+                  {allEntities
+                    .filter((en) => !(en.folder && personFolders.has(en.folder)))
+                    .map((en) => (
+                      <option key={en.id} value={en.name} />
+                    ))}
+                </datalist>
+                <button
+                  className="mini"
+                  onClick={async () => {
+                    if (!linkName.trim()) return
+                    const found = allEntities.find(
+                      (en) => en.name === linkName && !(en.folder && personFolders.has(en.folder))
+                    )
+                    if (found) return linkEntity(found.id)
+                    const { id: newId } = await api.createEntity({ name: linkName.trim() })
+                    setAllEntities(await api.listEntities())
+                    onChanged()
+                    await linkEntity(newId)
+                  }}
+                >
+                  <Icon name="plus" size={12} />
+                  {t('Link / Create')}
+                </button>
+              </div>
             </div>
             {/* The bound article, shown as its identity RAIL — the same sections
                 the full page renders, so the inspector and the page are visibly
