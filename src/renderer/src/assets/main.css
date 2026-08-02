@@ -3793,8 +3793,11 @@ a {
 .hist-list {
   display: flex;
   flex-direction: column;
-  max-width: 70ch;
-  margin-top: var(--sp-3);
+  /* It lives in a toolbar dropdown, so it has to be bounded in both directions: long enough to
+     read, short enough not to run off the map, and scrolling once the session gets going. */
+  min-width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
 }
 
 /* A row is a BUTTON — every one of them is a jump, and a div with a click handler would be

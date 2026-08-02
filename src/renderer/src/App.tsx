@@ -1181,6 +1181,7 @@ export default function App(): React.JSX.Element {
                 onNavigate={openMap}
                 onOpenEntity={openEntity}
                 onChanged={refresh}
+                onUndone={afterUndo}
                 onExportReady={handleExportReady}
                 hidePanels={hidden !== null}
                 hideTools={hidden === 'all'}
@@ -1206,7 +1207,6 @@ export default function App(): React.JSX.Element {
                 setFocus({ featureId, token: Date.now() })
                 openMap(mapId)
               }}
-              onUndone={afterUndo}
             />
           )}
           {view.kind === 'shortcuts' && <Shortcuts />}

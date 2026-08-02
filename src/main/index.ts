@@ -417,7 +417,6 @@ const MENU_TR: Record<string, string> = {
   Preferences: 'Tercihler',
   Maps: 'Haritalar',
   Overview: 'Genel Bakış',
-  History: 'Geçmiş',
   'Hide Panels': 'Panelleri Gizle',
   'Hide Panels, Keep Tools': 'Panelleri Gizle, Araçlar Kalsın',
   Atlas: 'Atlas',
@@ -519,8 +518,7 @@ function buildMenu(): void {
             submenu: [
               { label: ml('Atlas'), click: () => send('view.overview:atlas') },
               { label: ml('Chronology'), click: () => send('view.overview:chronology') },
-              { label: ml('Relations'), click: () => send('view.overview:relations') },
-              { label: ml('History'), click: () => send('view.overview:history') }
+              { label: ml('Relations'), click: () => send('view.overview:relations') }
             ]
           },
           { type: 'separator' },

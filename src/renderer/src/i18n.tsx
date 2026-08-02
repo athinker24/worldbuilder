@@ -194,10 +194,6 @@ const TR: Record<string, string> = {
   History: 'Geçmiş',
   Opened: 'Açıldı',
   'Go to this step': 'Bu adıma dön',
-  'Nothing yet': 'Henüz bir şey yok',
-  'Edits you make show up here as you go.': 'Yaptığın değişiklikler burada birikir.',
-  'Everything you have changed this session, oldest first. Click a step to go back to it — or forward again. Closing the app clears it; the world itself is already saved.':
-    'Bu oturumda değiştirdiğin her şey, eskiden yeniye. Bir adıma tıklayınca oraya dönersin — ileri de gidebilirsin. Uygulamayı kapatınca liste silinir; dünyanın kendisi zaten kayıtlı.',
   'Delete article': 'Madde silindi',
   'Delete {n} articles': '{n} madde silindi',
   'Edit "{name}"': '"{name}" düzenlendi',

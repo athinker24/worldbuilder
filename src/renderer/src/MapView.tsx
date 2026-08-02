@@ -44,6 +44,7 @@ import { ShapeLayer, shapeAt, pathAt, hexNum, type ShapeSpec } from './pixiShape
 import EntityPage from './EntityPage'
 import HierarchyPanel, { ActiveMode } from './HierarchyPanel'
 import { alertDialog, confirmDialog } from './dialog'
+import History from './History'
 import Icon from './icons'
 import Select from './Select'
 import { IconButton } from './ui'
@@ -287,6 +288,9 @@ interface Props {
   onNavigate: (mapId: number) => void
   onOpenEntity: (id: number) => void
   onChanged: () => void
+  /** After a step taken from the History menu: App refreshes the sidebar and bumps
+   *  reloadToken, which is what brings the map back in step. */
+  onUndone: () => void
   // Hands the PNG exporter up to App so File > Export can fire it, and null on unmount.
   // Deliberately an opaque () => void — capturePage needs the live .leaflet-host element, which
   // only exists here, and no Leaflet type may leave this file.
@@ -752,6 +756,7 @@ export default function MapView({
   id,
   focus,
   reloadToken,
+  onUndone,
   maps,
   folders,
   onNavigate,
@@ -861,6 +866,7 @@ export default function MapView({
   const [activeMode, setActiveMode] = useState<ActiveMode>(null)
   const activeModeRef = useRef<ActiveMode>(null)
   const [layersOpen, setLayersOpen] = useState(false)
+  const [histOpen, setHistOpen] = useState(false)
   // Maps dropdown (map switching — replaced the sidebar list)
   const [mapsOpen, setMapsOpen] = useState(false)
   const [newMapName, setNewMapName] = useState<string | null>(null)
@@ -4356,6 +4362,26 @@ export default function MapView({
                     </div>
                   </>
                 )}
+              </div>
+            </>
+          )}
+        </div>
+        {/* History, beside Layers and Boards. Most of what it lists are drawings, so having to
+            leave the map to step back through them was the one place it must not be. */}
+        <div className="layers-menu">
+          <button
+            className={`layers-btn tier-3 ${histOpen ? 'open' : ''}`}
+            title={t('History')}
+            onClick={() => setHistOpen((o) => !o)}
+          >
+            <Icon name="clock" size={14} />
+          </button>
+          {histOpen && (
+            <>
+              <div className="layers-backdrop" onClick={() => setHistOpen(false)} />
+              <div className="layers-panel">
+                <div className="layers-panel-head">{t('History')}</div>
+                <History onApplied={onUndone} />
               </div>
             </>
           )}
