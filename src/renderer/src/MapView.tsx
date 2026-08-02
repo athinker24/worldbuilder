@@ -44,6 +44,7 @@ import { ShapeLayer, shapeAt, pathAt, hexNum, type ShapeSpec } from './pixiShape
 import EntityPage from './EntityPage'
 import HierarchyPanel, { ActiveMode } from './HierarchyPanel'
 import { alertDialog, confirmDialog } from './dialog'
+import History from './History'
 import Icon from './icons'
 import Select from './Select'
 import { IconButton } from './ui'
@@ -287,6 +288,9 @@ interface Props {
   onNavigate: (mapId: number) => void
   onOpenEntity: (id: number) => void
   onChanged: () => void
+  /** After a step taken from the History menu: App refreshes the sidebar and bumps
+   *  reloadToken, which is what brings the map back in step. */
+  onUndone: () => void
   // Hands the PNG exporter up to App so File > Export can fire it, and null on unmount.
   // Deliberately an opaque () => void — capturePage needs the live .leaflet-host element, which
   // only exists here, and no Leaflet type may leave this file.
@@ -752,6 +756,7 @@ export default function MapView({
   id,
   focus,
   reloadToken,
+  onUndone,
   maps,
   folders,
   onNavigate,
@@ -861,6 +866,7 @@ export default function MapView({
   const [activeMode, setActiveMode] = useState<ActiveMode>(null)
   const activeModeRef = useRef<ActiveMode>(null)
   const [layersOpen, setLayersOpen] = useState(false)
+  const [histOpen, setHistOpen] = useState(false)
   // Maps dropdown (map switching — replaced the sidebar list)
   const [mapsOpen, setMapsOpen] = useState(false)
   const [newMapName, setNewMapName] = useState<string | null>(null)
@@ -1592,6 +1598,8 @@ export default function MapView({
           ).id
       }
       pushUndo({
+        label: fids.length > 1 ? 'Delete {n} drawings' : 'Delete drawing',
+        params: { n: fids.length },
         undo: recreate,
         redo: async () => {
           for (const r of refs) await api.deleteFeature(r.id)
@@ -1662,6 +1670,8 @@ export default function MapView({
     }
     const ref = { ids: await make() }
     pushUndo({
+      label: 'Paste {n} drawings',
+      params: { n: ref.ids.length },
       undo: async () => {
         for (const nid of ref.ids) await api.deleteFeature(nid)
       },
@@ -1705,6 +1715,8 @@ export default function MapView({
     await api.updateFeature(f.id, { style: closedStyle })
     const ref = { id: created.id }
     pushUndo({
+      label: 'Change border from {year}',
+      params: { year },
       undo: async () => {
         await api.deleteFeature(ref.id)
         await api.updateFeature(f.id, { style: f.style })
@@ -2203,6 +2215,8 @@ export default function MapView({
           updates: { id: number; old: string; next: string }[]
         ): Promise<void> => {
           pushUndo({
+            label: updates.length > 1 ? 'Move {n} borders' : 'Move a border',
+            params: { n: updates.length },
             undo: async () => {
               for (const u of updates) await api.updateFeature(u.id, { geometry: u.old })
             },
@@ -2826,6 +2840,8 @@ export default function MapView({
     }))
     const childIds = maps.filter((x) => x.parent_map_id === mapId).map((x) => x.id)
     pushUndo({
+      label: 'Delete map "{name}"',
+      params: { name: mapRow.name },
       undo: () => api.restoreMap(mapRow, feats, childIds).then(onChanged),
       redo: () => api.deleteMap(mapId).then(onChanged)
     })
@@ -3071,6 +3087,8 @@ export default function MapView({
       updates.push({ id: eid, old: e.fields, next: JSON.stringify(f) })
     }
     pushUndo({
+      label: 'Conquest in {year}',
+      params: { year },
       undo: async () => {
         for (const u of updates) await api.updateEntity(u.id, { fields: u.old })
       },
@@ -3592,6 +3610,9 @@ export default function MapView({
       })
       const ref: { id: number; eid?: number } = { id: created.id, eid: ent?.id }
       pushUndo({
+        // The KIND is part of the key, not a parameter: as a parameter it would drop the raw
+        // English word into a Turkish sentence ("polygon çizildi").
+        label: `Draw a ${featureKind(shape, isLabelDraw)}`,
         undo: async () => {
           await api.deleteFeature(ref.id)
           if (ref.eid !== undefined) await api.deleteEntity(ref.eid)
@@ -3814,6 +3835,8 @@ export default function MapView({
       const ref = { key, items: selIds.map((fid) => ({ fid, orig: styleOf(fid), latest: '' })) }
       styleEditRef.current = ref
       pushUndo({
+        label: selIds.length > 1 ? 'Restyle {n} drawings' : 'Restyle a drawing',
+        params: { n: selIds.length },
         undo: async () => {
           for (const it of ref.items) await api.updateFeature(it.fid, { style: it.orig })
         },
@@ -4343,6 +4366,26 @@ export default function MapView({
             </>
           )}
         </div>
+        {/* History, beside Layers and Boards. Most of what it lists are drawings, so having to
+            leave the map to step back through them was the one place it must not be. */}
+        <div className="layers-menu">
+          <button
+            className={`layers-btn tier-3 ${histOpen ? 'open' : ''}`}
+            title={t('History')}
+            onClick={() => setHistOpen((o) => !o)}
+          >
+            <Icon name="clock" size={14} />
+          </button>
+          {histOpen && (
+            <>
+              <div className="layers-backdrop" onClick={() => setHistOpen(false)} />
+              <div className="layers-panel">
+                <div className="layers-panel-head">{t('History')}</div>
+                <History onApplied={onUndone} />
+              </div>
+            </>
+          )}
+        </div>
       </div>
       <div className="map-body">
         <div className="map-host-wrap">
@@ -4633,8 +4676,12 @@ export default function MapView({
                   (position:relative) like the other floats, so opening the 380px inspector shrinks
                   that box and they slide left with it — no collision handling needed. Inside the
                   !exporting guard so neither lands in the exported PNG. */}
-              {!hideTools && <MapToolbar active={tool} onTool={activateTool} />}
-              {tool && !selected && !hidePanels && (
+              {!hideTools && !histOpen && <MapToolbar active={tool} onTool={activateTool} />}
+              {/* …and out of the way while History is open: both float against the same right
+                  edge, and the tool settings are not what you are looking at when you are stepping
+                  back through the session. It comes back on its own — the condition is derived,
+                  so closing History restores whatever the tool state already was. */}
+              {tool && !selected && !hidePanels && !histOpen && (
                 <div className="map-tool-popover">
                   <ToolPanel
                     active={tool}

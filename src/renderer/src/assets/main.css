@@ -3050,7 +3050,11 @@ a {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 901;
+  /* Above the map floats (1600), not below them. A menu you just opened is the top thing on the
+     screen by definition; at 901 the floating tool palette drew straight over it — which is what
+     the History panel appeared to "not fix" when only the popover was hidden. Applies to all four
+     toolbar menus: Maps, Boards, Layers, History. */
+  z-index: 1700;
   width: 260px;
   background: var(--surface-float);
   border-radius: var(--r-m);
@@ -3787,4 +3791,65 @@ a {
   color: var(--text-muted);
   font-size: var(--fs-2);
   margin-bottom: var(--sp-2);
+}
+
+/* --- History (Overview ▸ History): the session's edits, click to jump ---------------------- */
+.hist-list {
+  display: flex;
+  flex-direction: column;
+  /* It lives in a toolbar dropdown, so it has to be bounded in both directions: long enough to
+     read, short enough not to run off the map, and scrolling once the session gets going. */
+  min-width: 240px;
+  /* About four rows. It scrolls itself to the current step (see History.tsx), which is what makes
+     a short window usable — Photoshop's panel grows downward too and never asks you to chase it. */
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+/* A row is a BUTTON — every one of them is a jump, and a div with a click handler would be
+   unreachable by keyboard on a screen whose whole purpose is recovering from a mistake. */
+.hist-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  min-height: var(--h-sm);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: var(--r-s);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.hist-row:hover {
+  background: var(--surface-hover);
+}
+
+.hist-row.current {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Undone steps are still listed — that is what makes them clickable to go forward again — but
+   they are not part of the world as it stands, and the list has to say which is which. */
+/* DIMMED, not struck through. These steps are not deleted — they are what you would lose by
+   carrying on from here, which is exactly the distinction Photoshop's dimming makes. A line
+   through them claims they are already gone. */
+.hist-row.undone .hist-text {
+  color: var(--text-faint);
+  opacity: 0.7;
+}
+
+.hist-mark {
+  display: flex;
+  color: var(--accent);
+}
+
+.hist-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
