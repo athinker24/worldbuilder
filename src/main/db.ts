@@ -11,11 +11,12 @@ import {
   renameSync,
   statSync,
   unlinkSync,
+  utimesSync,
   writeFileSync
 } from 'fs'
 import { tmpdir } from 'os'
 import assert from 'assert'
-import { initLog, logError, noteCall } from './log.ts'
+import { flushLog, initLog, logError, logEvent, logSetDebug, logTime, noteCall } from './log.ts'
 
 // Kept free of Electron imports so `node src/main/db.ts` can run the self-check standalone.
 let db!: DatabaseSync
@@ -139,6 +140,9 @@ export function migrateLegacyKeys(): number {
   const rel = db.prepare(`UPDATE links SET relation = ? WHERE relation = ?`)
   for (const [from, to] of Object.entries(RELATION_RENAMES))
     changed += Number(rel.run(to, from).changes ?? 0)
+  // Silent until now, and it rewrites rows on every launch and every open. A world that keeps
+  // reporting migrations is one where something is writing the old keys back.
+  if (changed) logEvent('INFO', 'data.migrated', { rows: changed })
   return changed
 }
 
@@ -148,12 +152,21 @@ export function backupIfNeeded(): void {
   mkdirSync(backupsDir, { recursive: true })
   const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
   const target = join(backupsDir, `world-${today}.db`)
-  if (!existsSync(target)) copyFileSync(dbFile, target)
+  const made = !existsSync(target)
+  if (made) copyFileSync(dbFile, target)
   const cutoff = Date.now() - BACKUP_KEEP_DAYS * 24 * 60 * 60 * 1000
+  let dropped = 0
   for (const name of readdirSync(backupsDir)) {
     const p = join(backupsDir, name)
-    if (statSync(p).mtimeMs < cutoff) unlinkSync(p)
+    if (statSync(p).mtimeMs < cutoff) {
+      unlinkSync(p)
+      dropped++
+    }
   }
+  // Restoring is manual, so the only thing between a bad day and lost work is knowing a copy was
+  // taken — and that it was taken BEFORE whatever went wrong. Nothing is said on the launches that
+  // find today's copy already there.
+  if (made || dropped) logEvent('INFO', 'project.backup', { daily: today, dropped })
 }
 
 // --- The .dunya file format (like Wonderdraft's own file): EVERYTHING in one file ---
@@ -378,7 +391,12 @@ function repairImportedJson(): number {
       return false
     }
   }
+  // Counted per column, not just totalled: this is the one place in the app that DISCARDS a user's
+  // data without asking, and "3 rows repaired" does not tell them what they lost. `geometry=3` says
+  // three drawings are now dots at the origin; `fields=9` says nine articles lost their metadata.
+  const byKind: Record<string, number> = {}
   const repair = <T extends { id: number; v: string }>(
+    kind: string,
     rows: T[],
     ok: (v: string) => boolean,
     sql: string,
@@ -389,21 +407,25 @@ function repairImportedJson(): number {
       if (!ok(r.v)) {
         st.run(def, r.id)
         fixed++
+        byKind[kind] = (byKind[kind] ?? 0) + 1
       }
   }
   repair(
+    'fields',
     db.prepare(`SELECT id, fields AS v FROM entities`).all() as { id: number; v: string }[],
     isPlainObject,
     `UPDATE entities SET fields = ? WHERE id = ?`,
     '{}'
   )
   repair(
+    'style',
     db.prepare(`SELECT id, style AS v FROM features`).all() as { id: number; v: string }[],
     isPlainObject,
     `UPDATE features SET style = ? WHERE id = ?`,
     '{}'
   )
   repair(
+    'layers',
     db.prepare(`SELECT id, layers AS v FROM maps`).all() as { id: number; v: string }[],
     isArray,
     `UPDATE maps SET layers = ? WHERE id = ?`,
@@ -416,6 +438,7 @@ function repairImportedJson(): number {
   // rule here is that rows are never dropped, and a stray pin at the origin is visible and
   // fixable, whereas a deleted drawing is silently gone.
   repair(
+    'geometry',
     db.prepare(`SELECT id, geometry AS v FROM features`).all() as { id: number; v: string }[],
     isPlainObject,
     `UPDATE features SET geometry = ? WHERE id = ?`,
@@ -432,8 +455,23 @@ function repairImportedJson(): number {
     if (isPlainObject(r.value) || isArray(r.value)) continue
     del.run(r.key)
     fixed++
+    byKind.settings = (byKind.settings ?? 0) + 1
   }
+  // WARN, not INFO: nothing else in the app throws a user's data away, and the only trace it used
+  // to leave was the data being gone. A clean file stays silent.
+  if (fixed) logEvent('WARN', 'data.repaired', { rows: fixed, ...byKind })
   return fixed
+}
+
+/**
+ * How big the open world is. For the log, where a duration means nothing without it: 100 ms is slow
+ * for four articles and fast for four thousand, and every performance report so far has had to be
+ * read without knowing which. Three counts, once per open — not a per-call cost.
+ */
+export const worldStats = (): Record<string, number> => {
+  const n = (t: string): number =>
+    Number((db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n)
+  return { entities: n('entities'), maps: n('maps'), features: n('features') }
 }
 
 /** Does the working copy hold anything worth keeping? (avoids a pointless snapshot on blank launch) */
@@ -490,6 +528,9 @@ function pruneUnusedAssets(): number {
       removed++
     }
   }
+  // Files deleted with no UI and no undo. Conservative by design, but "my image is gone" deserves
+  // a line saying how many went and when — the count against `kept` is the whole diagnosis.
+  if (removed) logEvent('INFO', 'assets.pruned', { removed, kept: files.length - removed })
   return removed
 }
 
@@ -594,22 +635,40 @@ export const api = {
   },
   // The legacy `type` column is kept (older .dunya files still carry it) but no longer used:
   // articles are organised by sidebar folders now.
+  // The article events are logged HERE rather than at the buttons that cause them: every route in
+  // — the sidebar, an entity page, a [[wiki link]], the dynasty form's find-or-create, undo and
+  // redo — comes through these five functions, so this is the one place that cannot be forgotten
+  // when a sixth route appears. Names, never content: the log is meant to be pasted into a message,
+  // and a name is what makes "my article vanished" answerable at all.
   createEntity(e: { name: string; content?: string; fields?: string }): unknown {
     const r = db
       .prepare(`INSERT INTO entities (name, content, fields) VALUES (?, ?, ?)`)
       .run(e.name, e.content ?? '', e.fields ?? '{}')
-    return { id: Number(r.lastInsertRowid) }
+    const id = Number(r.lastInsertRowid)
+    logEvent('INFO', 'entity.created', { entity: id, name: e.name })
+    return { id }
   },
   updateEntity(id: number, patch: Record<string, unknown>): void {
+    // Only a RENAME is worth a line — an ordinary field save is the most frequent write in the app
+    // and would drown everything. The extra read costs nothing because it is skipped for those.
+    const was =
+      'name' in patch
+        ? (db.prepare(`SELECT name FROM entities WHERE id = ?`).get(id) as { name: string })?.name
+        : undefined
     const p = patchSql('entities', ['name', 'content', 'fields'], patch)
     if (p)
       db.prepare(`${p.sql}, updated_at = datetime('now') WHERE id = ?`).run(
         ...(p.vals as never[]),
         id
       )
+    if (was !== undefined && was !== patch.name)
+      logEvent('INFO', 'entity.renamed', { entity: id, from: was, to: patch.name })
   },
   deleteEntity(id: number): void {
+    // Read before the delete or the name is gone with it — and the name is the whole point.
+    const row = db.prepare(`SELECT name FROM entities WHERE id = ?`).get(id) as { name: string }
     db.prepare(`DELETE FROM entities WHERE id = ?`).run(id)
+    logEvent('INFO', 'entity.deleted', { entity: id, name: row?.name })
   },
   // Bring a deleted entity back under the same id, with its links and map-feature bindings (for Ctrl+Z)
   restoreEntity(
@@ -635,6 +694,9 @@ export const api = {
       )
     for (const fid of featureIds)
       db.prepare(`UPDATE features SET entity_id = ? WHERE id = ?`).run(row.id, fid)
+    // Without this an undone deletion leaves `entity.deleted` as the last word on the article, and
+    // a log that says something was destroyed when it was not is worse than one that says nothing.
+    logEvent('INFO', 'entity.restored', { entity: row.id, name: row.name })
   },
   // Bulk restore (multi-delete undo): ALL entity rows first, then the (deduplicated) links,
   // then feature bindings — so a link between two deleted entities cannot violate the FK.
@@ -662,6 +724,8 @@ export const api = {
       )
     for (const f of features)
       db.prepare(`UPDATE features SET entity_id = ? WHERE id = ?`).run(f.entity_id, f.feature_id)
+    // A count, not one line per article: a multi-delete undo is ONE action by the user.
+    logEvent('INFO', 'entity.restored', { count: rows.length })
   },
   featuresByEntity(entityId: number): unknown[] {
     return db
@@ -736,10 +800,23 @@ export const api = {
     const r = db
       .prepare(`INSERT INTO links (from_id, to_id, relation) VALUES (?, ?, ?)`)
       .run(from_id, to_id, relation)
+    // The relation by name: the links table is where the whole family tree and half the world's
+    // structure lives, and `mother` going in where `spouse` was meant is invisible in the data.
+    logEvent('INFO', 'link.created', { from: from_id, to: to_id, relation })
     return { id: Number(r.lastInsertRowid) }
   },
   deleteLink(id: number): void {
+    const row = db.prepare(`SELECT from_id, to_id, relation FROM links WHERE id = ?`).get(id) as {
+      from_id: number
+      to_id: number
+      relation: string
+    }
     db.prepare(`DELETE FROM links WHERE id = ?`).run(id)
+    logEvent('INFO', 'link.deleted', {
+      from: row?.from_id,
+      to: row?.to_id,
+      relation: row?.relation
+    })
   },
   // For whole-graph views like the dynasty tree: every link (fine at personal scale)
   listLinks(): unknown[] {
@@ -1036,6 +1113,9 @@ export const api = {
 if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   const dir = mkdtempSync(join(tmpdir(), 'worlddb-'))
   initDb(dir)
+  // A session file from the FIRST line, so the article events below actually reach a sink. The log
+  // section further down opens its own directory and is unaffected — this one only has to exist.
+  initLog(dir, '9.9.9', () => ({}))
   const a = api.createEntity({ name: 'Test State' }) as { id: number }
   const b = api.createEntity({
     name: 'Test Dynasty',
@@ -1512,6 +1592,46 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.ok(!('\u00fcst' in f2))
   }
 
+  // The article events. Logged in these functions rather than at the buttons, so every route in is
+  // covered by one place; what needs checking is the two that read the database BEFORE writing it.
+  {
+    const e = api.createEntity({ name: 'Log Test Article' }) as { id: number }
+    api.updateEntity(e.id, { name: 'Renamed Article' })
+    api.updateEntity(e.id, { content: 'an ordinary field save' })
+    api.deleteEntity(e.id)
+    flushLog()
+    const logs = join(dir, 'logs')
+    const txt = readFileSync(join(logs, readdirSync(logs)[0]), 'utf8')
+    assert.ok(/entity\.created .*name="Log Test Article"/.test(txt), 'a new article says its name')
+    assert.ok(
+      /entity\.renamed .*from="Log Test Article" to="Renamed Article"/.test(txt),
+      'a rename carries both names — the old one is what a search will be for'
+    )
+    assert.ok(
+      !/entity\.renamed .*from="Renamed Article"/.test(txt),
+      'and an ordinary field save is not a rename'
+    )
+    assert.ok(
+      /entity\.deleted .*name="Renamed Article"/.test(txt),
+      'a deletion says the name, which means reading it BEFORE the row goes'
+    )
+  }
+
+  // Three COUNT queries, but they run at open time inside a logTime: a wrong table name here would
+  // throw where the app is least able to explain itself.
+  {
+    const s = worldStats()
+    assert.deepEqual(
+      Object.keys(s).sort(),
+      ['entities', 'features', 'maps'],
+      'worldStats reports the three tables an open should describe'
+    )
+    assert.ok(
+      Object.values(s).every((v) => Number.isInteger(v) && v >= 0),
+      'and each of them as a number — a wrong table name would throw here, not at open time'
+    )
+  }
+
   db.close()
   rmSync(dir, { recursive: true, force: true })
   // Error log. Not a database concern, but this file is the project's only test harness and the
@@ -1519,21 +1639,113 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   {
     const ldir = join(dir, 'logtest')
     mkdirSync(ldir, { recursive: true })
-    initLog(ldir, '9.9.9', () => ({ file: 'w.dunya', dirty: true }))
-    noteCall('getMap')
-    noteCall('updateFeature')
-    logError('ipc:updateFeature', new TypeError('boom'), { extra: 'x'.repeat(2000) })
     const logs = join(ldir, 'logs')
     const only = (): string => {
-      const n = readdirSync(logs).filter((f) => /^error-.*\.log$/.test(f))
-      assert.equal(n.length, 1, 'one file per run')
+      const n = readdirSync(logs).filter((f) => /_session\.log$/.test(f))
+      assert.equal(n.length, 1, 'one file per session')
       return join(logs, n[0])
     }
+
+    initLog(ldir, '9.9.9', () => ({ file: 'w.dunya', dirty: true }))
+    // The header is written at INIT, not on the first error: a session log that only sometimes
+    // exists cannot be asked for by a user, which is the whole point of having one.
+    assert.ok(readFileSync(only(), 'utf8').includes('SESSION START'), 'header at session start')
+
+    logEvent('INFO', 'project.opened', { file: 'w.dunya', entities: 163 })
+    logEvent('DEBUG', 'never.written', {})
+    logSetDebug(true)
+    logEvent('DEBUG', 'now.written', {})
+    logTime('map.reload')({ features: 12 })
+    // A repeated scope collapses into one line rather than sixty. The first real session log had
+    // sixty map.reload lines in three seconds and they buried everything else.
+    for (let i = 0; i < 12; i++) logEvent('INFO', 'noisy.scope', { took: `${5 + i}ms` })
+    // Only genuinely identical events merge. Coalescing on the scope alone collapsed four tool
+    // changes into two lines and threw two of the four values away.
+    logEvent('INFO', 'tool.changed', { tool: 'polygon' })
+    logEvent('INFO', 'tool.changed', { tool: 'line' })
+    logEvent('INFO', 'something.else', {})
+    // A run has to say how LONG it lasted: `feature.selected ×6` reads the same whether it was six
+    // clicks over four seconds or six fires inside one frame, and only one of those is a bug.
+    {
+      const t0 = Date.now()
+      logEvent('INFO', 'clicky.scope', { feature: 116 }, new Date(t0))
+      logEvent('INFO', 'clicky.scope', { feature: 116 }, new Date(t0 + 1500))
+    }
+    // Lines are written in the order things HAPPENED, not the order they arrived: renderer events
+    // carry their own stamp and reach main up to half a second late, and a reader trusts the order
+    // of the lines over the clock in them.
+    {
+      const t0 = Date.now()
+      logEvent('INFO', 'arrived.second', {}, new Date(t0 + 40))
+      logEvent('INFO', 'happened.first', {}, new Date(t0 - 300))
+    }
+    noteCall('updateEntity') // only mutations reach the trail — index.ts is where reads are dropped
+    noteCall('updateFeature')
+    noteCall('logEvents') // reporting is not something the app was DOING — must stay out of it
+    logError('ipc:updateFeature', new TypeError('boom: feature write failed'), {
+      extra: 'x'.repeat(2000),
+      component: 'at MapView (MapView.tsx:365) < at App (App.tsx:33)'
+    })
+    // The same failure reported twice — main catching an IPC call, then the renderer's unhandled
+    // rejection carrying it wrapped — is one fault, and gets one block plus a pointer.
+    logError(
+      'renderer:unhandledRejection',
+      new Error("Error invoking remote method 'api': boom: feature write failed")
+    )
+    flushLog()
+
     const txt = readFileSync(only(), 'utf8')
-    assert.ok(txt.includes('version=9.9.9'), 'session header')
+    assert.ok(txt.includes('App       9.9.9'), 'the header carries the version')
+    assert.ok(/INFO {2}.*project\.opened.*entities=163/.test(txt), 'one line per event')
+    assert.ok(!txt.includes('never.written'), 'DEBUG is silent while the switch is off')
+    assert.ok(txt.includes('now.written'), 'and speaks once it is on')
+    assert.ok(/map\.reload.*took=\d+ms/.test(txt), 'a timed operation reports its duration')
+    // EVENT lines only — the scope also appears inside the error report's trail, which is correct
+    // and must not be counted here.
+    const eventLines = txt.split('\n').filter((l) => /^\d{2}:\d{2}:\d{2}\.\d{3} {2}/.test(l))
+    assert.equal(
+      eventLines.filter((l) => l.includes('noisy.scope')).length,
+      1,
+      'a repeated scope leaves ONE line, not one per occurrence'
+    )
+    assert.ok(/noisy\.scope.*count=×12 took=5-16ms/.test(txt), 'and it keeps the count and spread')
+    assert.equal(
+      eventLines.filter((l) => l.includes('tool.changed')).length,
+      2,
+      'events that share a scope but differ in data are NOT merged'
+    )
+    assert.ok(txt.includes('tool=polygon') && txt.includes('tool=line'), 'and neither is lost')
+    assert.ok(
+      /clicky\.scope.*count=×2 feature=116 over=1500ms/.test(txt),
+      'a coalesced run says how long it lasted, not only how many'
+    )
+    assert.ok(txt.includes('ERROR REPORT'), 'an error gets the full block, not a line')
+    assert.equal(
+      txt.split('ERROR REPORT').length - 1,
+      1,
+      'one fault leaves ONE block, however many layers report it'
+    )
+    assert.ok(
+      /error\.echo.*where=renderer:unhandledRejection of=ipc:updateFeature/.test(txt),
+      'the echo says where it came from and which block it belongs to'
+    )
+    assert.ok(!txt.includes('logEvents'), 'the act of logging stays out of the trail')
     assert.ok(txt.includes('TypeError: boom'), 'the error itself')
     assert.ok(txt.includes('file=w.dunya dirty=true'), 'context from the app')
-    assert.ok(txt.includes('getMap → updateFeature'), 'the call trail — how it got there')
+    assert.ok(txt.includes('updateEntity → updateFeature'), 'the call trail — how it got there')
+    assert.ok(
+      txt.indexOf('happened.first') < txt.indexOf('arrived.second'),
+      'lines are ordered by when the event happened, not by when it was written'
+    )
+    // The component stack names the screen that broke; it is the most valuable field a render crash
+    // has and far too long to sit inside the context line.
+    assert.ok(/\nscreen {4}at MapView/.test(txt), 'the component stack gets its own row')
+    // Without the value the trail reads `tool.changed → tool.changed` and the one thing it is
+    // asked — which tool was live — is missing from the summary that exists to save reading.
+    assert.ok(
+      txt.includes('tool.changed(polygon) → tool.changed(line)'),
+      'the trail carries what the event was ABOUT, not only its name'
+    )
     assert.ok(txt.includes('chars]'), 'oversized fields are clipped, not written whole')
     // A logger that throws while reporting is worse than none: unwritable directory, no crash.
     initLog(join(dir, 'nope', ' bad'), '1', () => ({}))
@@ -1541,11 +1753,12 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     // One file per RUN: a second run writes its own, and files from the older naming schemes are
     // cleared out rather than left to sit there looking as current as everything else.
     const firstRun = basename(only())
-    writeFileSync(join(logs, 'error.log'), 'from an older version')
+    writeFileSync(join(logs, 'error-2026-01-01_00-00-00-abc.log'), 'from an older version')
     initLog(ldir, '9.9.9', () => ({}))
     logError('main:uncaught', new Error('second run'))
+    flushLog()
     const files = readdirSync(logs)
-    assert.equal(files.length, 2, 'a file per run, and the legacy name is gone')
+    assert.equal(files.length, 2, 'a file per session, and the legacy name is gone')
     const secondRun = join(
       logs,
       files.find((f) => f !== firstRun)!
@@ -1561,6 +1774,14 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     const capped = readFileSync(secondRun, 'utf8')
     assert.ok(capped.includes('log capped'), 'the cap is announced, not silent')
     assert.ok(!capped.includes('long after the cap'), 'and it holds')
+
+    // Retention: past the age limit a file goes, whatever the count says. Logs must not be a
+    // folder that only ever grows on someone's machine.
+    const stale = join(logs, '2020-01-01_00-00-00_old_session.log')
+    writeFileSync(stale, 'ancient')
+    utimesSync(stale, new Date(0), new Date(0))
+    initLog(ldir, '9.9.9', () => ({}))
+    assert.ok(!existsSync(stale), 'a log past the retention window is removed on launch')
   }
 
   console.log('db self-check OK')

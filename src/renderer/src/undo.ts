@@ -1,3 +1,5 @@
+import { logEvent } from './log'
+
 // Undo / redo stacks. Every operation is recorded as an {undo, redo} pair.
 // For identity drift (a deleted row returning under a new id) callers share a mutable
 // ref object across the closures — see MapView pm:remove.
@@ -29,10 +31,15 @@ async function run(
     await entry[step]()
   } catch (err) {
     console.error(`${step} failed:`, err)
+    // Logged HERE rather than at the two callers (the menu and the keyboard branch) so the record
+    // exists once however it was triggered — and a failed undo is exactly the kind of quiet
+    // half-success that is impossible to reconstruct afterwards without one.
+    logEvent('WARN', `edit.${step}`, { ok: false, error: String(err).slice(0, 120) })
     from.push(entry)
     return false
   }
   to.push(entry)
+  logEvent('INFO', `edit.${step}`, { undo: undoStack.length, redo: redoStack.length })
   return true
 }
 

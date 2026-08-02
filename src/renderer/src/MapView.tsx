@@ -69,6 +69,7 @@ import ToolPanel, {
   TravelMode
 } from './ToolPanel'
 import { pushUndo } from './undo'
+import { endFrames, frame, logCrash, logEvent, logTime } from './log'
 
 L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl })
 
@@ -85,6 +86,13 @@ L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl })
  * elements are left to do the one thing that needs a DOM node, which is being dragged.
  */
 const EDIT_OPTS = { limitMarkersToCount: 20 }
+
+/**
+ * What a drawing IS, for the log. Geoman calls both a pin and a free-text label 'Marker', so the
+ * active tool is what tells them apart — the same discrimination `pm:create` already makes.
+ */
+const featureKind = (shape: string | undefined, isLabel: boolean): string =>
+  shape === 'Marker' ? (isLabel ? 'label' : 'pin') : shape === 'Line' ? 'path' : 'polygon'
 
 // --- Marker icons are placed with left/top instead of a 3D transform. --------------------------
 // Leaflet's setPosition writes `translate3d(x, y, 0)` on every marker element, and an element
@@ -1386,9 +1394,11 @@ export default function MapView({
     if (toolRef.current === t) {
       toolRef.current = null
       setToolState(null)
+      logEvent('INFO', 'tool.changed', { tool: 'none', from: t })
       syncEditMode() // when leaving edit, close the selected feature's vertex markers
       return
     }
+    logEvent('INFO', 'tool.changed', { tool: t, from: toolRef.current ?? 'none' })
     toolRef.current = t
     setToolState(t)
     syncEditMode() // entering edit opens the selection; switching tools closes the old edit
@@ -1559,6 +1569,10 @@ export default function MapView({
   const removeFeature = async (...fids: number[]): Promise<void> => {
     const all = (await api.getMap(id))?.features ?? []
     const rows = fids.map((fid) => all.find((f) => f.id === fid)).filter((r) => r !== undefined)
+    // Every deletion route lands here — the Del key, delete mode, the context menu — so one line
+    // here covers all of them. `count` because a multi-select delete is ONE undoable action.
+    if (rows.length)
+      logEvent('INFO', 'feature.deleted', { count: rows.length, ids: fids.join(',') })
     for (const fid of fids) await api.deleteFeature(fid)
     if (rows.length) {
       // A deleted-then-recreated row gets a NEW id → identity lives in a mutable ref (the undo pattern)
@@ -1751,6 +1765,9 @@ export default function MapView({
   const reloadGen = useRef(0)
   const reloadFeatures = async (): Promise<void> => {
     const gen = ++reloadGen.current
+    // The map is unresponsive for as long as this runs — every layer is rebuilt — so it is the one
+    // renderer operation whose duration is always worth a line.
+    const done = logTime('map.reload')
     const wm = await api.getMap(id)
     // Parent histories, the base set and color/name records fill in EVERY mode: conquest year
     // ticks, rank resolution and the default (root) view all feed from here
@@ -2129,6 +2146,11 @@ export default function MapView({
               setExtraSel((e) => (e.includes(f.id) ? e.filter((x) => x !== f.id) : [...e, f.id]))
             return
           }
+          logEvent('INFO', 'feature.selected', {
+            feature: f.id,
+            kind: featKind.current.get(f.id),
+            entity: f.entity_id ?? undefined
+          })
           setSelected(f)
           setExtraSel([])
         }
@@ -2333,6 +2355,7 @@ export default function MapView({
     // The full rebuild recreated the layers → reopen edit on the selected feature's NEW layers
     // (selected only; not global — that was where the lag came from)
     syncEditMode()
+    done({ features: wm?.features.length ?? 0 })
   }
 
   // CK3-style derived region labels (rank/paint): ADJACENT base polygons in the same group
@@ -3246,6 +3269,11 @@ export default function MapView({
         wheelRaf = null
         return
       }
+      // The frame counter, and the ONLY logging call allowed on a per-frame path: an integer
+      // increment, no allocation, no queue. Frame rate is measured from the frames the map was
+      // already drawing rather than from a loop of our own, because a permanent
+      // requestAnimationFrame would undo the on-demand rendering everything here is built on.
+      frame()
       const cur = wheelShown ?? map.getZoom()
       const diff = wheelTarget - cur
       if (Math.abs(diff) < 0.004) {
@@ -3260,6 +3288,17 @@ export default function MapView({
         // the backstop for the paths that reach a zoom without a wheel gesture.
         labelLayer.current?.setResolution(2 ** map.getZoom())
         drawLabels()
+        // The gesture is over, which is the only moment its frame rate means anything. Silent
+        // unless it was genuinely poor for long enough to matter (see log.ts).
+        endFrames('zoom')
+        // One line per GESTURE, never per frame — and DEBUG even then. At INFO this was 60 of the
+        // first real session's 110 lines and buried everything else: on this map zooming is not an
+        // action a user takes occasionally, it is how they look at anything. It is exactly the
+        // "continuous render updates" the log is not supposed to contain, arriving one settle at a
+        // time instead of one frame at a time. Detailed logging is where it belongs, and it is the
+        // first thing that switch actually turns on. Cost: with the switch off, main no longer
+        // knows the zoom for an error report's context — a renderer error still carries its own.
+        logEvent('DEBUG', 'map.zoomed', { zoom: map.getZoom().toFixed(2) })
         return
       }
       const z = cur + diff * 0.2
@@ -3338,12 +3377,9 @@ export default function MapView({
       .catch((err) => {
         labelLayer.current = null
         lc.remove()
-        void api.logError(
-          'MapView.labelLayer',
-          String(err?.message ?? err),
-          String(err?.stack ?? ''),
-          { detail: 'WebGL label layer failed to start; map labels are off' }
-        )
+        logCrash('MapView.labelLayer', String(err?.message ?? err), String(err?.stack ?? ''), {
+          detail: 'WebGL label layer failed to start; map labels are off'
+        })
       })
     map.on('move', () => {
       drawLabels()
@@ -3518,6 +3554,13 @@ export default function MapView({
         style,
         ...(ent ? { entity_id: ent.id } : {})
       })
+      // What was drawn, in the app's own words rather than geoman's. Three sessions in a row this
+      // was the missing line: a feature count going 16 → 17 says something appeared, not what.
+      logEvent('INFO', `${featureKind(shape, isLabelDraw)}.created`, {
+        feature: created.id,
+        entity: ent?.id,
+        year: from
+      })
       const ref: { id: number; eid?: number } = { id: created.id, eid: ent?.id }
       pushUndo({
         undo: async () => {
@@ -3538,6 +3581,10 @@ export default function MapView({
           onChanged()
         }
       })
+      // Drawing one shape ends the tool, and it happens HERE rather than through activateTool —
+      // which is why the log used to show `tool.changed from=none` with no line saying it became
+      // none. The transition is real and belongs in the record like any other.
+      logEvent('INFO', 'tool.changed', { tool: 'none', from: toolRef.current ?? 'none' })
       toolRef.current = null
       setToolState(null)
       await reloadFeatures()

@@ -13,11 +13,24 @@ import {
   packWorld,
   resetWorld,
   unpackWorld,
+  worldStats,
   NOT_A_WORLD,
   WORLD_TOO_LARGE,
   api as dbApi
 } from './db'
-import { initLog, logError, noteCall, logPath } from './log'
+import {
+  flushLog,
+  initLog,
+  Level,
+  logError,
+  logEvent,
+  logFile,
+  logPath,
+  logSetDebug,
+  logTime,
+  noteCall
+} from './log'
+import { MEMORY_SAMPLE_MS, MEMORY_STEP_MB, MEMORY_WARN_MB } from './log/thresholds.ts'
 
 // The product name in ONE place: window title, dialog filter label and the data folder all read
 // it, so renaming the app later is a one-line change here plus productName/executableName in
@@ -88,12 +101,16 @@ async function saveWorld(as = false): Promise<string | null> {
     if (r.canceled || !r.filePath) return null
     target = r.filePath
   }
+  // Named for the file, never the path: the log is meant to be pasted into a message, and a
+  // directory tree says more about someone than they intended to share.
+  const done = logTime('project.save', { file: basename(target), as })
   packWorld(target)
   currentFile = target
   dbApi.setSetting('worldFile', target)
   dirty = false
   addRecent(target)
   updateTitle()
+  done()
   return target
 }
 
@@ -136,6 +153,9 @@ type Prefs = {
   theme?: string
   sidebarWidth?: number
   mapPanelWidth?: number
+  // Developer logging. Per machine like everything else here — it describes how YOU want the app
+  // to behave, and a shared .dunya must not be able to turn it on for someone else.
+  debugLog?: boolean
 }
 const readPrefs = (): Prefs => {
   try {
@@ -174,10 +194,133 @@ function openWorldFile(path: string): void {
   updateTitle()
 }
 
-/** Help > Open Error Log. The folder only exists once something has failed, which is the
- *  NORMAL state — so without this the healthiest possible install answers a menu click with a
- *  raw Windows "folder not found" error. Say the true thing instead. */
+/**
+ * Memory across EVERY Electron process, which is the only number worth writing down.
+ *
+ * `process.memoryUsage()` sees the main process alone, and main is the small one: the growth this
+ * app has actually suffered — 4.8 GB of it — was in the renderer. getAppMetrics reports each child
+ * separately, so the line says which one is heavy rather than just that something is.
+ *
+ * FIELDS, not a sentence: written as one string under a key it came out as
+ * `total="total=417MB browser=111MB…"` — the key twice, and the whole reading quoted into a single
+ * blob because of the `=` signs inside it. Event data is key=value; anything that hands the logger
+ * a pre-joined string is opting out of the only grammar the file has.
+ */
+function memoryFields(): Record<string, string> {
+  try {
+    const m = app.getAppMetrics()
+    const by = (t: string): number =>
+      Math.round(
+        m.filter((p) => p.type === t).reduce((s, p) => s + (p.memory?.workingSetSize ?? 0), 0) /
+          1024
+      )
+    const total = Math.round(m.reduce((s, p) => s + (p.memory?.workingSetSize ?? 0), 0) / 1024)
+    // Zero components are dropped rather than written as 0MB. At startup the renderer and GPU
+    // processes do not exist yet, and `renderer=0MB` reads as a measurement rather than as an
+    // absence — the header looked wrong the first time it was seen.
+    const out: Record<string, string> = { total: `${total}MB` }
+    for (const [label, type] of [
+      ['browser', 'Browser'],
+      ['renderer', 'Tab'],
+      ['gpu', 'GPU']
+    ] as const) {
+      const v = by(type)
+      if (v) out[label] = `${v}MB`
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/** The same reading as one string, for the session header — which is a block, not an event line. */
+const memoryLine = (): string =>
+  Object.entries(memoryFields())
+    .map(([k, v]) => `${k}=${v}`)
+    .join(' ')
+
+/**
+ * Sample memory on a slow timer and write a line only when it MOVES — a periodic reading that says
+ * the same number forever is noise, and the point is to notice growth without being asked.
+ *
+ * In main, so it cannot touch the renderer's frame budget: the map is the thing whose smoothness
+ * was paid for, and nothing added for observability may spend it.
+ */
+const memoryTotalMb = (): number => {
+  try {
+    return Math.round(
+      app.getAppMetrics().reduce((s, p) => s + (p.memory?.workingSetSize ?? 0), 0) / 1024
+    )
+  } catch {
+    return 0
+  }
+}
+
+// -1 until the baseline is taken. The first SAMPLE is not a change, and treating it as one made
+// every session open with an invented `memory.changed from=0MB to=901MB`.
+let memLast = -1
+/** Claimed the moment the baseline is SCHEDULED — see logSessionInfo for why that matters. */
+let baselineDone = false
+/** Called once the renderer has reported in and the real figure has been written. */
+const noteMemoryBaseline = (): void => {
+  memLast = memoryTotalMb()
+}
+
+function startMemoryWatch(): void {
+  let warned = false
+  setInterval(() => {
+    const total = memoryTotalMb()
+    if (!total) return
+    if (total > MEMORY_WARN_MB && !warned) {
+      warned = true
+      logEvent('WARN', 'memory.high', { total: `${total}MB`, threshold: `${MEMORY_WARN_MB}MB` })
+    } else if (total < MEMORY_WARN_MB * 0.8) warned = false
+    if (memLast < 0) {
+      memLast = total // no baseline yet (renderer never reported) — take one, silently
+      return
+    }
+    if (Math.abs(total - memLast) >= MEMORY_STEP_MB) {
+      logEvent('INFO', 'memory.changed', { from: `${memLast}MB`, to: `${total}MB` })
+      memLast = total
+    }
+  }, MEMORY_SAMPLE_MS).unref?.()
+}
+
+/**
+ * What the renderer was doing, for the `context` line of an error report.
+ *
+ * A failure inside a save is a different bug depending on which map was open and which tool was
+ * live, and main can see none of it — so an `ipc:*` report, which is the most common kind there is,
+ * used to carry a file name and nothing else. But main already RECEIVES every one of these: they
+ * cross the bridge as ordinary events anyway, so remembering the last value of each costs one
+ * assignment and adds no channel, no call site and nothing for a future event to remember to do.
+ */
+const UI_KEYS: Record<string, string> = {
+  'map.changed': 'map',
+  'tool.changed': 'tool',
+  'feature.selected': 'feature',
+  'map.zoomed': 'zoom'
+}
+const ui: Record<string, string> = {}
+function noteUiState(scope: string, data: Record<string, unknown> | undefined): void {
+  const key = UI_KEYS[scope]
+  const v = key ? data?.[key] : undefined
+  if (v != null) ui[key] = String(v).slice(0, 40)
+}
+
+/** Help > Open Error Log, and the same call behind Preferences ▸ Open Log Folder.
+ *  Reveals THIS session's file selected rather than opening a folder of 200 sorted by name — the
+ *  file a user is being asked for is the run they are in, and picking it out of the list is the
+ *  step where the wrong one gets sent. Flush first: the buffered tail is the part that matters.
+ *  The folder now always exists (every session writes one), so the fallbacks only speak when the
+ *  log itself could not be written. */
 function openLogs(): void {
+  flushLog()
+  const f = logFile()
+  if (f && existsSync(f)) {
+    shell.showItemInFolder(f)
+    return
+  }
   if (existsSync(logPath())) {
     void shell.openPath(logPath())
     return
@@ -185,8 +328,8 @@ function openLogs(): void {
   dialog.showMessageBoxSync(mainWindow!, {
     type: 'info',
     title: ml('Open Error Log'),
-    message: ml('No errors have been recorded.'),
-    detail: ml('This file appears the first time something goes wrong.')
+    message: ml('No log could be written.'),
+    detail: ml('Check that the Worldbuilder folder in Documents can be written to.')
   })
 }
 
@@ -194,8 +337,12 @@ function openLogs(): void {
  *  unpackWorld validates before it touches anything, so a false here means the session the user
  *  already had is still intact and open. */
 function openGuarded(path: string): boolean {
+  const done = logTime('project.open', { file: basename(path) })
   try {
     openWorldFile(path)
+    // Measured AFTER the open, so the counts describe the world that was just loaded rather than
+    // the one being replaced.
+    done(worldStats())
     return true
   } catch (err) {
     const code = err instanceof Error ? err.message : ''
@@ -222,14 +369,17 @@ function openGuarded(path: string): boolean {
 // File > Close Project runs this too: in this app there is no third state where a project is
 // closed but the working copy still holds it, so "close" and "new" land in the same place.
 function newProject(): void {
+  const done = logTime('project.new')
   if (hasContent()) {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
     packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.dunya`))
+    logEvent('INFO', 'project.autobacked', { reason: 'previous session had content' })
   }
   resetWorld()
   currentFile = null
   dirty = false
   updateTitle()
+  done()
   mainWindow?.webContents.reload()
 }
 
@@ -275,9 +425,9 @@ const MENU_TR: Record<string, string> = {
   'Project Preferences': 'Proje Tercihleri',
   'Keyboard Shortcuts': 'Klavye Kısayolları',
   'Open Error Log': 'Hata Kaydını Aç',
-  'No errors have been recorded.': 'Hiç hata kaydedilmedi.',
-  'This file appears the first time something goes wrong.':
-    'Bu dosya ilk hata oluştuğunda kendiliğinden oluşur.'
+  'No log could be written.': 'Kayıt dosyası yazılamadı.',
+  'Check that the Worldbuilder folder in Documents can be written to.':
+    'Belgeler içindeki Worldbuilder klasörünün yazılabilir olduğunu kontrol edin.'
 }
 const ml = (s: string): string => (readPrefs().language === 'tr' ? (MENU_TR[s] ?? s) : s)
 
@@ -461,10 +611,65 @@ const mainApi = {
   ): void {
     logError(`renderer:${String(where).slice(0, 60)}`, { message, stack }, ctx)
   },
+  /**
+   * Renderer events, in batches. A batch and not one call per event: the bridge is a round trip
+   * and events arrive in bursts, so per-event calls would turn a log into a source of the very
+   * stutter it exists to find. The renderer holds them for BATCH_MS (see thresholds.ts).
+   *
+   * Everything here is untrusted — it crosses from a renderer that may be running a hostile
+   * `.dunya`'s content — so the level is validated against the four known values rather than
+   * written through, and every field is clipped downstream in format.ts.
+   */
+  logEvents(
+    batch: { level: string; scope: string; data?: Record<string, unknown>; at?: number }[]
+  ): void {
+    if (!Array.isArray(batch)) return
+    for (const e of batch.slice(0, 200)) {
+      const level = (['INFO', 'WARN', 'ERROR', 'DEBUG'] as const).find((l) => l === e?.level)
+      if (!level || typeof e.scope !== 'string') continue
+      noteUiState(e.scope, e.data)
+      // The renderer's own stamp, so a batch does not collapse into one instant. Sanity-checked
+      // rather than trusted: it crosses from a renderer that may be running hostile content, and
+      // a nonsense date would make the whole file unreadable.
+      const at =
+        typeof e.at === 'number' && Math.abs(Date.now() - e.at) < 60_000
+          ? new Date(e.at)
+          : undefined
+      logEvent(level as Level, e.scope.slice(0, 40), e.data ?? {}, at)
+    }
+  },
+  /** What only the renderer knows about the session — GPU backend, screen, its own versions. */
+  logSessionInfo(info: Record<string, unknown>): void {
+    logEvent('INFO', 'renderer.ready', info ?? {})
+    // The app's real weight, recorded once, here. The header's figure is the main process alone —
+    // at startup the renderer and GPU processes do not exist yet — and the sampler only speaks when
+    // memory MOVES, so a short session could open at 63MB, close at 813MB and say nothing in
+    // between. This is the line that answers "what does this world cost on this machine".
+    // ONCE per session, not per renderer. Opening a project reloads the renderer, so this fires
+    // again — and a second line calling itself a baseline is not one. Later movement is the
+    // sampler's job, and it does it: the first log to carry this showed 418MB → 866MB correctly.
+    //
+    // The slot is claimed HERE, not inside the timer. Guarding on the result of the timer was the
+    // same bug in a slower disguise: two renderer.ready 1.2s apart both passed the test and both
+    // scheduled, because neither had written anything yet when the other looked.
+    if (!baselineDone) {
+      baselineDone = true
+      setTimeout(() => {
+        const m = memoryFields()
+        if (!m.total) {
+          baselineDone = false // nothing measured — let the next renderer try
+          return
+        }
+        logEvent('INFO', 'memory.baseline', m)
+        noteMemoryBaseline()
+      }, 2000)
+    }
+  },
   openLogFolder: (): void => openLogs(),
   getPrefs: (): Prefs => readPrefs(),
   savePrefs(patch: Prefs): void {
     writePrefs({ ...readPrefs(), ...patch })
+    if (patch.debugLog !== undefined) logSetDebug(patch.debugLog === true)
     buildMenu() // menu labels follow the language
   },
   async pickImage(): Promise<string | null> {
@@ -542,6 +747,25 @@ function createWindow(): void {
     }
   })
 
+  // A renderer that DIES writes nothing on its way out: the file simply stops mid-session, which
+  // is the one case where a log is needed most and present least. `oom` is why this is here at all
+  // — a world heavy enough to exhaust the renderer is this app's most likely real crash, and it
+  // leaves the user with a white window and us with a file that just ends. clean-exit is the
+  // ordinary quit and must stay silent, or every close would file an error report.
+  win.webContents.on('render-process-gone', (_e, d) => {
+    if (d.reason === 'clean-exit') return
+    logError('main:render-process-gone', `renderer ${d.reason}`, { exit: d.exitCode })
+  })
+  // Not a crash — a freeze. The user sees the same thing, so the log should be able to tell them
+  // apart afterwards.
+  win.webContents.on('unresponsive', () => logEvent('WARN', 'window.unresponsive'))
+  win.webContents.on('responsive', () => logEvent('INFO', 'window.responsive'))
+  // Without this a broken preload is an app with no window.api: every screen empty, nothing thrown
+  // anywhere the app can see, and no line anywhere saying why.
+  win.webContents.on('preload-error', (_e, p, err) =>
+    logError('main:preload', err, { preload: basename(p) })
+  )
+
   // The app uses no browser permissions (camera, location, notifications…) — all denied.
   // Remote content cannot load anyway; this is a cheap safety latch in case something ever slips.
   win.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
@@ -599,15 +823,32 @@ app.whenReady().then(() => {
   })
 
   adoptLegacyDataDir() // adopt the old Documents\D\u00fcnya folder (BEFORE initDb)
-  // Before initDb, so a failure inside it is already reportable.
-  initLog(DATA_DIR, app.getVersion(), () => ({
-    file: currentFile ? basename(currentFile) : null,
-    dirty
-  }))
+  // Before initDb, so a failure inside it is already reportable. The context callback is what an
+  // error report fills its `context` line from: main answers for the file, the renderer sends the
+  // rest (map, tool, selection, zoom) with each report.
+  initLog(
+    DATA_DIR,
+    app.getVersion(),
+    () => ({ file: currentFile ? basename(currentFile) : null, dirty, ...ui }),
+    { memory: memoryLine() }
+  )
+  // app.started FIRST: setDebug writes a line of its own, and having it above the line that says
+  // the app started reads as though the log began mid-sentence.
+  logEvent('INFO', 'app.started', { packaged: app.isPackaged, locale: app.getLocale() })
+  logSetDebug(readPrefs().debugLog === true)
+  startMemoryWatch()
   // Last resort: anything that escapes every handler still reaches the file rather than a
   // console nobody is watching in a packaged app.
   process.on('uncaughtException', (err) => logError('main:uncaught', err))
   process.on('unhandledRejection', (err) => logError('main:unhandledRejection', err))
+  // The GPU process, most of all: it dying is exactly what a report of "the map went blank" is,
+  // and it takes no JS with it, so nothing else in the app would ever notice.
+  app.on('child-process-gone', (_e, d) =>
+    logError('main:child-process-gone', `${d.type} ${d.reason}`, {
+      name: d.name,
+      exit: d.exitCode
+    })
+  )
   initDb(DATA_DIR)
   adoptLegacyPrefs() // language/theme out of the settings table — BEFORE the resetWorld() below
   // Everything from here to createWindow() is best-effort. A throw used to escape into the
@@ -680,12 +921,17 @@ app.whenReady().then(() => {
     // hasOwn: prototype members like 'constructor' must not count as methods
     if (!Object.hasOwn(mainApi, method)) throw new Error(`Bilinmeyen api metodu: ${method}`)
     const fn = (mainApi as Record<string, (...a: unknown[]) => unknown>)[method]
-    noteCall(method) // the trail that turns a stack into a reproduction
     // Dirty flag: mutation methods mean changes since the last save (ponytail: a method-name
     // heuristic — get/list/search/export do not match, save/open manage themselves)
     if (/^(create|update|delete|add|set|restore|retype|import|pick)/.test(method)) {
       dirty = true
       updateTitle()
+      // The trail records the same set, and for the same reason the flag does: these are the calls
+      // that CHANGED something. Recording every call instead filled forty of the fifty slots with
+      // `getPrefs → listEntities → getSetting ×7` — the app polling itself on boot and every
+      // render — and pushed the user's actual actions off the end. Reads lose nothing by being
+      // absent: when one of them is what failed, the report's `where` line names it.
+      noteCall(method)
     }
     // Logged AND rethrown: the renderer still gets its rejection and decides what to show,
     // the file gets the detail the user cannot be expected to relay.
@@ -726,6 +972,13 @@ app.whenReady().then(() => {
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+// The last line of the session, and the only place the buffered queue is guaranteed to reach the
+// disk. Writes here are synchronous on purpose — 'before-quit' is the last moment there is.
+app.on('before-quit', () => {
+  logEvent('INFO', 'app.closed', memoryFields())
+  flushLog()
 })
 
 app.on('window-all-closed', () => {

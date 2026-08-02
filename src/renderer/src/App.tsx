@@ -31,6 +31,7 @@ import Preferences from './Preferences'
 import ProjectPreferences from './ProjectPreferences'
 import Shortcuts from './Shortcuts'
 import { pushUndo, redo, undo } from './undo'
+import { logEvent, setDebugLog } from './log'
 
 // Workspaces (places you go) vs commands (things you do): the commands all live in the
 // application menu now, so every kind here is somewhere the main area can show.
@@ -106,6 +107,12 @@ export default function App(): React.JSX.Element {
     getTheme().then(setTheme)
     api.getPrefs().then((p) => {
       if (p.sidebarWidth) setSidebarW(p.sidebarWidth)
+      // The renderer keeps its own copy of the DEBUG switch so a suppressed line costs one boolean
+      // test instead of a trip across the bridge. It was only ever set from the Preferences screen,
+      // which means it started false every launch and stayed false unless you happened to open
+      // that page: main said `log.debug enabled=true` and the renderer sent nothing. Here, with the
+      // other preferences, is where it belongs.
+      setDebugLog(p.debugLog === true)
     })
   }, [])
 
@@ -118,6 +125,12 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     document.documentElement.dataset.theme = theme
   }, [theme])
+
+  // The map list for callbacks that must not rebuild when it changes (see openMap's log line).
+  const mapsRef = useRef<MapRow[]>([])
+  useEffect(() => {
+    mapsRef.current = maps
+  }, [maps])
 
   const refresh = useCallback(async () => {
     const [e, m, f, p] = await Promise.all([
@@ -180,9 +193,15 @@ export default function App(): React.JSX.Element {
   // Every map open writes 'lastMapId' (all switches — toolbar menu included — pass through
   // here) → returning to the app/maps reopens the last viewed map. Lives in the settings
   // table, so it travels inside the .dunya.
+  // Every switch between maps goes through here, which is why the log line does too.
   const openMap = useCallback(
     (id: number): void => {
       api.setSetting('lastMapId', String(id))
+      // The NAME, falling back to the id. `map=1` is the answer to a question nobody asks; this
+      // line's whole job is to say which map an error happened on. Read through a ref because
+      // taking `maps` as a dependency would rebuild openMap — and every effect holding it — each
+      // time the sidebar refreshes.
+      logEvent('INFO', 'map.changed', { map: mapsRef.current.find((m) => m.id === id)?.name ?? id })
       navigate({ kind: 'map', id })
     },
     [navigate]
@@ -380,17 +399,17 @@ export default function App(): React.JSX.Element {
             ? exportMapRef.current()
             : showToast(translate(lang, 'Open a map first.'))
         case 'file.exportNotes':
-          return void api
-            .exportNotes()
-            .then(({ files }) =>
-              showToast(
-                translate(lang, 'Exported {n} note file(s); opening the folder…', { n: files })
-              )
+          return void api.exportNotes().then(({ files }) => {
+            logEvent('INFO', 'notes.export', { files })
+            showToast(
+              translate(lang, 'Exported {n} note file(s); opening the folder…', { n: files })
             )
+          })
         case 'file.backup':
-          return void api
-            .backupNow()
-            .then((path) => showToast(translate(lang, 'Backed up to {path}', { path })))
+          return void api.backupNow().then((path) => {
+            logEvent('INFO', 'project.backup', { file: path.split(/[\\/]/).pop() })
+            showToast(translate(lang, 'Backed up to {path}', { path }))
+          })
         case 'edit.undo':
         case 'edit.redo':
           return void (cmd === 'edit.redo' ? redo() : undo()).then((did) => {
