@@ -2354,6 +2354,12 @@ export default function MapView({
         // Weld applies to vertex editing; not to whole-polygon dragging — a move means
         // "detach from the neighbour", it must not tow the neighbour along.
         layer.on('pm:update', (e) => saveGeometry(e, true))
+        // The dots are read off the live layer, so anything that CHANGES the vertex list has to
+        // redraw them. Dragging did (above); adding and removing did not — so a deleted vertex
+        // left its dot behind and the midpoints either side of it kept pointing at an edge that
+        // no longer existed. The shape was right and the handles were not, which is exactly what
+        // "it deletes but looks different" was.
+        layer.on('pm:vertexremoved pm:vertexadded pm:markerdragend', () => refreshHandles())
         layer.on('pm:dragend', (e) => saveGeometry(e, false))
         layer.on('contextmenu', (e: L.LeafletMouseEvent) => {
           e.originalEvent.preventDefault()
