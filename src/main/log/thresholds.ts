@@ -37,7 +37,27 @@ export const KEEP_DAYS = 30 // one launch a month for years
 export const MAX_BYTES = 1024 * 1024
 /** How long a written line may sit in memory before it reaches the disk. ERROR never waits. */
 export const FLUSH_MS = 1000
-/** How long the renderer may hold events before shipping a batch over IPC. */
+/**
+ * How long the renderer may hold events before shipping a batch over IPC.
+ *
+ * `src/renderer/src/log.ts` keeps its own copy of this number — main's thresholds do not belong in
+ * the renderer bundle — so the two must be changed together, and COALESCE_MS below must stay
+ * larger than whichever is bigger.
+ */
 export const BATCH_MS = 500
+/**
+ * How long a repeated event is held, waiting to see whether it repeats again.
+ *
+ * MUST EXCEED BATCH_MS, and that is the whole point of it living here rather than beside the code
+ * that uses it. At 400 against a 500 ms batch, a batch arrived, the hold timer expired 100 ms
+ * before the next one — so a continuous drag settled once per batch, forever: eight lines reading
+ * `×37 over=481ms`, `×29 over=489ms`, `×46 over=497ms`, every span pinned to the batch window.
+ * The two numbers were chosen independently and the smaller one silently disabled the larger.
+ *
+ * Holding longer cannot reorder anything: a pending line is always settled before any other line
+ * is written. It only means the line reaches the file later than the moment it describes, and it
+ * carries the time of its first occurrence regardless.
+ */
+export const COALESCE_MS = 900
 /** Events kept for an error report. */
 export const RING_MAX = 50

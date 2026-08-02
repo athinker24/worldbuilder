@@ -11,7 +11,7 @@ import type { Level } from './format.ts'
 import { block, clip, eventLine, kv, stamp } from './format.ts'
 import * as ring from './ring.ts'
 import * as sink from './sink.ts'
-import { slowFor } from './thresholds.ts'
+import { COALESCE_MS, slowFor } from './thresholds.ts'
 
 /** What main knows about the machine at startup; the renderer adds its own later. */
 export type Meta = {
@@ -124,8 +124,10 @@ export function event(
 // leaves one line: `map.reload ×13 took=6-20ms`. The fact survives — you can still see it happened
 // thirteen times and what the spread was — while the noise does not. It is general on purpose:
 // the next scope to get chatty is already handled.
-
-const COALESCE_MS = 400
+//
+// The window is in thresholds.ts, beside BATCH_MS, because it has to be LARGER than it — see the
+// note there. Renderer events arrive in batches, so a window shorter than the batch can never
+// merge two of them.
 
 type Pending = {
   level: Level

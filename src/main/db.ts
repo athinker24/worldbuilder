@@ -17,6 +17,7 @@ import {
 import { tmpdir } from 'os'
 import assert from 'assert'
 import { flushLog, initLog, logError, logEvent, logSetDebug, logTime, noteCall } from './log.ts'
+import { BATCH_MS, COALESCE_MS } from './log/thresholds.ts'
 
 // Kept free of Electron imports so `node src/main/db.ts` can run the self-check standalone.
 let db!: DatabaseSync
@@ -1693,6 +1694,13 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       new Error("Error invoking remote method 'api': boom: feature write failed")
     )
     flushLog()
+
+    // The one relationship between two numbers chosen in different files. At 400 against a 500 ms
+    // batch, a continuous drag settled once per batch forever and coalescing did nothing.
+    assert.ok(
+      COALESCE_MS > BATCH_MS,
+      'the coalescing window must outlast the renderer batch, or repeats never merge across two'
+    )
 
     const txt = readFileSync(only(), 'utf8')
     assert.ok(txt.includes('App       9.9.9'), 'the header carries the version')

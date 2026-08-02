@@ -23,6 +23,9 @@ type Level = 'INFO' | 'WARN' | 'DEBUG'
  */
 type Entry = { level: Level; scope: string; data?: Record<string, unknown>; at: number }
 
+// Main keeps the same number in log/thresholds.ts (its thresholds do not belong in this bundle) —
+// change both together. Main's COALESCE_MS must stay larger than this, or a run of repeats can
+// never merge across two batches: it settles once per batch, forever.
 const BATCH_MS = 500
 let queue: Entry[] = []
 let timer: ReturnType<typeof setTimeout> | null = null
