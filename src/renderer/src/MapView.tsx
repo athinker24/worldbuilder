@@ -1596,7 +1596,7 @@ export default function MapView({
       })
     }
     clearSel()
-    await reloadFeatures()
+    await reloadFeatures('delete')
   }
 
   // --- Copy / paste / duplicate (Ctrl+C / Ctrl+V / Ctrl+D) ---
@@ -1666,7 +1666,7 @@ export default function MapView({
         ref.ids = await make()
       }
     })
-    await reloadFeatures()
+    await reloadFeatures('paste')
     const fresh = (await api.getMap(id))?.features ?? []
     setSelected(fresh.find((f) => f.id === ref.ids[0]) ?? null)
     setExtraSel(ref.ids.slice(1))
@@ -1711,7 +1711,7 @@ export default function MapView({
         await api.updateFeature(f.id, { style: closedStyle })
       }
     })
-    await reloadFeatures()
+    await reloadFeatures('fork')
     setSelected((await api.getMap(id))?.features.find((x) => x.id === ref.id) ?? null)
   }
 
@@ -1763,11 +1763,19 @@ export default function MapView({
   // because what was wiped was the entire layer group). Now: stale generations return early
   // after the awaits; clear+build is one synchronous block — the map never shows a blank frame.
   const reloadGen = useRef(0)
-  const reloadFeatures = async (): Promise<void> => {
+  /**
+   * `why` is not decoration. This is the most expensive thing the renderer does — the whole map is
+   * re-read from SQLite and every layer rebuilt — and the log has already caught it running 139
+   * times in 11 seconds, and 14 times in 2 seconds after a single polygon was selected. Which of
+   * the fourteen callers is responsible is the entire question, and a line saying only how long it
+   * took cannot answer it. It also stops unrelated reloads coalescing into one line, and it becomes
+   * the trail value: `map.reload(style) ×14`.
+   */
+  const reloadFeatures = async (why = 'other'): Promise<void> => {
     const gen = ++reloadGen.current
     // The map is unresponsive for as long as this runs — every layer is rebuilt — so it is the one
     // renderer operation whose duration is always worth a line.
-    const done = logTime('map.reload')
+    const done = logTime('map.reload', { why })
     const wm = await api.getMap(id)
     // Parent histories, the base set and color/name records fill in EVERY mode: conquest year
     // ticks, rank resolution and the default (root) view all feed from here
@@ -2203,7 +2211,7 @@ export default function MapView({
           })
           for (const u of updates) await api.updateFeature(u.id, { geometry: u.next })
           if (updates.length > 1) {
-            await reloadFeatures() // redraw the welded neighbours (recreates every label too)
+            await reloadFeatures('weld') // redraw the welded neighbours (recreates every label too)
           } else {
             // No reload here (see snapshotUpdates), so a moved or reshaped polygon's own label —
             // drawn independently of the layer now, not bound to it — would otherwise sit at its
@@ -3051,7 +3059,7 @@ export default function MapView({
     })
     for (const u of updates) await api.updateEntity(u.id, { fields: u.next })
     onChanged()
-    await reloadFeatures()
+    await reloadFeatures('conquest')
   }
 
   // Map setup (from scratch when the id changes)
@@ -3587,7 +3595,7 @@ export default function MapView({
       logEvent('INFO', 'tool.changed', { tool: 'none', from: toolRef.current ?? 'none' })
       toolRef.current = null
       setToolState(null)
-      await reloadFeatures()
+      await reloadFeatures('draw')
       if (ent) onChanged() // the new article must appear in the sidebar tree at once
     })
     map.on('pm:remove', async (e) => {
@@ -3596,7 +3604,7 @@ export default function MapView({
     })
 
     map.setView([500, 500], 0) // default; the base image loads in its own effect
-    reloadFeatures()
+    reloadFeatures('open')
     // Seed the current year from the persisted timeline BEFORE the user can draw, so a new
     // feature's `from` is the year actually shown — not a stale 0 (yearRef starts at 0 and only
     // syncs once Timeline's async onYear resolves). Otherwise a polygon drawn at a BC year could
@@ -3730,7 +3738,7 @@ export default function MapView({
       firstToken.current = false
       return
     }
-    reloadFeatures()
+    reloadFeatures('undo')
     clearSel()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadToken])
@@ -3781,7 +3789,7 @@ export default function MapView({
       })
     )
     setSelected({ ...selected, style: items[0].latest }) // items[0] = the primary (selIds order)
-    await reloadFeatures()
+    await reloadFeatures('style')
   }
 
   // Zoom visibility (pin + label): the user PICKS the threshold with a slider (shown as a
@@ -3907,7 +3915,7 @@ export default function MapView({
   const linkEntity = async (entityId: number): Promise<void> => {
     await api.updateFeature(selected!.id, { entity_id: entityId })
     setLinkName('')
-    await reloadFeatures()
+    await reloadFeatures('link')
     setSelected((await api.getMap(id))?.features.find((f) => f.id === selected!.id) ?? null)
   }
 
@@ -4090,7 +4098,7 @@ export default function MapView({
                   height: img.naturalHeight,
                   layers: JSON.stringify([{ type: 'image', path }])
                 })
-                await reloadFeatures()
+                await reloadFeatures('image')
               }
               img.onerror = () =>
                 alertDialog(
@@ -4532,7 +4540,7 @@ export default function MapView({
                   activeModeRef.current = m
                   setActiveMode(m)
                   setConquest(null)
-                  reloadFeatures()
+                  reloadFeatures('mode')
                 }}
                 // The conquest rank defaults to the rank you are LOOKING at (viewing duchies →
                 // you conquer duchies); the hint bar's picker can still change it.
@@ -4972,7 +4980,7 @@ export default function MapView({
                     className="mini"
                     onClick={async () => (
                       await api.updateFeature(selected.id, { entity_id: null }),
-                      reloadFeatures(),
+                      reloadFeatures('unlink'),
                       setSelected({
                         ...selected,
                         entity_id: null,
@@ -5032,8 +5040,8 @@ export default function MapView({
                 folders={folders}
                 compact
                 onOpen={onOpenEntity}
-                onChanged={() => (reloadFeatures(), onChanged())}
-                onDeleted={() => (clearSel(), reloadFeatures())}
+                onChanged={() => (reloadFeatures('article'), onChanged())}
+                onDeleted={() => (clearSel(), reloadFeatures('article-deleted'))}
               />
             )}
           </div>
