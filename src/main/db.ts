@@ -1563,10 +1563,16 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     noteCall('updateEntity') // only mutations reach the trail — index.ts is where reads are dropped
     noteCall('updateFeature')
     noteCall('logEvents') // reporting is not something the app was DOING — must stay out of it
-    logError('ipc:updateFeature', new TypeError('boom'), {
+    logError('ipc:updateFeature', new TypeError('boom: feature write failed'), {
       extra: 'x'.repeat(2000),
       component: 'at MapView (MapView.tsx:365) < at App (App.tsx:33)'
     })
+    // The same failure reported twice — main catching an IPC call, then the renderer's unhandled
+    // rejection carrying it wrapped — is one fault, and gets one block plus a pointer.
+    logError(
+      'renderer:unhandledRejection',
+      new Error("Error invoking remote method 'api': boom: feature write failed")
+    )
     flushLog()
 
     const txt = readFileSync(only(), 'utf8')
@@ -1595,6 +1601,15 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       'a coalesced run says how long it lasted, not only how many'
     )
     assert.ok(txt.includes('ERROR REPORT'), 'an error gets the full block, not a line')
+    assert.equal(
+      txt.split('ERROR REPORT').length - 1,
+      1,
+      'one fault leaves ONE block, however many layers report it'
+    )
+    assert.ok(
+      /error\.echo.*where=renderer:unhandledRejection of=ipc:updateFeature/.test(txt),
+      'the echo says where it came from and which block it belongs to'
+    )
     assert.ok(!txt.includes('logEvents'), 'the act of logging stays out of the trail')
     assert.ok(txt.includes('TypeError: boom'), 'the error itself')
     assert.ok(txt.includes('file=w.dunya dirty=true'), 'context from the app')

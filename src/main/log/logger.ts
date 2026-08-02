@@ -238,6 +238,20 @@ export function time(
 }
 
 /**
+ * The last failure reported, so the same one does not get two blocks.
+ *
+ * One broken IPC call genuinely produces two reports: main catches it and writes a block, then
+ * rethrows so the renderer can show a toast — and the renderer's unhandled rejection reports it
+ * again, wrapped (`Error invoking remote method 'api': Error: …`). Both are true; the second one
+ * adds a renderer context line and a stack of nothing but the bridge, while doubling the longest
+ * part of the file. It gets one line pointing at the block above instead.
+ */
+const REPEAT_MS = 5000
+let lastMsg = ''
+let lastAt = 0
+let lastWhere = ''
+
+/**
  * A full error report. Everything a diagnosis needs, in one block that can be copied out on its own
  * — the deliberate goal being that a user pastes it into a message and no follow-up question is
  * necessary. `where` is the entry point, not the file: `ipc:updateFeature`, `renderer:onerror`.
@@ -246,6 +260,23 @@ export function error(where: string, err: unknown, extra: Record<string, unknown
   try {
     const e = err as { message?: string; stack?: string; name?: string }
     const msg = typeof err === 'string' ? err : (e?.message ?? String(err))
+    const now = Date.now()
+    // One contains the other, because the second report wraps the first rather than repeating it.
+    // The length floor keeps a generic "Failed" from swallowing an unrelated failure seconds later.
+    const echo =
+      lastMsg &&
+      now - lastAt < REPEAT_MS &&
+      Math.min(msg.length, lastMsg.length) >= 10 &&
+      (msg.includes(lastMsg) || lastMsg.includes(msg))
+    if (echo) {
+      ring.remember(`error:${where}`)
+      settle()
+      sink.write(eventLine('ERROR', 'error.echo', { where, of: lastWhere }), true, now)
+      return
+    }
+    lastMsg = msg
+    lastAt = now
+    lastWhere = where
     const stackLines = e?.stack
       ? clip(e.stack, 4000)
           .split('\n')
