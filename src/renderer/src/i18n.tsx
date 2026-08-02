@@ -193,6 +193,9 @@ const TR: Record<string, string> = {
   // History panel (Overview ▸ History) — the labels come from pushUndo call sites, so the English
   // text there IS the key here.
   'Add to article:': 'Şu maddeye ekle:',
+  'Move to the top level': 'En üst seviyeye taşı',
+  'Move under "{name}"': '"{name}" altına taşı',
+  'inside "{name}"': '"{name}" içinde',
   Halo: 'Hale',
   'No halo': 'Hale yok',
   'Light halo': 'Açık hale',

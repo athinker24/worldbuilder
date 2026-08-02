@@ -896,6 +896,12 @@ export default function MapView({
   const [activeMode, setActiveMode] = useState<ActiveMode>(null)
   const activeModeRef = useRef<ActiveMode>(null)
   const [layersOpen, setLayersOpen] = useState(false)
+  // Collapsed branches of the map tree. Session state, like the sidebar's folders: which branches
+  // you had shut says nothing about the world, and a list this small is cheap to reopen.
+  const [collapsedMaps, setCollapsedMaps] = useState<Set<number>>(new Set())
+  // Create the next map INSIDE the open one — the natural move when you are on a continent and
+  // adding one of its cities.
+  const [newMapInside, setNewMapInside] = useState(true)
   const [histOpen, setHistOpen] = useState(false)
   // Maps dropdown (map switching — replaced the sidebar list)
   const [mapsOpen, setMapsOpen] = useState(false)
@@ -2955,10 +2961,164 @@ export default function MapView({
   // Map switching: create a new map (name from the inline form) → refresh App + go there
   const createMap = async (name: string): Promise<void> => {
     if (!name.trim()) return
-    const { id: newId } = await api.createMap({ name: name.trim() })
+    const { id: newId } = await api.createMap({
+      name: name.trim(),
+      ...(newMapInside ? { parent_map_id: id } : {})
+    })
     setNewMapName(null)
     onChanged()
     onNavigate(newId)
+  }
+
+  /**
+   * Every map at or below this one. The cycle guard: a map may not be moved under its own
+   * descendant, or the breadcrumb chain — which walks parents upward — never terminates.
+   */
+  const subtreeOf = (rootId: number): Set<number> => {
+    const out = new Set([rootId])
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const m of maps)
+        if (m.parent_map_id !== null && out.has(m.parent_map_id) && !out.has(m.id)) {
+          out.add(m.id)
+          grew = true
+        }
+    }
+    return out
+  }
+
+  /** One row of the map tree. Extracted from the old inline list so the tree walk can recurse. */
+  const mapRow = (m: MapRow, depth: number, hasKids: boolean, shut: boolean): React.JSX.Element => {
+    const pad = 8 + depth * 14
+    if (editMapId === m.id)
+      // Inline rename (uncontrolled + onBlur — updateMap+refresh per keystroke used to flicker)
+      return (
+        <div className="base-row" style={{ paddingLeft: pad }}>
+          <input
+            className="base-name"
+            autoFocus
+            defaultValue={m.name}
+            onBlur={(e) => {
+              const v = e.target.value.trim()
+              if (v && v !== m.name) renameMap(m.id, v)
+              setEditMapId(null)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+              if (e.key === 'Escape') setEditMapId(null)
+            }}
+          />
+        </div>
+      )
+    return (
+      <div
+        className="layers-row"
+        style={{ paddingLeft: pad }}
+        onClick={() => m.id !== id && onNavigate(m.id)}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          // Where this map may go. Its own subtree is excluded: a map under its own descendant
+          // makes the breadcrumb walk upward forever, and the guard belongs here — at the only
+          // place that can create the cycle — rather than in the walk that would hang.
+          const banned = subtreeOf(m.id)
+          setMenu({
+            x: e.clientX,
+            y: e.clientY,
+            items: [
+              ...(m.parent_map_id !== null
+                ? [
+                    {
+                      icon: 'arrow-up-right' as const,
+                      label: t('Move to the top level'),
+                      onClick: () => moveMapUnder(m.id, null)
+                    }
+                  ]
+                : []),
+              ...maps
+                .filter((x) => !banned.has(x.id) && x.id !== m.parent_map_id)
+                .map((x) => ({
+                  icon: 'map' as const,
+                  label: t('Move under "{name}"', { name: x.name }),
+                  onClick: () => moveMapUnder(m.id, x.id)
+                }))
+            ]
+          })
+        }}
+      >
+        {/* The twisty sits in the icon's place for a parent, so rows stay aligned either way. */}
+        <span
+          className="layers-icon"
+          onClick={(e) => {
+            if (!hasKids) return
+            e.stopPropagation() // opening a branch is not opening the map
+            setCollapsedMaps((c) => {
+              const n = new Set(c)
+              if (!n.delete(m.id)) n.add(m.id)
+              return n
+            })
+          }}
+          style={hasKids ? { cursor: 'pointer' } : undefined}
+        >
+          <Icon name={hasKids ? (shut ? 'chevron-right' : 'chevron-down') : 'map'} size={14} />
+        </span>
+        <span
+          className="layers-name"
+          style={m.id === id ? { color: 'var(--accent)', fontWeight: 600 } : undefined}
+        >
+          {m.name}
+        </span>
+        <button
+          className="mini map-row-btn"
+          title={t('Rename')}
+          onClick={(e) => (e.stopPropagation(), setEditMapId(m.id))}
+        >
+          <Icon name="pencil" size={12} />
+        </button>
+        {m.id !== id && (
+          <button
+            className="mini danger map-row-btn"
+            title={t('Remove')}
+            onClick={(e) => (e.stopPropagation(), deleteMapWithUndo(m.id))}
+          >
+            ×
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  /**
+   * The map list as a TREE: children under their parent, one level of indent each.
+   *
+   * It was a flat list in insertion order with a single 26px indent for anything that had a
+   * parent — so a child sat wherever it happened to be created and a grandchild looked like a
+   * sibling of its own parent. `parent_map_id` existed the whole time; nothing rendered it.
+   *
+   * A map whose parent has been deleted comes back to the top rather than disappearing with it —
+   * the same rule boards use for an orphaned id, and for the same reason: a dangling reference
+   * must never be able to hide the user's work.
+   */
+  const mapTree = (parent: number | null, depth: number): React.JSX.Element[] => {
+    const known = (pid: number | null): boolean => pid !== null && maps.some((m) => m.id === pid)
+    const rows = maps.filter((m) =>
+      parent === null ? !known(m.parent_map_id) : m.parent_map_id === parent
+    )
+    return rows.flatMap((m) => {
+      const kids = maps.filter((x) => x.parent_map_id === m.id)
+      const shut = collapsedMaps.has(m.id)
+      return [
+        <div key={m.id}>{mapRow(m, depth, kids.length > 0, shut)}</div>,
+        ...(shut ? [] : mapTree(m.id, depth + 1))
+      ]
+    })
+  }
+
+  /** Re-parent a map. Right-click a row rather than a permanent control per row: with a dozen
+   *  maps a select on every line is more clutter than the operation is worth. */
+  const moveMapUnder = (mapId: number, parent: number | null): void => {
+    void api.updateMap(mapId, { parent_map_id: parent }).then(onChanged)
   }
 
   // Rename a map (inline) — not undoable (the old sidebar had no rename either)
@@ -4364,62 +4524,7 @@ export default function MapView({
               />
               <div className="layers-panel">
                 <div className="layers-panel-head">{t('Maps')}</div>
-                {maps.map((m) =>
-                  editMapId === m.id ? (
-                    // Inline rename (uncontrolled + onBlur — updateMap+refresh per keystroke used to flicker)
-                    <div key={m.id} className="base-row">
-                      <input
-                        className="base-name"
-                        autoFocus
-                        defaultValue={m.name}
-                        onBlur={(e) => {
-                          const v = e.target.value.trim()
-                          if (v && v !== m.name) renameMap(m.id, v)
-                          setEditMapId(null)
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') e.currentTarget.blur()
-                          if (e.key === 'Escape') setEditMapId(null)
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      key={m.id}
-                      className="layers-row"
-                      style={{ paddingLeft: m.parent_map_id ? 26 : undefined }}
-                      onClick={() => m.id !== id && onNavigate(m.id)}
-                    >
-                      <span className="layers-icon">
-                        <Icon name="map" size={14} />
-                      </span>
-                      <span
-                        className="layers-name"
-                        style={
-                          m.id === id ? { color: 'var(--accent)', fontWeight: 600 } : undefined
-                        }
-                      >
-                        {m.name}
-                      </span>
-                      <button
-                        className="mini map-row-btn"
-                        title={t('Rename')}
-                        onClick={(e) => (e.stopPropagation(), setEditMapId(m.id))}
-                      >
-                        <Icon name="pencil" size={12} />
-                      </button>
-                      {m.id !== id && (
-                        <button
-                          className="mini danger map-row-btn"
-                          title={t('Remove')}
-                          onClick={(e) => (e.stopPropagation(), deleteMapWithUndo(m.id))}
-                        >
-                          ×
-                        </button>
-                      )}
-                    </div>
-                  )
-                )}
+                {mapTree(null, 0)}
                 {newMapName !== null ? (
                   <form
                     className="base-row"
@@ -4437,7 +4542,22 @@ export default function MapView({
                       <Icon name="check" size={12} />
                     </button>
                   </form>
-                ) : (
+                ) : null}
+                {newMapName !== null && (
+                  /* Inside the open map by default: on a continent, the next map you make is
+                     almost always one of its cities. Unticking makes it a sibling instead. */
+                  <label className="layers-row" style={{ paddingLeft: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={newMapInside}
+                      onChange={(e) => setNewMapInside(e.target.checked)}
+                    />
+                    <span className="layers-name">
+                      {t('inside "{name}"', { name: crumbs[crumbs.length - 1]?.name ?? '' })}
+                    </span>
+                  </label>
+                )}
+                {newMapName === null && (
                   <button className="mini base-add" onClick={() => setNewMapName('')}>
                     ＋ {t('New map')}
                   </button>
