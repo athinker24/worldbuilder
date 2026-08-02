@@ -3658,22 +3658,27 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
-  // "Show on map": retry at short intervals until the feature loads, then fly to it
+  // "Show on map" from the sidebar: retry at short intervals until the feature loads, then fly.
+  //
+  // This searched the featureGroup — what is IN the Leaflet map — and since shapes moved to WebGL
+  // a polygon is only there while a tool is active. So the button quietly did nothing for exactly
+  // the features it is most used on, gave up after two seconds and said nothing; pins and labels
+  // still worked, which is what made it look intermittent rather than broken. The layers live in
+  // `allLayers` whether or not they are in the map, which is what focusFeature has always used —
+  // so poll that and then delegate, rather than keep a second, worse copy of the same behaviour.
+  // The sidebar gains the flash the other routes already had.
   useEffect(() => {
     if (!focus) return
     let tries = 0
     const t = setInterval(() => {
-      let found: L.Layer | undefined
-      featureGroupRef.current?.eachLayer((l) => {
-        if ((l as FeatureLayer).featureId === focus.featureId) found = l
-      })
-      if (found || ++tries > 20) {
+      if (allLayers.current.get(focus.featureId)?.length) {
         clearInterval(t)
-        if (found && mapRef.current) {
-          const b =
-            (found as L.Polygon).getBounds?.() ?? L.latLngBounds([(found as L.Marker).getLatLng()])
-          mapRef.current.fitBounds(b.pad(0.4), { maxZoom: 2 })
-        }
+        focusFeature(focus.featureId)
+      } else if (++tries > 20) {
+        clearInterval(t)
+        // The failure this whole comment is about, said out loud. A feature that cannot be found
+        // after two seconds is a bug, and it left no trace anywhere before.
+        logEvent('WARN', 'feature.locate', { feature: focus.featureId, found: false })
       }
     }, 100)
     return () => clearInterval(t)
