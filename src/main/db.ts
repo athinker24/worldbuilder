@@ -635,22 +635,40 @@ export const api = {
   },
   // The legacy `type` column is kept (older .dunya files still carry it) but no longer used:
   // articles are organised by sidebar folders now.
+  // The article events are logged HERE rather than at the buttons that cause them: every route in
+  // — the sidebar, an entity page, a [[wiki link]], the dynasty form's find-or-create, undo and
+  // redo — comes through these five functions, so this is the one place that cannot be forgotten
+  // when a sixth route appears. Names, never content: the log is meant to be pasted into a message,
+  // and a name is what makes "my article vanished" answerable at all.
   createEntity(e: { name: string; content?: string; fields?: string }): unknown {
     const r = db
       .prepare(`INSERT INTO entities (name, content, fields) VALUES (?, ?, ?)`)
       .run(e.name, e.content ?? '', e.fields ?? '{}')
-    return { id: Number(r.lastInsertRowid) }
+    const id = Number(r.lastInsertRowid)
+    logEvent('INFO', 'entity.created', { entity: id, name: e.name })
+    return { id }
   },
   updateEntity(id: number, patch: Record<string, unknown>): void {
+    // Only a RENAME is worth a line — an ordinary field save is the most frequent write in the app
+    // and would drown everything. The extra read costs nothing because it is skipped for those.
+    const was =
+      'name' in patch
+        ? (db.prepare(`SELECT name FROM entities WHERE id = ?`).get(id) as { name: string })?.name
+        : undefined
     const p = patchSql('entities', ['name', 'content', 'fields'], patch)
     if (p)
       db.prepare(`${p.sql}, updated_at = datetime('now') WHERE id = ?`).run(
         ...(p.vals as never[]),
         id
       )
+    if (was !== undefined && was !== patch.name)
+      logEvent('INFO', 'entity.renamed', { entity: id, from: was, to: patch.name })
   },
   deleteEntity(id: number): void {
+    // Read before the delete or the name is gone with it — and the name is the whole point.
+    const row = db.prepare(`SELECT name FROM entities WHERE id = ?`).get(id) as { name: string }
     db.prepare(`DELETE FROM entities WHERE id = ?`).run(id)
+    logEvent('INFO', 'entity.deleted', { entity: id, name: row?.name })
   },
   // Bring a deleted entity back under the same id, with its links and map-feature bindings (for Ctrl+Z)
   restoreEntity(
@@ -676,6 +694,9 @@ export const api = {
       )
     for (const fid of featureIds)
       db.prepare(`UPDATE features SET entity_id = ? WHERE id = ?`).run(row.id, fid)
+    // Without this an undone deletion leaves `entity.deleted` as the last word on the article, and
+    // a log that says something was destroyed when it was not is worse than one that says nothing.
+    logEvent('INFO', 'entity.restored', { entity: row.id, name: row.name })
   },
   // Bulk restore (multi-delete undo): ALL entity rows first, then the (deduplicated) links,
   // then feature bindings — so a link between two deleted entities cannot violate the FK.
@@ -703,6 +724,8 @@ export const api = {
       )
     for (const f of features)
       db.prepare(`UPDATE features SET entity_id = ? WHERE id = ?`).run(f.entity_id, f.feature_id)
+    // A count, not one line per article: a multi-delete undo is ONE action by the user.
+    logEvent('INFO', 'entity.restored', { count: rows.length })
   },
   featuresByEntity(entityId: number): unknown[] {
     return db
@@ -777,10 +800,23 @@ export const api = {
     const r = db
       .prepare(`INSERT INTO links (from_id, to_id, relation) VALUES (?, ?, ?)`)
       .run(from_id, to_id, relation)
+    // The relation by name: the links table is where the whole family tree and half the world's
+    // structure lives, and `mother` going in where `spouse` was meant is invisible in the data.
+    logEvent('INFO', 'link.created', { from: from_id, to: to_id, relation })
     return { id: Number(r.lastInsertRowid) }
   },
   deleteLink(id: number): void {
+    const row = db.prepare(`SELECT from_id, to_id, relation FROM links WHERE id = ?`).get(id) as {
+      from_id: number
+      to_id: number
+      relation: string
+    }
     db.prepare(`DELETE FROM links WHERE id = ?`).run(id)
+    logEvent('INFO', 'link.deleted', {
+      from: row?.from_id,
+      to: row?.to_id,
+      relation: row?.relation
+    })
   },
   // For whole-graph views like the dynasty tree: every link (fine at personal scale)
   listLinks(): unknown[] {
@@ -1077,6 +1113,9 @@ export const api = {
 if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   const dir = mkdtempSync(join(tmpdir(), 'worlddb-'))
   initDb(dir)
+  // A session file from the FIRST line, so the article events below actually reach a sink. The log
+  // section further down opens its own directory and is unaffected — this one only has to exist.
+  initLog(dir, '9.9.9', () => ({}))
   const a = api.createEntity({ name: 'Test State' }) as { id: number }
   const b = api.createEntity({
     name: 'Test Dynasty',
@@ -1551,6 +1590,31 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     >
     assert.equal(f2['parent'], 'current', 'the existing English value must win')
     assert.ok(!('\u00fcst' in f2))
+  }
+
+  // The article events. Logged in these functions rather than at the buttons, so every route in is
+  // covered by one place; what needs checking is the two that read the database BEFORE writing it.
+  {
+    const e = api.createEntity({ name: 'Log Test Article' }) as { id: number }
+    api.updateEntity(e.id, { name: 'Renamed Article' })
+    api.updateEntity(e.id, { content: 'an ordinary field save' })
+    api.deleteEntity(e.id)
+    flushLog()
+    const logs = join(dir, 'logs')
+    const txt = readFileSync(join(logs, readdirSync(logs)[0]), 'utf8')
+    assert.ok(/entity\.created .*name="Log Test Article"/.test(txt), 'a new article says its name')
+    assert.ok(
+      /entity\.renamed .*from="Log Test Article" to="Renamed Article"/.test(txt),
+      'a rename carries both names — the old one is what a search will be for'
+    )
+    assert.ok(
+      !/entity\.renamed .*from="Renamed Article"/.test(txt),
+      'and an ordinary field save is not a rename'
+    )
+    assert.ok(
+      /entity\.deleted .*name="Renamed Article"/.test(txt),
+      'a deletion says the name, which means reading it BEFORE the row goes'
+    )
   }
 
   // Three COUNT queries, but they run at open time inside a logTime: a wrong table name here would
