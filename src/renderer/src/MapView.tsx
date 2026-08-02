@@ -4677,7 +4677,11 @@ export default function MapView({
                   that box and they slide left with it — no collision handling needed. Inside the
                   !exporting guard so neither lands in the exported PNG. */}
               {!hideTools && <MapToolbar active={tool} onTool={activateTool} />}
-              {tool && !selected && !hidePanels && (
+              {/* …and out of the way while History is open: both float against the same right
+                  edge, and the tool settings are not what you are looking at when you are stepping
+                  back through the session. It comes back on its own — the condition is derived,
+                  so closing History restores whatever the tool state already was. */}
+              {tool && !selected && !hidePanels && !histOpen && (
                 <div className="map-tool-popover">
                   <ToolPanel
                     active={tool}
