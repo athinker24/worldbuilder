@@ -1525,14 +1525,21 @@ export default function MapView({
   // no longer have a toolbar button to press again — without this they would be one-way doors.
   // The conquest/measure/nav Escape handlers run first (they own their own sessions), so this one
   // stands down whenever a session is live.
+  //
+  // With no tool active it closes the inspector instead — ONE key, innermost thing first, which is
+  // what Escape means everywhere else. Clicking empty map deliberately does not deselect (a click
+  // on the map is how you pan it), so without this the inspector could only be closed by selecting
+  // something else or deleting what was in it.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!activeRef.current) return
-      if (e.key !== 'Escape' || !toolRef.current) return
+      if (e.key !== 'Escape') return
       if (conquest || measure || nav) return
       const el = e.target as HTMLElement
       if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable) return
-      activateTool(toolRef.current) // same tool = toggle off
+      if (toolRef.current)
+        activateTool(toolRef.current) // same tool = toggle off
+      else if (selectedRef.current) clearSel()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -3494,7 +3501,12 @@ export default function MapView({
       if (zoom === rend._zoom && min && rend._container) L.DomUtil.setPosition(rend._container, min)
       else stockTransform(center, zoom)
     }
-    map.pm.setGlobalOptions({ tooltips: false }) // silence geoman's "Click to place marker" hints
+    // tooltips: silence geoman's "Click to place marker" hints.
+    // continueDrawing: a tool stays armed after a shape is finished, so a row of pins or a
+    // handful of labels is one tool press instead of one per drawing. It is geoman that ends
+    // the session on completion, so dropping our own tool reset is not enough — this is what
+    // re-arms it. Escape leaves the tool (see the Escape effect), which is the way out.
+    map.pm.setGlobalOptions({ tooltips: false, continueDrawing: true })
 
     const host = divRef.current
     let panning = false
@@ -4020,12 +4032,9 @@ export default function MapView({
           onChanged()
         }
       })
-      // Drawing one shape ends the tool, and it happens HERE rather than through activateTool —
-      // which is why the log used to show `tool.changed from=none` with no line saying it became
-      // none. The transition is real and belongs in the record like any other.
-      logEvent('INFO', 'tool.changed', { tool: 'none', from: toolRef.current ?? 'none' })
-      toolRef.current = null
-      setToolState(null)
+      // The tool stays armed (continueDrawing, at map setup): you rarely place exactly one pin.
+      // Escape ends it. Nothing is logged here any more because nothing changes here — the tool
+      // change now happens where every other one does, in activateTool.
       await reloadFeatures('draw')
       if (ent) onChanged() // the new article must appear in the sidebar tree at once
     })
