@@ -1441,6 +1441,20 @@ export default function MapView({
     el.style.setProperty('--lz', String(scale)) // size/font are baked by applyDrawStyle's icon
   }
 
+  // Pin PREVIEW: the same problem as the label's, and it had no answer. A placed pin is
+  // PIN_BASE × size × 2^zoom (updateOverlaySizes); the hint marker is not in the featureGroup, so
+  // nothing ever scaled it and it stayed at the zoom-0 size — at any other zoom the preview was a
+  // different size from the pin it was previewing, which reads as the size setting not working.
+  // Baked into the icon rather than written onto the element: the badge, the free image and the
+  // anchor all size themselves from it, so one multiplication covers every branch.
+  const hintPinIcon = (scale: number): L.DivIcon => {
+    const m = drawRef.current.marker
+    return pinDivIcon({ ...m, size: (m.size ?? 1) * scale })
+  }
+  const styleHintPin = (scale: number): void => {
+    drawInst('Marker')?._hintMarker?.setIcon(hintPinIcon(scale))
+  }
+
   // Apply drawRef.current to the active draw tool (the shared path of tool start + setting
   // change). With drawing ALREADY open, never call enableDraw again: geoman's enable() spawns
   // the hint marker from scratch at `L.marker(map.getCenter())` — size tweaks made the preview
@@ -1454,15 +1468,16 @@ export default function MapView({
     const inst = drawInst(shape)
     const live = inst?.enabled?.() ?? false
     if (tl === 'marker' || tl === 'label') {
+      const scale = 2 ** map.getZoom()
       const icon =
         tl === 'marker'
-          ? pinDivIcon(s.marker)
+          ? hintPinIcon(scale)
           : labelDivIcon(s.label, LABEL_BASE * (s.label.size ?? 1))
       if (live) {
         inst?.setOptions?.({ markerStyle: { icon } })
         inst?._hintMarker?.setIcon(icon)
       } else map.pm.enableDraw('Marker', { markerStyle: { icon } })
-      if (tl === 'label') styleHintLabel(2 ** map.getZoom())
+      if (tl === 'label') styleHintLabel(scale)
       return
     }
     const pathOptions =
@@ -1662,8 +1677,10 @@ export default function MapView({
     // pixels — the unit the geometry itself is in.
     const pane = map.getPane('overlayPane')
     if (pane) pane.style.setProperty('--mz', String(2 ** map.getZoom()))
-    // the open label preview (the hint marker is outside the featureGroup too) — scale it on zoom
+    // the open pin/label preview (the hint marker is outside the featureGroup too) — scale it on
+    // zoom. Once per zoom commit, not per frame: the gesture itself scales the pane it sits in.
     if (toolRef.current === 'label') styleHintLabel(scale)
+    else if (toolRef.current === 'marker') styleHintPin(scale)
   }
 
   // Delete + undo record; used by geoman's removal mode, the context menu and the Del key.
@@ -3929,6 +3946,10 @@ export default function MapView({
             ? {
                 size: s.marker.size,
                 color: s.marker.color,
+                // The mark itself. Left out once, and since pinShapeBody falls back to the first
+                // shape in the list, every pin came out a disc however the picker was set — the
+                // preview showed the right one, because that reads drawRef directly.
+                shape: s.marker.shape,
                 img: s.marker.img,
                 imgFree: s.marker.imgFree,
                 imgAR: s.marker.imgAR,
