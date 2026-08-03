@@ -3929,6 +3929,10 @@ export default function MapView({
             ? {
                 size: s.marker.size,
                 color: s.marker.color,
+                // The mark itself. Left out once, and since pinShapeBody falls back to the first
+                // shape in the list, every pin came out a disc however the picker was set — the
+                // preview showed the right one, because that reads drawRef directly.
+                shape: s.marker.shape,
                 img: s.marker.img,
                 imgFree: s.marker.imgFree,
                 imgAR: s.marker.imgAR,
