@@ -192,6 +192,7 @@ const TR: Record<string, string> = {
   // History panel (Overview ▸ History) — the labels come from pushUndo call sites, so the English
   // text there IS the key here.
   'No base image yet': 'Henüz zemin görseli yok',
+  'Work without one': 'Görselsiz devam et',
   'Drawings work without one, but a map usually starts with a picture.':
     'Çizim için şart değil, ama bir harita genelde bir görselle başlar.',
   'Add to article:': 'Şu maddeye ekle:',

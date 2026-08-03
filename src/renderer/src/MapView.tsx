@@ -901,6 +901,11 @@ export default function MapView({
   // Create the next map INSIDE the open one — the natural move when you are on a continent and
   // adding one of its cities.
   const [newMapInside, setNewMapInside] = useState(true)
+  // The "no base image" card, dismissed for this map. Persisted, not session state: someone
+  // working without a base image would otherwise dismiss the same invitation every launch, which
+  // is the definition of a nag. It rides in the .dunya because it is about that map, not about
+  // this machine.
+  const [hintOff, setHintOff] = useState(false)
   const [histOpen, setHistOpen] = useState(false)
   // Maps dropdown (map switching — replaced the sidebar list)
   const [mapsOpen, setMapsOpen] = useState(false)
@@ -2981,6 +2986,16 @@ export default function MapView({
     return out
   }
 
+  /** Stop offering a base image for this map. A list of map ids in one setting rather than a flag
+   *  per map: it is the same shape `mapScales` and `mapBoards` already use. */
+  const dismissMapHint = async (): Promise<void> => {
+    setHintOff(true)
+    const raw = await api.getSetting('hideMapHint')
+    const list = new Set((JSON.parse(raw || '[]') as number[]) ?? [])
+    list.add(id)
+    await api.setSetting('hideMapHint', JSON.stringify([...list]))
+  }
+
   /** Pick the map's base image. Lifted out of the button it used to live inside when that button
    *  moved from the toolbar to the centre of an empty map. */
   const pickBaseImage = async (): Promise<void> => {
@@ -4034,6 +4049,9 @@ export default function MapView({
       const sc = (JSON.parse(raw || '{}') as Record<number, MapScale>)[id] ?? null
       setMapScale(sc)
     })
+    api.getSetting('hideMapHint').then((raw) => {
+      setHintOff(((JSON.parse(raw || '[]') as number[]) ?? []).includes(id))
+    })
     api.getSetting('travelModes').then((raw) => setTravelModesState(JSON.parse(raw || '[]')))
     getMapBoards(id).then((b) => {
       boardsRef.current = b
@@ -4826,7 +4844,7 @@ export default function MapView({
                 </div>
               )
             })()}
-          {!exporting && !worldMap?.image_path && worldMap && (
+          {!exporting && !worldMap?.image_path && worldMap && !hintOff && (
             /* A map with no base image is an empty screen, and the middle of an empty screen is
                where you look — not the far end of a toolbar. pointer-events: none on the wrapper
                so the empty map underneath is still pannable; the button itself takes clicks. */
@@ -4838,6 +4856,9 @@ export default function MapView({
               >
                 <button className="primary" onClick={pickBaseImage}>
                   {t('Add base image')}
+                </button>
+                <button className="mini" onClick={dismissMapHint}>
+                  {t('Work without one')}
                 </button>
               </EmptyState>
             </div>
