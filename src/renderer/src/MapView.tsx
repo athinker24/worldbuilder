@@ -48,7 +48,7 @@ import { alertDialog, confirmDialog } from './dialog'
 import History from './History'
 import Icon from './icons'
 import Select from './Select'
-import { IconButton } from './ui'
+import { EmptyState, IconButton } from './ui'
 import { useT } from './i18n'
 import Timeline from './Timeline'
 import MapToolbar from './MapToolbar'
@@ -2981,6 +2981,26 @@ export default function MapView({
     return out
   }
 
+  /** Pick the map's base image. Lifted out of the button it used to live inside when that button
+   *  moved from the toolbar to the centre of an empty map. */
+  const pickBaseImage = async (): Promise<void> => {
+    const path = await api.pickImage()
+    if (!path) return
+    const img = new Image()
+    img.onload = async () => {
+      await api.updateMap(id, {
+        image_path: path,
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+        layers: JSON.stringify([{ type: 'image', path }])
+      })
+      await reloadFeatures('image')
+    }
+    img.onerror = () =>
+      alertDialog(t('Could not load image. The file may be corrupt or in an unsupported format.'))
+    img.src = assetUrl(path)
+  }
+
   /** One row of the map tree. Extracted from the old inline list so the tree walk can recurse. */
   const mapRow = (m: MapRow, depth: number, hasKids: boolean, shut: boolean): React.JSX.Element => {
     const pad = 8 + depth * 14
@@ -4559,31 +4579,6 @@ export default function MapView({
             </>
           )}
         </div>
-        {worldMap && !worldMap.image_path && (
-          <button
-            onClick={async () => {
-              const path = await api.pickImage()
-              if (!path) return
-              const img = new Image()
-              img.onload = async () => {
-                await api.updateMap(id, {
-                  image_path: path,
-                  width: img.naturalWidth,
-                  height: img.naturalHeight,
-                  layers: JSON.stringify([{ type: 'image', path }])
-                })
-                await reloadFeatures('image')
-              }
-              img.onerror = () =>
-                alertDialog(
-                  t('Could not load image. The file may be corrupt or in an unsupported format.')
-                )
-              img.src = assetUrl(path)
-            }}
-          >
-            {t('Add base image')}
-          </button>
-        )}
         {/* Export moved to File ▸ Export ▸ Current Map as Image (App drives it via onExportReady);
             the header keeps only map CONTEXT: search, maps, boards, layers. */}
         <div className="layers-menu">
@@ -4831,6 +4826,22 @@ export default function MapView({
                 </div>
               )
             })()}
+          {!exporting && !worldMap?.image_path && worldMap && (
+            /* A map with no base image is an empty screen, and the middle of an empty screen is
+               where you look — not the far end of a toolbar. pointer-events: none on the wrapper
+               so the empty map underneath is still pannable; the button itself takes clicks. */
+            <div className="map-empty">
+              <EmptyState
+                icon="image"
+                title={t('No base image yet')}
+                hint={t('Drawings work without one, but a map usually starts with a picture.')}
+              >
+                <button className="primary" onClick={pickBaseImage}>
+                  {t('Add base image')}
+                </button>
+              </EmptyState>
+            </div>
+          )}
           {!exporting && (
             <>
               <Timeline
