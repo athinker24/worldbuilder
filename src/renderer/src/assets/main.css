@@ -3869,3 +3869,76 @@ a {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ============================================================================
+   MICRO-MOTION
+
+   Deliberately small: 100-160ms on the two properties a compositor can animate
+   without touching layout (opacity, transform), on CHROME only. Two rules bound
+   what may go here:
+
+   1. NOTHING on map content. Labels, pins, handles and the base image are
+      written every frame by updateOverlaySizes and the WebGL layers; a
+      transition on any of them would fight a per-frame write and turn a cheap
+      style write into an animation the browser has to keep alive. That is the
+      opposite of what the whole rendering split exists for.
+   2. Nothing that animates layout (height, width, top). A popover that grows
+      from zero height relayouts its whole subtree on every frame of the
+      animation; a popover that fades and lifts 4px does not.
+
+   `prefers-reduced-motion: reduce` already collapses every duration to 0.01ms
+   at the top of this file, so nothing here needs to repeat that.
+   ============================================================================ */
+
+@keyframes float-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Things that appear where they were not: menus, popovers, dialogs, the toast.
+   4px is the whole gesture — enough to read as "this arrived", not enough to be
+   a movement anyone has to wait for. */
+.ctx-menu,
+.color-popup,
+.select-list,
+.layers-menu,
+.map-tool-popover,
+.toast,
+.dialog-box,
+.note-focus {
+  animation: float-in var(--dur) var(--ease-out);
+}
+
+/* Backdrops fade only: a scrim that slides looks like the page moved. */
+.ctx-overlay,
+.color-popup-overlay,
+.dialog-overlay,
+.note-focus-overlay {
+  animation: fade-in var(--dur-fast) var(--ease-out);
+}
+
+/* A button that takes the press. One pixel, and only while the mouse is down —
+   the shortest possible way to say the click landed. :not(:disabled) so a
+   button that cannot be pressed does not pretend it was. */
+button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+/* Rows the pointer moves along which change background on hover and had no
+   transition to do it with. `.side-item` and `.layers-row` are deliberately NOT
+   here: they already declare one, and a second `transition` shorthand later in
+   the file would replace it — .side-item's also carries `color`, which this
+   rule does not, so listing it would have quietly removed half of what it had. */
+.side-folder,
+.side-group-head,
+.hist-row {
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
