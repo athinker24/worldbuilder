@@ -32,6 +32,27 @@ const BACKUP_KEEP_DAYS = 30
 /** …and no more than this many, however recent. See backupIfNeeded for why both are needed. */
 const BACKUP_KEEP_FILES = 60
 
+/**
+ * Pragmas set on EVERY connection, before anything reads the file.
+ *
+ * A `.dunya` is someone else's SQLite database opened over yours, which is the situation SQLite's
+ * own "defence against dark arts" note is written for.
+ *
+ * - trusted_schema OFF stops any function call the FILE's schema carries — in a view, a trigger,
+ *   a generated column or an index on an expression — from being invoked while we read it. All
+ *   three kinds are dropped on open (dropForeignSchema), but the drop itself parses that schema,
+ *   so the pragma has to be in place before it, not after.
+ * - cell_size_check ON makes SQLite validate a b-tree cell against the page as it reads rather
+ *   than trusting the header, which is what turns a deliberately corrupted page into an error.
+ * - foreign_keys is not defence, it is the ON DELETE CASCADE the schema below declares: SQLite
+ *   defaults it OFF per connection, so without it deleting a map would leave its features behind.
+ */
+const PRAGMAS = `
+PRAGMA trusted_schema = OFF;
+PRAGMA cell_size_check = ON;
+PRAGMA foreign_keys = ON;
+`
+
 const SCHEMA = `
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS entities (
@@ -72,6 +93,16 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `
 
+/** Open a database with the defensive pragmas already applied. Every open of a file a `.dunya`
+ *  has ever touched goes through here — see PRAGMAS for what they defend against. */
+function openDb(file: string, opts?: { readOnly: boolean }): DatabaseSync {
+  // Not `new DatabaseSync(file, opts)`: node:sqlite rejects an explicit undefined for its options
+  // argument ("The options argument must be an object"), which the self-check caught immediately.
+  const d = opts ? new DatabaseSync(file, opts) : new DatabaseSync(file)
+  d.exec(PRAGMAS)
+  return d
+}
+
 export function initDb(dir: string): void {
   dataDir = dir
   assetsDir = join(dir, 'assets')
@@ -79,7 +110,7 @@ export function initDb(dir: string): void {
   dbFile = join(dataDir, 'world.db')
   backupsDir = join(dataDir, 'backups')
   notesDir = join(dataDir, 'notes')
-  db = new DatabaseSync(dbFile)
+  db = openDb(dbFile)
   db.exec(SCHEMA)
   migrateLegacyKeys()
 }
@@ -252,7 +283,7 @@ const MAX_ASSET_BYTES = 4 * 1024 * 1024 * 1024
 function probeWorldFile(sourcePath: string): void {
   let probe: DatabaseSync | null = null
   try {
-    probe = new DatabaseSync(sourcePath, { readOnly: true })
+    probe = openDb(sourcePath, { readOnly: true })
     // An empty world is legitimate — these return no row. Only a MISSING table throws.
     probe.prepare(`SELECT 1 FROM entities LIMIT 1`).get()
     probe.prepare(`SELECT 1 FROM maps LIMIT 1`).get()
@@ -324,12 +355,12 @@ export function unpackWorld(sourcePath: string): void {
   copyFileSync(dbFile, rescue)
   try {
     copyFileSync(sourcePath, dbFile)
-    db = new DatabaseSync(dbFile)
+    db = openDb(dbFile)
     dropForeignSchema() // BEFORE the schema exec, so a dropped view leaves room for the real table
     db.exec(SCHEMA)
   } catch (err) {
     copyFileSync(rescue, dbFile)
-    db = new DatabaseSync(dbFile)
+    db = openDb(dbFile)
     db.exec(SCHEMA)
     rmSync(rescue, { force: true })
     throw err
@@ -547,7 +578,7 @@ export function hasContent(): boolean {
 export function resetWorld(): void {
   db.close()
   rmSync(dbFile, { force: true })
-  db = new DatabaseSync(dbFile)
+  db = openDb(dbFile)
   db.exec(SCHEMA)
   for (const name of readdirSync(assetsDir)) {
     const p = join(assetsDir, name)
