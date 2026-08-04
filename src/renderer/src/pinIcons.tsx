@@ -91,7 +91,7 @@ const ANNULUS =
 const solid = (d: string): string =>
   `<path d="${d}" fill="currentColor" stroke="${EDGE}" stroke-width="1.5" stroke-linejoin="round"/>`
 
-export const PIN_SHAPES: { id: PinShape; label: string; body: string }[] = [
+const PIN_SHAPES: { id: PinShape; label: string; body: string }[] = [
   {
     id: 'disc',
     label: 'Disc',
