@@ -4502,7 +4502,10 @@ export default function MapView({
   }
   const zoomVisControls = (): React.JSX.Element => (
     <>
-      <label>{t('Hide by zoom — now {z}', { z: zoomPct(barZoom) })}</label>
+      <label className="cap">
+        {t('Hide by zoom')}
+        <span>{zoomPct(barZoom)}</span>
+      </label>
       {zoomVisRow('minZoom', t('Hide when zoomed out below'))}
       {zoomVisRow('maxZoom', t('Hide when zoomed in above'))}
     </>
@@ -5409,22 +5412,23 @@ export default function MapView({
               {selIds.length > 1 && (
                 // Controls follow the primary feature's kind; edits apply to the WHOLE selection
                 <div className="panel-block">
-                  <label>
+                  <p className="hint">
                     {t('Edits apply to all selected drawings. Ctrl+click to add/remove.')}
-                  </label>
+                  </p>
                 </div>
               )}
 
               <div className="panel-block">
-                <label>{t('Appearance')}</label>
+                <label className="panel-title">{t('Appearance')}</label>
                 {selIsPolygon ? (
                   <>
                     <ColorPicker
                       value={selStyle.color ?? folderColor(folders, selected.entity_folder)}
                       onChange={(color) => editSelectedStyle({ color })}
                     />
-                    <label>
-                      {t('Fill opacity: {val}', { val: (selStyle.fillOpacity ?? 0.25).toFixed(2) })}
+                    <label className="cap">
+                      {t('Fill opacity')}
+                      <span>{(selStyle.fillOpacity ?? 0.25).toFixed(2)}</span>
                     </label>
                     <input
                       type="range"
@@ -5436,7 +5440,10 @@ export default function MapView({
                     />
                     {/* 0 = no outline at all. A polygon still reads as one from its fill; a PATH
                         would simply vanish, which is why only this one goes down to zero. */}
-                    <label>{t('Outline thickness: {val}px', { val: selStyle.weight ?? 2 })}</label>
+                    <label className="cap">
+                      {t('Outline thickness')}
+                      <span>{selStyle.weight ?? 2}px</span>
+                    </label>
                     <input
                       type="range"
                       min={0}
@@ -5472,7 +5479,7 @@ export default function MapView({
                         />
                       </>
                     )}
-                    <label>{t('Fill image (click again to remove)')}</label>
+                    <label>{t('Fill image')}</label>
                     <ImageStrip
                       img={selStyle.fillImg}
                       images={pinImages}
@@ -5499,7 +5506,10 @@ export default function MapView({
                       value={selStyle.color ?? '#b08968'}
                       onChange={(color) => editSelectedStyle({ color })}
                     />
-                    <label>{t('Thickness: {val}px', { val: selStyle.weight ?? 3 })}</label>
+                    <label className="cap">
+                      {t('Thickness')}
+                      <span>{selStyle.weight ?? 3}px</span>
+                    </label>
                     <input
                       type="range"
                       min={1}
@@ -5508,8 +5518,9 @@ export default function MapView({
                       value={selStyle.weight ?? 3}
                       onChange={(e) => editSelectedStyle({ weight: Number(e.target.value) })}
                     />
-                    <label>
-                      {t('Opacity: {val}', { val: (selStyle.opacity ?? 0.9).toFixed(2) })}
+                    <label className="cap">
+                      {t('Opacity')}
+                      <span>{(selStyle.opacity ?? 0.9).toFixed(2)}</span>
                     </label>
                     <input
                       type="range"
@@ -5525,7 +5536,10 @@ export default function MapView({
                       onChange={(v) => editSelectedStyle({ dash: v as LineDash })}
                       options={LINE_DASHES.map((d) => ({ value: d, label: t(DASH_LABELS[d]) }))}
                     />
-                    <label>{t('Curviness: {val}', { val: selStyle.curviness ?? 0 })}</label>
+                    <label className="cap">
+                      {t('Curviness')}
+                      <span>{selStyle.curviness ?? 0}</span>
+                    </label>
                     <input
                       type="range"
                       min={0}
@@ -5561,7 +5575,10 @@ export default function MapView({
                       onChange={(v) => editSelectedStyle({ font: v })}
                       options={FONTS.map((f) => ({ value: f, label: f, style: { fontFamily: f } }))}
                     />
-                    <label>{t('Size: ×{val}', { val: (selStyle.size ?? 1).toFixed(2) })}</label>
+                    <label className="cap">
+                      {t('Size')}
+                      <span>×{(selStyle.size ?? 1).toFixed(2)}</span>
+                    </label>
                     <input
                       type="range"
                       min={0.5}
@@ -5570,7 +5587,10 @@ export default function MapView({
                       value={selStyle.size ?? 1}
                       onChange={(e) => editSelectedStyle({ size: Number(e.target.value) })}
                     />
-                    <label>{t('Angle: {val}°', { val: selStyle.angle ?? 0 })}</label>
+                    <label className="cap">
+                      {t('Angle')}
+                      <span>{selStyle.angle ?? 0}°</span>
+                    </label>
                     <input
                       type="range"
                       min={-90}
@@ -5579,7 +5599,10 @@ export default function MapView({
                       value={selStyle.angle ?? 0}
                       onChange={(e) => editSelectedStyle({ angle: Number(e.target.value) })}
                     />
-                    <label>{t('Curve: {val}', { val: selStyle.curve ?? 0 })}</label>
+                    <label className="cap">
+                      {t('Curve')}
+                      <span>{selStyle.curve ?? 0}</span>
+                    </label>
                     <input
                       type="range"
                       min={-100}
@@ -5596,10 +5619,9 @@ export default function MapView({
                     />
                     {(selStyle.halo ?? 'dark') !== 'none' && (
                       <>
-                        <label>
-                          {t('Halo thickness: {val}', {
-                            val: (selStyle.haloWidth ?? 0.08).toFixed(2)
-                          })}
+                        <label className="cap">
+                          {t('Halo thickness')}
+                          <span>{(selStyle.haloWidth ?? 0.08).toFixed(2)}</span>
                         </label>
                         <input
                           type="range"
@@ -5611,8 +5633,9 @@ export default function MapView({
                         />
                       </>
                     )}
-                    <label>
-                      {t('Letter spacing: {val}', { val: (selStyle.tracking ?? 0).toFixed(2) })}
+                    <label className="cap">
+                      {t('Letter spacing')}
+                      <span>{(selStyle.tracking ?? 0).toFixed(2)}</span>
                     </label>
                     <input
                       type="range"
@@ -5665,7 +5688,7 @@ export default function MapView({
                         />
                       </>
                     )}
-                    <label>{t('Pin image (click again to remove)')}</label>
+                    <label>{t('Pin image')}</label>
                     <ImageStrip
                       img={selStyle.img}
                       images={pinImages}
@@ -5683,6 +5706,8 @@ export default function MapView({
                     />
                     {selStyle.img && (
                       <>
+                        {/* See the same line in ToolPanel: the strip is its own remove button. */}
+                        <p className="hint">{t('Click an image again to remove it.')}</p>
                         <label>{t('Image style')}</label>
                         <div className="measure-btns">
                           <button
@@ -5700,7 +5725,10 @@ export default function MapView({
                         </div>
                       </>
                     )}
-                    <label>{t('Size: ×{val}', { val: (selStyle.size ?? 1).toFixed(2) })}</label>
+                    <label className="cap">
+                      {t('Size')}
+                      <span>×{(selStyle.size ?? 1).toFixed(2)}</span>
+                    </label>
                     <input
                       type="range"
                       min={0.5}
@@ -5754,7 +5782,8 @@ export default function MapView({
                 })()}
 
               <div className="panel-block">
-                <label>{t('Time (blank = always; negative = before epoch):')}</label>
+                <label className="panel-title">{t('Time')}</label>
+                <p className="hint">{t('Blank = always. A negative year is before the epoch.')}</p>
                 <div className="field-row">
                   <input
                     type="number"
@@ -5807,7 +5836,7 @@ export default function MapView({
                   field that does it. One step now, and the emptied article goes with it. */}
               <div className="panel-block">
                 <label>
-                  {selected.entity_id ? t('Move to another article:') : t('Link to entity:')}
+                  {selected.entity_id ? t('Move to another article') : t('Link to entity')}
                 </label>
                 <input
                   list="entity-list-map"

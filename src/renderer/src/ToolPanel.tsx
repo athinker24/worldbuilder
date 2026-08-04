@@ -249,8 +249,9 @@ export default function ToolPanel({
                 onSettings({ ...settings, polygon: { ...settings.polygon, color } })
               }
             />
-            <label>
-              {t('Fill opacity: {val}', { val: settings.polygon.fillOpacity.toFixed(2) })}
+            <label className="cap">
+              {t('Fill opacity')}
+              <span>{settings.polygon.fillOpacity.toFixed(2)}</span>
             </label>
             <input
               type="range"
@@ -266,7 +267,10 @@ export default function ToolPanel({
               }
             />
             {/* 0 = no outline. Only the polygon offers it — a path is nothing but its stroke. */}
-            <label>{t('Outline thickness: {val}px', { val: settings.polygon.weight })}</label>
+            <label className="cap">
+              {t('Outline thickness')}
+              <span>{settings.polygon.weight}px</span>
+            </label>
             <input
               type="range"
               min={0}
@@ -289,7 +293,7 @@ export default function ToolPanel({
               }
               options={FONTS.map((f) => ({ value: f, label: f, style: { fontFamily: f } }))}
             />
-            <label>{t('Fill image (click again to remove)')}</label>
+            <label>{t('Fill image')}</label>
             <ImageStrip
               img={settings.polygon.fillImg}
               images={pinImages}
@@ -331,7 +335,10 @@ export default function ToolPanel({
               value={settings.line.color}
               onChange={(color) => onSettings({ ...settings, line: { ...settings.line, color } })}
             />
-            <label>{t('Thickness: {val}px', { val: settings.line.weight })}</label>
+            <label className="cap">
+              {t('Thickness')}
+              <span>{settings.line.weight}px</span>
+            </label>
             <input
               type="range"
               min={1}
@@ -345,7 +352,10 @@ export default function ToolPanel({
                 })
               }
             />
-            <label>{t('Opacity: {val}', { val: settings.line.opacity.toFixed(2) })}</label>
+            <label className="cap">
+              {t('Opacity')}
+              <span>{settings.line.opacity.toFixed(2)}</span>
+            </label>
             <input
               type="range"
               min={0.1}
@@ -367,7 +377,10 @@ export default function ToolPanel({
               }
               options={LINE_DASHES.map((d) => ({ value: d, label: t(DASH_LABELS[d]) }))}
             />
-            <label>{t('Curviness: {val}', { val: settings.line.curviness })}</label>
+            <label className="cap">
+              {t('Curviness')}
+              <span>{settings.line.curviness}</span>
+            </label>
             <input
               type="range"
               min={0}
@@ -421,7 +434,7 @@ export default function ToolPanel({
                 />
               </>
             )}
-            <label>{t('Pin image (click again to remove)')}</label>
+            <label>{t('Pin image')}</label>
             <ImageStrip
               img={settings.marker.img}
               images={pinImages}
@@ -443,6 +456,10 @@ export default function ToolPanel({
             />
             {settings.marker.img && (
               <>
+                {/* A pin's image has no Remove button the way a polygon fill does — the strip
+                    itself is the toggle. That used to be said inside the caption above, which is
+                    how a caption becomes a sentence. */}
+                <p className="hint">{t('Click an image again to remove it.')}</p>
                 <label>{t('Image style')}</label>
                 <div className="measure-btns">
                   <button
@@ -464,7 +481,10 @@ export default function ToolPanel({
                 </div>
               </>
             )}
-            <label>{t('Size: ×{val}', { val: settings.marker.size.toFixed(2) })}</label>
+            <label className="cap">
+              {t('Size')}
+              <span>×{settings.marker.size.toFixed(2)}</span>
+            </label>
             <input
               type="range"
               min={0.5}
@@ -502,7 +522,10 @@ export default function ToolPanel({
               onChange={(v) => onSettings({ ...settings, label: { ...settings.label, font: v } })}
               options={FONTS.map((f) => ({ value: f, label: f, style: { fontFamily: f } }))}
             />
-            <label>{t('Size: ×{val}', { val: settings.label.size.toFixed(2) })}</label>
+            <label className="cap">
+              {t('Size')}
+              <span>×{settings.label.size.toFixed(2)}</span>
+            </label>
             <input
               type="range"
               min={0.5}
@@ -516,7 +539,10 @@ export default function ToolPanel({
                 })
               }
             />
-            <label>{t('Angle: {val}°', { val: settings.label.angle })}</label>
+            <label className="cap">
+              {t('Angle')}
+              <span>{settings.label.angle}°</span>
+            </label>
             <input
               type="range"
               min={-90}
@@ -530,7 +556,10 @@ export default function ToolPanel({
                 })
               }
             />
-            <label>{t('Curve: {val}', { val: settings.label.curve })}</label>
+            <label className="cap">
+              {t('Curve')}
+              <span>{settings.label.curve}</span>
+            </label>
             <input
               type="range"
               min={-100}
@@ -555,8 +584,9 @@ export default function ToolPanel({
             />
             {settings.label.halo !== 'none' && (
               <>
-                <label>
-                  {t('Halo thickness: {val}', { val: settings.label.haloWidth.toFixed(2) })}
+                <label className="cap">
+                  {t('Halo thickness')}
+                  <span>{settings.label.haloWidth.toFixed(2)}</span>
                 </label>
                 <input
                   type="range"
@@ -573,7 +603,10 @@ export default function ToolPanel({
                 />
               </>
             )}
-            <label>{t('Letter spacing: {val}', { val: settings.label.tracking.toFixed(2) })}</label>
+            <label className="cap">
+              {t('Letter spacing')}
+              <span>{settings.label.tracking.toFixed(2)}</span>
+            </label>
             <input
               type="range"
               min={0}
