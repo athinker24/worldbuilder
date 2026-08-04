@@ -1824,7 +1824,21 @@ kbd {
 /* The contextual map inspector. RAISED, not floating: it is docked, and it keeps
    exactly one border — the real edge where it meets the map. Width is set inline
    by MapView (drag-resizable, remembered in prefs.json). */
+/* The inspector arriving. Opacity and a 12px slide — and deliberately NOT width:
+   the panel is a flex SIBLING of the map, so an animated width would re-run the
+   whole map layout on every frame of it (the ResizeObserver fires, Leaflet
+   re-projects, both WebGL canvases resize) and bring back the very flicker the
+   layout effect in MapView went in to remove. The box arrives instantly; what
+   the eye sees arrive is its content. */
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
 .map-panel {
+  animation: panel-in var(--dur) var(--ease-out);
   width: 380px;
   min-width: 380px;
   flex-shrink: 0;
@@ -1842,24 +1856,88 @@ kbd {
 .panel-block {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
-  padding: var(--sp-2) 0;
+  padding: var(--sp-3) 0;
 }
 
 .panel-block + .panel-block {
   border-top: 1px solid var(--border-subtle);
 }
 
-.panel-block label {
+/* THE RHYTHM IS TWO GAPS, NOT ONE — which is why there is no `gap` here.
+   A caption belongs to the control beneath it and a group has to stand clear of
+   the next one, and a flex `gap` can only say one number: with one, a dozen
+   stacked sliders became an even column of things with no telling which caption
+   went with which control. It read as cramped because nothing was grouped.
+
+   `label:not(:has(input))` is the caption test: a label that WRAPS an input is a
+   checkbox row (a choice), not a caption for what follows it.
+
+   The tool panel is listed alongside throughout: it is the same panel showing a
+   tool's DEFAULTS rather than one drawing's settings, and the two of them side
+   by side with different spacing is half of what read as untidy. */
+.panel-block > * + *,
+.tool-settings > * + * {
+  margin-top: var(--sp-2);
+}
+
+.panel-block > label:not(:has(input)) + *,
+.tool-settings > label:not(:has(input)) + * {
+  margin-top: 3px;
+}
+
+/* Two captions in a row means the first one had no control — it is a heading or
+   a note, so it keeps the full gap. */
+.panel-block > label:not(:has(input)) + label,
+.tool-settings > label:not(:has(input)) + label {
+  margin-top: var(--sp-2);
+}
+
+/* A range's box is taller than its track, so 3px of margin looks like eight. */
+.panel-block > label:not(:has(input)) + input[type='range'],
+.tool-settings > label:not(:has(input)) + input[type='range'] {
+  margin-top: -3px;
+}
+
+.panel-block label,
+.tool-settings label {
   color: var(--text-muted);
   font-size: var(--fs-2);
   font-variant-numeric: tabular-nums;
 }
 
-/* A range immediately under its own label belongs to it — close the gap so the
-   pairing is unmistakable when six of them stack up. */
-.panel-block label + input[type='range'] {
-  margin-top: -2px;
+/* The group's own name — the same treatment as a section heading on the entity
+   page, because that is what it is: the inspector and the page are two views of
+   one object, and a heading that only appears in one of them says otherwise. */
+.panel-title {
+  color: var(--text-muted);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--sp-1);
+}
+
+/* A caption with a live value. The name sits left and the number right, so the
+   name never moves as the number changes width — "Opacity: 0.20" reflowed its
+   own label on every step of the slider under it. */
+label.cap {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+label.cap > span {
+  color: var(--text);
+}
+
+/* A choice, not a caption: full-strength text, and the box aligned with it. */
+.panel-block label:has(input[type='checkbox']),
+.tool-settings label:has(input[type='checkbox']) {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text);
 }
 
 /* --- form elements ---
@@ -2090,16 +2168,12 @@ a {
   height: 100%;
 }
 
+/* No `gap` — the two-gap rhythm up by .panel-block is what spaces this, and a
+   gap underneath it would add to every one of those margins. */
 .tool-settings {
   padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.tool-settings label {
-  color: var(--muted);
-  font-size: 12px;
 }
 
 /* --- select (our own; see Select.tsx for why the native popup had to go) --- */
