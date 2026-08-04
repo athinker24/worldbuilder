@@ -792,7 +792,13 @@ export default function MapView({
   const hostRectRef = useRef<DOMRect | null>(null)
   const mapRef = useRef<L.Map | null>(null)
   const featureGroupRef = useRef<L.FeatureGroup | null>(null)
-  const imageLayerRef = useRef<L.ImageOverlay | null>(null)
+  // The base image: its own canvas under Leaflet's panes, and the picture decoded once (see
+  // drawBase). x/y/w/h are the image's rectangle in zoom-0 layer space, the same space the WebGL
+  // layers work in — MapView owns every conversion out of Leaflet, here as everywhere.
+  const baseCanvas = useRef<HTMLCanvasElement | null>(null)
+  const baseImg = useRef<{ bmp: ImageBitmap; x: number; y: number; w: number; h: number } | null>(
+    null
+  )
   // Polygon name labels live in a WebGL layer, not the DOM — see pixiLabels.ts for the
   // measurements that forced it. `polySpec` is the label each polygon WOULD draw; applyYear
   // decides which of them are actually visible this year and hands that subset to the layer.
@@ -1616,12 +1622,66 @@ export default function MapView({
     layer.draw(c.x - size.x / 2, c.y - size.y / 2, 2 ** zoom, size.x, size.y)
   }
 
+  /**
+   * The base image, drawn on its own canvas.
+   *
+   * It used to be an `L.imageOverlay`, and that <img> was the single most expensive thing on the
+   * map without anyone suspecting it: Leaflet resizes the element at every zoom commit, and a size
+   * change makes Chromium DECODE the picture again at the new size. A trace of the first zoom
+   * after a pause put 170 ms in `ImageFrameGenerator::decodeAndScale` with the main thread parked
+   * in `LayerTreeHost::WaitForCommitCompletion` — on a 4096x4096 png, which is an ordinary size for
+   * a world map. It came back on every launch and after every idle spell, because the decoded
+   * copies are a cache and the cache gets dropped. `will-change: transform` does not help: what
+   * changes is the element's SIZE, not a transform.
+   *
+   * An ImageBitmap is decoded ONCE and blitted; scaling it is the GPU's business and costs nothing
+   * per frame. That is also why this is a plain 2D canvas and not a third Pixi app — one textured
+   * quad does not need a renderer.
+   *
+   * z-index 350 puts it UNDER Leaflet's overlay pane (400), which is where the selected feature
+   * and anything being edited still live as real SVG. Drawing it into the shape layer's canvas
+   * (450) would have hidden them.
+   */
+  const drawBase = (ox: number, oy: number, scale: number, w: number, h: number): void => {
+    const cv = baseCanvas.current
+    if (!cv) return
+    const dpr = window.devicePixelRatio || 1
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+      cv.width = Math.round(w * dpr)
+      cv.height = Math.round(h * dpr)
+    }
+    const ctx = cv.getContext('2d')
+    if (!ctx) return
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, w, h)
+    const b = baseImg.current
+    if (!b) return
+    const x = b.x * scale - ox
+    const y = b.y * scale - oy
+    const dw = b.w * scale
+    const dh = b.h * scale
+    // The "lit object on a dark table" the CSS box-shadow used to give it. Concentric strokes
+    // rather than ctx.shadowBlur: a 40px blur of a rect this size, on the frame path, is a real
+    // cost, and six fading lines are indistinguishable at these opacities.
+    for (let i = 6; i >= 1; i--) {
+      ctx.strokeStyle = `rgba(0,0,0,${0.06 * (7 - i) * 0.14})`
+      ctx.lineWidth = i * 6
+      ctx.strokeRect(x - i * 3, y - i * 3 + 8, dw + i * 6, dh + i * 6)
+    }
+    ctx.drawImage(b.bmp, x, y, dw, dh)
+    ctx.strokeStyle = 'rgba(255,255,255,0.09)'
+    ctx.lineWidth = 1
+    ctx.strokeRect(x - 0.5, y - 0.5, dw + 1, dh + 1)
+  }
+
   /** The same view, handed to the shape layer. Split only because the two canvases are separate. */
   const drawShapes = (ox?: number, oy?: number, sc?: number, w?: number, h?: number): void => {
     const map = mapRef.current
     const sl = shapeLayer.current
-    if (!map || !sl) return
+    if (!map) return
     if (ox !== undefined) {
+      drawBase(ox, oy!, sc!, w!, h!)
+      if (!sl) return
       sl.setScale(sc!)
       sl.draw(ox, oy!, sc!, w!, h!)
       return
@@ -1629,6 +1689,8 @@ export default function MapView({
     const zoom = map.getZoom()
     const size = map.getSize()
     const c = map.project(map.getCenter(), zoom)
+    drawBase(c.x - size.x / 2, c.y - size.y / 2, 2 ** zoom, size.x, size.y)
+    if (!sl) return
     sl.setScale(2 ** zoom)
     sl.draw(c.x - size.x / 2, c.y - size.y / 2, 2 ** zoom, size.x, size.y)
   }
@@ -3783,6 +3845,14 @@ export default function MapView({
     // Shapes get their own canvas UNDER the markers, labels theirs above. One canvas cannot do
     // both: Leaflet stacks its panes by z-index (overlay 400, markers 600) and regions have to sit
     // below the pins while names sit above them, so the two WebGL layers straddle the marker pane.
+    // The base image's canvas, BELOW Leaflet's overlay pane (400) — the selected feature and
+    // anything under geoman are still real SVG in there and must stay visible over the map.
+    const bc = document.createElement('canvas')
+    bc.style.cssText =
+      'position:absolute;inset:0;width:100%;height:100%;z-index:350;pointer-events:none'
+    host.appendChild(bc)
+    baseCanvas.current = bc
+
     const sc = document.createElement('canvas')
     sc.style.cssText =
       'position:absolute;inset:0;width:100%;height:100%;z-index:450;pointer-events:none'
@@ -4126,6 +4196,11 @@ export default function MapView({
       shapeLayer.current?.destroy()
       shapeLayer.current = null
       sc.remove()
+      // A decoded 4096x4096 image is ~67 MB, and MapView remounts on every map switch.
+      baseImg.current?.bmp.close()
+      baseImg.current = null
+      baseCanvas.current = null
+      bc.remove()
       if (wheelRaf !== null) cancelAnimationFrame(wheelRaf)
       if (panRaf !== null) cancelAnimationFrame(panRaf)
       host.removeEventListener('mousedown', onDown)
@@ -4166,18 +4241,41 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.token])
 
-  // Base image: add/refresh the layer when image_path changes (no remount → appears instantly)
+  // Base image: decode it once into an ImageBitmap and hand the rectangle to drawBase. No Leaflet
+  // layer any more — see drawBase for why the <img> was the most expensive thing on the map.
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    imageLayerRef.current?.remove()
-    imageLayerRef.current = null
+    let dropped = false
+    baseImg.current?.bmp.close()
+    baseImg.current = null
     if (worldMap?.image_path && worldMap.width && worldMap.height) {
       const bounds: L.LatLngBoundsExpression = [
         [0, 0],
         [worldMap.height, worldMap.width]
       ]
-      imageLayerRef.current = L.imageOverlay(assetUrl(worldMap.image_path), bounds).addTo(map)
+      // An <img> rather than fetch(): `world://` is the app's own scheme and this is how every
+      // other asset is loaded; crossOrigin before src, since the scheme is a different origin and
+      // a canvas that draws an image fetched without CORS is tainted (the same trap the WebGL
+      // fill images hit — see pixiShapes.texture).
+      const el = new Image()
+      el.crossOrigin = 'anonymous'
+      el.onload = () => {
+        const p0 = map.project(L.latLng(0, 0), 0)
+        const p1 = map.project(L.latLng(worldMap.height!, worldMap.width!), 0)
+        void createImageBitmap(el).then((bmp) => {
+          if (dropped) return bmp.close()
+          baseImg.current = {
+            bmp,
+            x: Math.min(p0.x, p1.x),
+            y: Math.min(p0.y, p1.y),
+            w: Math.abs(p1.x - p0.x),
+            h: Math.abs(p1.y - p0.y)
+          }
+          drawShapes() // it arrives a frame or two after the map is up; nothing else asks again
+        })
+      }
+      el.src = assetUrl(worldMap.image_path)
       map.fitBounds(bounds)
       const fit = map.getBoundsZoom(bounds)
       setFitZoom(fit)
@@ -4201,7 +4299,11 @@ export default function MapView({
       // Holding the floor at fit keeps the view inside the bounds at every reachable zoom, so only
       // the clamping branch can run. It also makes this line agree with the comment above it.
       map.setMinZoom(map.getBoundsZoom(bounds))
+    } else drawShapes() // no image: clear whatever the last map left on the canvas
+    return () => {
+      dropped = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [worldMap?.image_path, worldMap?.width, worldMap?.height])
 
   // After undo/redo: refresh features without remounting the map (zoom/position kept)
