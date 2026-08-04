@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
-import { join, basename, extname } from 'path'
+import { join, basename, extname, normalize, sep } from 'path'
 import {
   mkdirSync,
   copyFileSync,
@@ -21,6 +21,9 @@ import { BATCH_MS, COALESCE_MS } from './log/thresholds.ts'
 
 // Kept free of Electron imports so `node src/main/db.ts` can run the self-check standalone.
 let db!: DatabaseSync
+// The data folder itself, kept because resolveAssetPath answers questions about paths BELOW it
+// (the world:// scheme is handed a path relative to this, not to assets/).
+let dataDir: string
 let assetsDir: string
 let dbFile: string
 let backupsDir: string
@@ -69,8 +72,9 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `
 
-export function initDb(dataDir: string): void {
-  assetsDir = join(dataDir, 'assets')
+export function initDb(dir: string): void {
+  dataDir = dir
+  assetsDir = join(dir, 'assets')
   mkdirSync(assetsDir, { recursive: true })
   dbFile = join(dataDir, 'world.db')
   backupsDir = join(dataDir, 'backups')
@@ -506,6 +510,28 @@ export const worldStats = (): Record<string, number> => {
   const n = (t: string): number =>
     Number((db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n)
   return { entities: n('entities'), maps: n('maps'), features: n('features') }
+}
+
+/**
+ * The absolute path a `world://` request may be served from, or null if it points outside
+ * `assets/`.
+ *
+ * It lives HERE, next to the folder it defends, rather than inline in the protocol handler: this
+ * is the app's only path check driven entirely by hostile input — a `.dunya`'s notes can name any
+ * url they like and its polygon fills are loaded as WebGL textures with CORS answered — and
+ * db.ts is the one main-process file the self-check can run, so the check gets assertions instead
+ * of a careful reading.
+ *
+ * Confined to `assets/` and not to the data folder: DATA_DIR also holds world.db, the logs and
+ * every backup, and the scheme exists to serve the images a world refers to. `importAsset` writes
+ * `assets/<name>` and `unpackWorld` extracts there, so nothing legitimate lives anywhere else.
+ *
+ * The `+ sep` is what stops a sibling folder named `assets-other` from passing a plain
+ * startsWith, and normalize() is what collapses `..` before the comparison rather than after.
+ */
+export function resolveAssetPath(rel: string): string | null {
+  const full = normalize(join(dataDir, rel))
+  return full.startsWith(normalize(assetsDir) + sep) ? full : null
 }
 
 /** Does the working copy hold anything worth keeping? (avoids a pointless snapshot on blank launch) */
@@ -1858,6 +1884,27 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     utimesSync(stale, new Date(0), new Date(0))
     initLog(ldir, '9.9.9', () => ({}))
     assert.ok(!existsSync(stale), 'a log past the retention window is removed on launch')
+  }
+
+  // --- world:// path confinement -----------------------------------------------------------
+  // Every one of these is something a `.dunya` can put in a note or a polygon's fill, so the
+  // check gets assertions rather than a careful reading. initDb has already run above, so
+  // resolveAssetPath is answering about this run's temp data folder.
+  {
+    assert.ok(resolveAssetPath('assets/x.png'), 'an ordinary asset is served')
+    assert.ok(resolveAssetPath('assets/sub/x.png'), 'and one in a subfolder')
+    // The two files in the data folder that are NOT images, and the folder full of copies of it.
+    assert.equal(resolveAssetPath('world.db'), null, 'the database is not an asset')
+    assert.equal(resolveAssetPath('logs/today.log'), null, 'nor is the log')
+    assert.equal(resolveAssetPath('backups/world-2026.db'), null, 'nor is a backup')
+    // Traversal, in the forms that actually arrive: a decoded relative path, a Windows separator
+    // (path.normalize treats both on win32), and a sibling folder that shares the prefix.
+    assert.equal(resolveAssetPath('assets/../world.db'), null, 'climbing out of assets is refused')
+    assert.equal(resolveAssetPath('../../../etc/passwd'), null, 'and so is climbing past the root')
+    assert.equal(resolveAssetPath('assets\\..\\world.db'), null, 'backslashes are separators too')
+    assert.equal(resolveAssetPath('assets-other/x.png'), null, 'a sibling folder must not pass')
+    // The check must not be defeated by the thing it looks for appearing later in the path.
+    assert.equal(resolveAssetPath('backups/assets/x.png'), null, 'assets/ elsewhere is not assets/')
   }
 
   console.log('db self-check OK')

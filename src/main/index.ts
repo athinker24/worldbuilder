@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, protocol, net, Menu } from 'electron'
-import { basename, join, normalize, sep } from 'path'
+import { basename, join } from 'path'
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { writeFile } from 'fs/promises'
 import { execFile } from 'child_process'
@@ -14,6 +14,7 @@ import {
   resetWorld,
   unpackWorld,
   worldStats,
+  resolveAssetPath,
   NOT_A_WORLD,
   WORLD_TOO_LARGE,
   api as dbApi
@@ -668,8 +669,24 @@ const mainApi = {
   openLogFolder: (): void => openLogs(),
   getPrefs: (): Prefs => readPrefs(),
   savePrefs(patch: Prefs): void {
-    writePrefs({ ...readPrefs(), ...patch })
-    if (patch.debugLog !== undefined) logSetDebug(patch.debugLog === true)
+    // Allow-listed, the same way patchSql treats an UPDATE: everything arriving over the bridge is
+    // untrusted, and this one writes a file that is read back and spread into the app on every
+    // launch. Without the filter a renderer running a hostile world could put anything of any size
+    // in there — including a key a later version starts trusting.
+    const keep: Prefs = {}
+    if (typeof patch?.language === 'string') keep.language = patch.language.slice(0, 8)
+    if (typeof patch?.theme === 'string') keep.theme = patch.theme.slice(0, 32)
+    // Widths are clamped rather than merely typed: the panes read them straight back as pixels,
+    // and a NaN or a negative would land in a style attribute.
+    const px = (v: unknown): number | undefined =>
+      typeof v === 'number' && Number.isFinite(v) ? Math.min(2000, Math.max(120, v)) : undefined
+    const sw = px(patch?.sidebarWidth)
+    const mw = px(patch?.mapPanelWidth)
+    if (sw !== undefined) keep.sidebarWidth = sw
+    if (mw !== undefined) keep.mapPanelWidth = mw
+    if (typeof patch?.debugLog === 'boolean') keep.debugLog = patch.debugLog
+    writePrefs({ ...readPrefs(), ...keep })
+    if (keep.debugLog !== undefined) logSetDebug(keep.debugLog === true)
     buildMenu() // menu labels follow the language
   },
   async pickImage(): Promise<string | null> {
@@ -687,12 +704,28 @@ const mainApi = {
     defaultName: string
   ): Promise<string | null> {
     if (!mainWindow) return null
+    // basename: the name comes from the renderer and only ever names a map. A path in it would
+    // silently move where the dialog opens — the user still has to accept it, but a save dialog
+    // that opens somewhere the user did not choose is exactly the kind of nudge worth removing.
     const r = await dialog.showSaveDialog(mainWindow, {
-      defaultPath: `${defaultName}.png`,
+      defaultPath: `${basename(String(defaultName ?? 'map')).slice(0, 80) || 'map'}.png`,
       filters: [{ name: 'PNG', extensions: ['png'] }]
     })
     if (r.canceled || !r.filePath) return null
-    const image = await mainWindow.webContents.capturePage(rect)
+    // The rect is CSS pixels from the renderer's own getBoundingClientRect. Sanity-checked
+    // because it is handed to the compositor: a NaN takes the capture out, and an enormous one
+    // asks the GPU process for a bitmap the size of the number.
+    const n = (v: unknown, max: number): number =>
+      typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(0, Math.round(v))) : 0
+    const [winW, winH] = mainWindow.getContentSize()
+    const safeRect = {
+      x: n(rect?.x, winW),
+      y: n(rect?.y, winH),
+      width: n(rect?.width, winW),
+      height: n(rect?.height, winH)
+    }
+    if (!safeRect.width || !safeRect.height) return null
+    const image = await mainWindow.webContents.capturePage(safeRect)
     await writeFile(r.filePath, image.toPNG())
     return r.filePath
   }
@@ -901,11 +934,20 @@ app.whenReady().then(() => {
   }
 
   protocol.handle('world', async (req) => {
-    const rel = decodeURIComponent(new URL(req.url).pathname)
-    const full = normalize(join(DATA_DIR, rel))
-    // prefix + separator: sibling folders like "Worldbuilder-other" must not pass
-    if (!full.startsWith(normalize(DATA_DIR) + sep))
-      return new Response('forbidden', { status: 403 })
+    // A malformed percent-escape throws here, and a throw inside the handler is an unhandled
+    // rejection rather than a failed request. `![](world://data/%)` in a note is enough to reach it.
+    let rel: string
+    try {
+      rel = decodeURIComponent(new URL(req.url).pathname)
+    } catch {
+      return new Response('bad request', { status: 400 })
+    }
+    // The url is `world://data/assets/x.png`, so the path arrives with the `assets/` segment on
+    // it and resolveAssetPath is given it relative to the data folder. Confinement, and the
+    // reasoning for confining to assets/ rather than to DATA_DIR, live with the folder in db.ts —
+    // where the self-check can assert them.
+    const full = resolveAssetPath(rel)
+    if (!full) return new Response('forbidden', { status: 403 })
     const res = await net.fetch(pathToFileURL(full).toString())
     // A texture upload from an image of another origin is a security error in WebGL, and this
     // scheme IS another origin — that is what made a polygon's fill image render black instead of
