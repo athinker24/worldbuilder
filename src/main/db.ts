@@ -506,10 +506,32 @@ function repairImportedJson(): number {
   // function exists to prevent. Reset to a degenerate Point rather than deleting the row: the
   // rule here is that rows are never dropped, and a stray pin at the origin is visible and
   // fixable, whereas a deleted drawing is silently gone.
+  //
+  // isPlainObject is not enough for this column, and it is the only one where that is true.
+  // `{"type":"Polygon","coordinates":"x"}` is a perfectly good object, and it is what Leaflet is
+  // handed: L.geoJSON walks `coordinates` and throws inside the reload, which is the same dead
+  // map the syntax check was added to prevent — one step further in. So the shape is checked too,
+  // shallowly: a known type and an array of coordinates. Nothing deeper, because the numbers
+  // themselves are already tolerated everywhere downstream (a NaN draws nothing; it does not
+  // throw), and a gate that walked every ring of every polygon on open would cost more than it
+  // saves.
+  const GEOM_TYPES = new Set([
+    'Point',
+    'LineString',
+    'Polygon',
+    'MultiPoint',
+    'MultiLineString',
+    'MultiPolygon'
+  ])
+  const isGeometry = (v: string): boolean => {
+    if (!isPlainObject(v)) return false
+    const g = JSON.parse(v) as { type?: unknown; coordinates?: unknown }
+    return typeof g.type === 'string' && GEOM_TYPES.has(g.type) && Array.isArray(g.coordinates)
+  }
   repair(
     'geometry',
     db.prepare(`SELECT id, geometry AS v FROM features`).all() as { id: number; v: string }[],
-    isPlainObject,
+    isGeometry,
     `UPDATE features SET geometry = ? WHERE id = ?`,
     '{"type":"Point","coordinates":[0,0]}'
   )
@@ -1592,6 +1614,21 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       (JSON.parse(bm.features[0].geometry) as { type: string }).type,
       'Point',
       'malformed geometry must be repaired to a degenerate Point, not left as-is'
+    )
+    // ...and a geometry that PARSES but is not one is the same dead map one step further in:
+    // L.geoJSON walks `coordinates` and throws inside the reload. A plausible object is not a
+    // geometry.
+    const shaped = join(dir, 'shaped.dunya')
+    copyFileSync(dunya, shaped)
+    const sh = new DatabaseSync(shaped)
+    sh.exec(`UPDATE features SET geometry = '{"type":"Polygon","coordinates":"x"}'`)
+    sh.close()
+    unpackWorld(shaped)
+    const sm = api.getMap(m.id) as { features: { geometry: string }[] }
+    assert.equal(
+      (JSON.parse(sm.features[0].geometry) as { type: string }).type,
+      'Point',
+      'a well-formed object that is not a geometry is repaired too'
     )
   }
   // A file that is NOT one of our worlds must be refused BEFORE anything is overwritten.
