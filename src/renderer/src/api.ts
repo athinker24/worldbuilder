@@ -390,11 +390,31 @@ export interface MapModes {
   colors: Record<string, Record<string, string>> // dim → value → hex
 }
 
+/**
+ * Shape coercion for values that come out of the `settings` table.
+ *
+ * `repairImportedJson` (db.ts) already guarantees that anything JSON-looking in there PARSES —
+ * it resets what does not, at the gate, before the renderer ever sees it. What it cannot know is
+ * the shape each key is supposed to have, and the loaders below spread a parsed value straight
+ * into a typed object. A `.dunya` carrying `{"dims": "x"}` or `{"periods": 5}` therefore reaches
+ * `.map()` on a string and takes down a whole screen — the map, the timeline, the sidebar —
+ * where the honest outcome is that one setting falls back to its default.
+ *
+ * Not defensive habit: these three are the shapes this file actually consumes, and they are
+ * applied only where a wrong one would throw during render.
+ */
+const asArray = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : [])
+const asObject = <T extends object>(v: unknown, fallback: T): T =>
+  v && typeof v === 'object' && !Array.isArray(v) ? (v as T) : fallback
+const asNumber = (v: unknown, fallback: number): number =>
+  typeof v === 'number' && Number.isFinite(v) ? v : fallback
+const asString = (v: unknown, fallback: string): string => (typeof v === 'string' ? v : fallback)
+
 export async function getMapModes(): Promise<MapModes> {
   const raw = await api.getSetting('mapModes')
   if (!raw) return { dims: [], colors: {} }
-  const p = JSON.parse(raw) as Partial<MapModes>
-  return { dims: p.dims ?? [], colors: p.colors ?? {} }
+  const p = asObject<Partial<MapModes>>(JSON.parse(raw), {})
+  return { dims: asArray<string>(p.dims), colors: asObject(p.colors, {}) }
 }
 
 export const saveMapModes = (m: MapModes): Promise<void> =>
@@ -440,7 +460,7 @@ export interface FolderDef {
 }
 
 export const getEntityFolders = async (): Promise<FolderDef[]> =>
-  JSON.parse((await api.getSetting('entityFolders')) || '[]')
+  asArray<FolderDef>(JSON.parse((await api.getSetting('entityFolders')) || '[]'))
 
 export const saveEntityFolders = (list: FolderDef[]): Promise<void> =>
   api.setSetting('entityFolders', JSON.stringify(list))
@@ -454,7 +474,7 @@ export const personFolderIds = (folders: FolderDef[]): Set<string> =>
   new Set(folders.filter((f) => f.isPerson).map((f) => f.id))
 
 export const getTemplates = async (): Promise<EntityTemplate[]> =>
-  JSON.parse((await api.getSetting('templates')) || '[]')
+  asArray<EntityTemplate>(JSON.parse((await api.getSetting('templates')) || '[]'))
 
 export const saveTemplates = (list: EntityTemplate[]): Promise<void> =>
   api.setSetting('templates', JSON.stringify(list))
@@ -469,7 +489,7 @@ export interface PinImage {
 }
 
 export const getPinImages = async (): Promise<PinImage[]> =>
-  JSON.parse((await api.getSetting('pinImages')) || '[]')
+  asArray<PinImage>(JSON.parse((await api.getSetting('pinImages')) || '[]'))
 
 export const savePinImages = (list: PinImage[]): Promise<void> =>
   api.setSetting('pinImages', JSON.stringify(list))
@@ -524,9 +544,21 @@ const TIMELINE_DEFAULT: TimelineConfig = {
 
 export async function getTimeline(): Promise<TimelineConfig> {
   const raw = await api.getSetting('timeline')
-  return raw
-    ? { ...TIMELINE_DEFAULT, ...(JSON.parse(raw) as Partial<TimelineConfig>) }
-    : TIMELINE_DEFAULT
+  if (!raw) return TIMELINE_DEFAULT
+  const p = asObject<Partial<TimelineConfig>>(JSON.parse(raw), {})
+  // The numbers drive a range input and the arrays are mapped over during render, so each one is
+  // taken only if it is what it claims to be. Everything else keeps the default it had.
+  return {
+    ...TIMELINE_DEFAULT,
+    ...p,
+    before: asString(p.before, TIMELINE_DEFAULT.before),
+    after: asString(p.after, TIMELINE_DEFAULT.after),
+    min: asNumber(p.min, TIMELINE_DEFAULT.min),
+    max: asNumber(p.max, TIMELINE_DEFAULT.max),
+    year: asNumber(p.year, TIMELINE_DEFAULT.year),
+    periods: asArray(p.periods),
+    events: asArray(p.events)
+  }
 }
 
 export const saveTimeline = (t: TimelineConfig): Promise<void> =>
