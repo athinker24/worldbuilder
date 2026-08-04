@@ -2092,6 +2092,32 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.ok(scrubbed.includes(join('~', 'app')), 'and what replaces it still names the file')
   }
 
+  // --- what the packaged build promises ------------------------------------------------------
+  // Two things in electron-builder.yml that are one deleted line away from being gone, and whose
+  // absence shows up in nothing: a build still succeeds, still installs, still runs.
+  //
+  // The fuses are flipped in the binary, so they cannot be turned back on by an environment
+  // variable or a command line — each closes a way to make our signed-looking exe run somebody
+  // else's code. The excludes keep the internals dossier out of the asar: CLAUDE.md is a map of
+  // every mitigation in this list, which is worth more to an attacker than to any user.
+  {
+    const yml = readFileSync(join(import.meta.dirname, '../../electron-builder.yml'), 'utf8')
+    for (const fuse of [
+      'runAsNode: false',
+      'enableNodeOptionsEnvironmentVariable: false',
+      'enableNodeCliInspectArguments: false',
+      'onlyLoadAppFromAsar: true',
+      'enableEmbeddedAsarIntegrityValidation: true'
+    ])
+      assert.ok(yml.includes(fuse), `the packaged build must keep the fuse ${fuse}`)
+    for (const doc of ['CLAUDE.md', 'HANDOFF.md'])
+      assert.ok(
+        new RegExp(`!\\{[^}]*${doc.replace('.', '\\.')}`).test(yml),
+        `${doc} must stay out of the shipped asar`
+      )
+    assert.ok(yml.includes("'!src/**'"), 'the sources must stay out too — a single * misses them')
+  }
+
   // --- the CSP -------------------------------------------------------------------------------
   // The policy is the spine of the security contract and nothing tested it: it is one attribute in
   // one HTML file, edited by hand, and every directive in it was added because something specific
