@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   api,
   BoardDef,
+  Entity,
   EntityRow,
   FolderDef,
   folderColor,
@@ -198,7 +199,36 @@ export default function App(): React.JSX.Element {
     h.idx = h.stack.length - 1
   }, [])
 
-  const openEntity = useCallback((id: number): void => navigate({ kind: 'entity', id }), [navigate])
+  /**
+   * Open an article — after fetching it, not before.
+   *
+   * EntityPage is keyed by id, so a switch remounts it with no data and the page went blank for
+   * the length of one IPC round trip: a black flash on every click in the sidebar. Reading the row
+   * FIRST costs the same few milliseconds, but they are spent with the previous article still on
+   * screen, and the new one arrives complete. The stash is checked against the id at render, so a
+   * remount from anything else (an undo bumps the key) cannot be handed the wrong article.
+   *
+   * State rather than a ref, because it is READ during render — and a ref read there is both a
+   * lint error in this codebase and the bug the rule exists for. Set in the same tick as the
+   * navigation, so React batches the two into one render.
+   */
+  const [preloaded, setPreloaded] = useState<{
+    id: number
+    entity: Entity | null
+    feats: Awaited<ReturnType<typeof api.featuresByEntity>>
+  } | null>(null)
+  const openEntity = useCallback(
+    (id: number): void => {
+      // Both reads, not just the article: the map-history block is the one section that appears
+      // only when it has rows, so fetching it a tick later pushed the page down after it was
+      // already on screen. One round trip for the pair.
+      void Promise.all([api.getEntity(id), api.featuresByEntity(id)]).then(([entity, feats]) => {
+        setPreloaded({ id, entity, feats })
+        navigate({ kind: 'entity', id })
+      })
+    },
+    [navigate]
+  )
   // Every map open writes 'lastMapId' (all switches — toolbar menu included — pass through
   // here) → returning to the app/maps reopens the last viewed map. Lives in the settings
   // table, so it travels inside the .dunya.
@@ -1178,6 +1208,8 @@ export default function App(): React.JSX.Element {
             <EntityPage
               key={`e-${view.id}-${bump}`}
               id={view.id}
+              initial={preloaded?.id === view.id ? preloaded.entity : null}
+              initialFeats={preloaded?.id === view.id ? preloaded.feats : undefined}
               folders={folders}
               onOpen={openEntity}
               onChanged={refresh}
