@@ -1839,7 +1839,6 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.ok(!/^12:00:00\.000/m.test(forged), 'a newline in a scope cannot start a line')
     assert.ok(!/^INFO {2}fake\.line/m.test(forged), 'nor can one in a key')
 
-
     const txt = readFileSync(only(), 'utf8')
     assert.ok(txt.includes('App       9.9.9'), 'the header carries the version')
     assert.ok(/INFO {2}.*project\.opened.*entities=163/.test(txt), 'one line per event')
@@ -1921,7 +1920,6 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.ok(capped.includes('log capped'), 'the cap is announced, not silent')
     assert.ok(!capped.includes('long after the cap'), 'and it holds')
 
-
     // Retention: past the age limit a file goes, whatever the count says. Logs must not be a
     // folder that only ever grows on someone's machine.
     const stale = join(logs, '2020-01-01_00-00-00_old_session.log')
@@ -1946,7 +1944,10 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     flushLog()
     const slogs = join(sdir, 'logs')
     const scrubbed = readFileSync(
-      join(slogs, readdirSync(slogs).find((f) => /_session\.log$/.test(f))!),
+      join(
+        slogs,
+        readdirSync(slogs).find((f) => /_session\.log$/.test(f))!
+      ),
       'utf8'
     )
     assert.ok(!scrubbed.includes(homedir()), 'the home directory never reaches the file')
