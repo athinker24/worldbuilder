@@ -59,7 +59,22 @@ const dashRing = (
   scale: number,
   emit: (a: number[], b: number[]) => void
 ): void => {
-  const pat = pattern.map((v) => Math.max(v / scale, 1e-6))
+  // The floor is a fraction of the RING, not a constant, and that is a security property rather
+  // than a nicety. The pattern comes from lineDashArray(dash, weight), and `weight` is read
+  // straight out of a feature's style — i.e. straight out of a `.dunya` someone sent you. With a
+  // weight of 1e-9 (or a negative one) every entry lands on the old fixed 1e-6 floor, and this
+  // loop then walks a ring thousands of units long in millionths: the renderer hangs the moment
+  // the map opens, before anything is drawn to say why.
+  //
+  // Scaling the floor to the ring bounds the loop by construction — at most MAX_DASH_STEPS
+  // segments however small the pattern claims to be — and changes nothing for a real one, where
+  // the entries are whole pixels and this floor is orders of magnitude below them.
+  const MAX_DASH_STEPS = 4000
+  let len = 0
+  for (let i = 1; i < ring.length; i++)
+    len += Math.hypot(ring[i][0] - ring[i - 1][0], ring[i][1] - ring[i - 1][1])
+  const floor = Math.max(len / MAX_DASH_STEPS, 1e-6)
+  const pat = pattern.map((v) => Math.max(v / scale, floor))
   let idx = 0
   let left = pat[0]
   let on = true
