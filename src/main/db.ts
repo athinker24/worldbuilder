@@ -526,6 +526,64 @@ function repairImportedJson(): number {
     fixed++
     byKind.settings = (byKind.settings ?? 0) + 1
   }
+  // CYCLES IN THE TWO TREES. A map's parent and a sidebar folder's parent are both plain ids, and
+  // a `.dunya` can carry any pair it likes — nothing has to go through the UI's own guard, which
+  // is written where a cycle would be CREATED. Downstream both are walked without one: MapView's
+  // breadcrumb is a `while (cur)` that never terminates on a loop, and the map tree and the
+  // folder tree are recursive renders. So the file, not the eleven readers, is where this is met.
+  //
+  // Breaking the link rather than deleting the row: the map and its drawings are the user's work,
+  // and a map that comes back at the top level has lost only its place in the tree.
+  const mapRows = db.prepare(`SELECT id, parent_map_id FROM maps`).all() as {
+    id: number
+    parent_map_id: number | null
+  }[]
+  const parentOf = new Map(mapRows.map((m) => [m.id, m.parent_map_id]))
+  const clearParent = db.prepare(`UPDATE maps SET parent_map_id = NULL WHERE id = ?`)
+  for (const m of mapRows) {
+    const seen = new Set<number>([m.id])
+    let cur = parentOf.get(m.id) ?? null
+    while (cur !== null && cur !== undefined && !seen.has(cur)) {
+      seen.add(cur)
+      cur = parentOf.get(cur) ?? null
+    }
+    // Landing back on something already walked means this row sits on a loop. Cutting THIS row's
+    // link is enough to open it; the rest of the chain keeps its shape.
+    if (cur !== null && cur !== undefined) {
+      clearParent.run(m.id)
+      parentOf.set(m.id, null)
+      fixed++
+      byKind.mapParent = (byKind.mapParent ?? 0) + 1
+    }
+  }
+
+  // The same for the sidebar's folder tree, which lives as one JSON array in settings.
+  const rawFolders = api.getSetting('entityFolders')
+  if (rawFolders && isArray(rawFolders)) {
+    const folders = JSON.parse(rawFolders) as { id: string; parent: string | null }[]
+    const fParent = new Map(folders.map((f) => [f.id, f.parent ?? null]))
+    let cut = 0
+    for (const f of folders) {
+      if (!f || typeof f.id !== 'string') continue
+      const seen = new Set<string>([f.id])
+      let cur = fParent.get(f.id) ?? null
+      while (cur && !seen.has(cur)) {
+        seen.add(cur)
+        cur = fParent.get(cur) ?? null
+      }
+      if (cur) {
+        f.parent = null
+        fParent.set(f.id, null)
+        cut++
+      }
+    }
+    if (cut) {
+      api.setSetting('entityFolders', JSON.stringify(folders))
+      fixed += cut
+      byKind.folderParent = cut
+    }
+  }
+
   // WARN, not INFO: nothing else in the app throws a user's data away, and the only trace it used
   // to leave was the data being gone. A clean file stays silent.
   if (fixed) logEvent('WARN', 'data.repaired', { rows: fixed, ...byKind })
@@ -1594,6 +1652,49 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   // what the renderer then cannot read. Measured with a 208 KB file that opened cleanly and left
   // the map unrenderable. The gate bounds depth WITHOUT parsing, so both sides agree.
   {
+    // A LOOP in either tree. Both parents are plain ids in a file someone sent you, and the app's
+    // own cycle guard sits where a cycle would be created — which a file bypasses entirely. Nobody
+    // downstream survives one: the map breadcrumb is a `while` that never ends, and both trees are
+    // recursive renders. The link is cut, never the row: the maps and their drawings are the work.
+    const looped = join(dir, 'looped.dunya')
+    copyFileSync(dunya, looped)
+    const lp = new DatabaseSync(looped)
+    lp.exec(`DELETE FROM maps`)
+    lp.exec(`INSERT INTO maps (id, name, parent_map_id) VALUES (1, 'A', 2), (2, 'B', 1)`)
+    lp.exec(
+      `INSERT INTO settings (key, value) VALUES ('entityFolders',
+        '[{"id":"f1","name":"one","parent":"f2"},{"id":"f2","name":"two","parent":"f1"}]')
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    )
+    lp.close()
+    unpackWorld(looped)
+    const loopedMaps = api.listMaps() as { id: number; parent_map_id: number | null }[]
+    const chain = (start: number): number => {
+      const seen = new Set<number>()
+      let cur: number | null = start
+      let n = 0
+      while (cur !== null && !seen.has(cur)) {
+        seen.add(cur)
+        n++
+        cur = loopedMaps.find((m) => m.id === cur)?.parent_map_id ?? null
+      }
+      // A terminated walk ends on null; a loop ends because `seen` caught it.
+      return cur === null ? n : -1
+    }
+    assert.ok(
+      loopedMaps.every((m) => chain(m.id) > 0),
+      'no map may still sit on a parent loop after an open'
+    )
+    const foldersAfter = JSON.parse(api.getSetting('entityFolders') || '[]') as {
+      id: string
+      parent: string | null
+    }[]
+    assert.ok(
+      foldersAfter.some((f) => f.parent === null),
+      'the folder loop is opened too, by cutting one link'
+    )
+    assert.equal(foldersAfter.length, 2, 'and neither folder is thrown away to do it')
+
     const deep = join(dir, 'deep.dunya')
     copyFileSync(dunya, deep)
     const nest = (n: number): string => '{"a":'.repeat(n) + '1' + '}'.repeat(n)

@@ -1285,10 +1285,19 @@ export default function MapView({
     hudTimer.current = setTimeout(() => setHudZoom(null), 3000)
   }
 
-  // Breadcrumb: walk the parent chain
+  // Breadcrumb: walk the parent chain.
+  //
+  // `seen` is not defensive programming for its own sake. The UI's cycle guard sits where a cycle
+  // would be CREATED (see the map tree's right-click move), which covers everything this app does
+  // to its own data — and covers nothing about a `.dunya` someone sent you, where parent_map_id is
+  // just a column with whatever is in it. Without this the loop never ends and never throws: it
+  // unshifts into an array until the tab dies. db.ts breaks such a loop at the entry gate now, so
+  // this is the second of two locks, and it is the cheap one.
   const crumbs: MapRow[] = []
+  const walked = new Set<number>()
   let cur = maps.find((m) => m.id === id)
-  while (cur) {
+  while (cur && !walked.has(cur.id)) {
+    walked.add(cur.id)
     crumbs.unshift(cur)
     cur = maps.find((m) => m.id === cur!.parent_map_id)
   }
