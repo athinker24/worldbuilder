@@ -1065,6 +1065,22 @@ kbd {
   overflow-x: hidden; /* clip horizontal overflow rather than showing a scrollbar, including embedded pages */
   flex: 1;
   max-width: 900px;
+  /* The scrollbar here is a classic one, 10px of real layout (see ::-webkit-scrollbar above), so
+     the page shifts sideways by 10px whenever its content stops being taller than the box. That
+     is most visible switching between articles: EntityPage is keyed by id, so it remounts, and
+     for one frame its content is the single line of `.page-loading` — scrollbar gone, everything
+     jumps right, scrollbar back. Reserving the gutter costs 10px on short pages and removes the
+     jump everywhere, not only there. */
+  scrollbar-gutter: stable;
+}
+
+/* The moment between a page being asked for and arriving.
+   Nothing appears for 200ms: an article loads in a few milliseconds, and a message that shows and
+   vanishes inside one blink is not information, it is a flicker. Past 200ms something genuinely is
+   slow and saying so is the honest thing. `both` is what keeps it invisible DURING the delay. */
+.page-loading {
+  color: var(--text-faint);
+  animation: fade-in var(--dur) var(--ease-out) 200ms both;
 }
 
 .page.compact {

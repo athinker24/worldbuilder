@@ -34,6 +34,22 @@ import { pushUndo } from './undo'
 
 interface Props {
   id: number
+  /**
+   * The article, when the caller already has it.
+   *
+   * App keys this component by id, so switching articles REMOUNTS it and the state below starts
+   * empty — which put a blank page on screen for the length of one IPC round trip, every time.
+   * Handing the row in means the first render is already the real page. The map inspector passes
+   * nothing and does not need to: it has no key, so its previous article stays up until the next
+   * one arrives, which is the same effect by another route.
+   */
+  initial?: Entity | null
+  /**
+   * The map-history rows, when the caller already has them. Same reason as `initial`: the block is
+   * conditional on having rows, so arriving a tick later made it POP IN and push the page down —
+   * the same jump, just one section instead of the whole page.
+   */
+  initialFeats?: { id: number; map_id: number; style: string; map_name: string }[]
   folders: FolderDef[]
   compact?: boolean // narrow view inside the map side panel
   onOpen: (id: number) => void
@@ -100,6 +116,8 @@ function getNoteTabs(fieldsJson: string): NoteTab[] {
 
 export default function EntityPage({
   id,
+  initial,
+  initialFeats,
   folders,
   compact,
   onOpen,
@@ -108,7 +126,7 @@ export default function EntityPage({
   onLocateFeature
 }: Props): React.JSX.Element {
   const t = useT()
-  const [entity, setEntity] = useState<Entity | null>(null)
+  const [entity, setEntity] = useState<Entity | null>(initial ?? null)
   const [editing, setEditing] = useState(false)
   const [allEntities, setAllEntities] = useState<EntityRow[]>([])
   // all links, to derive spouses (co-parents of a shared child count as spouses)
@@ -146,7 +164,7 @@ export default function EntityPage({
   // Map history (the OHM chronology pattern): the entity's features with their year ranges
   const [feats, setFeats] = useState<
     { id: number; map_id: number; style: string; map_name: string }[]
-  >([])
+  >(initialFeats ?? [])
 
   // [[ completion suggestion (used by onNoteInput/applyWiki below)
   // The textarea sits in a REF, not state: held in state, the `el.value = …` write counts as
@@ -202,7 +220,11 @@ export default function EntityPage({
     refreshHier()
   }, [id, reload, refreshHier])
 
-  if (!entity) return <div className="page">{t('Loading…')}</div>
+  // Keyed by id in App, so switching articles REMOUNTS this and `entity` starts null again. The
+  // text is delayed in CSS rather than removed: on a fast load nothing appears at all, and a slow
+  // one still explains itself. See .page-loading, and the scrollbar gutter that stops the page
+  // shifting sideways while this one line is all there is.
+  if (!entity) return <div className="page page-loading">{t('Loading…')}</div>
 
   const fields = JSON.parse(entity.fields || '{}') as Record<string, string>
 
