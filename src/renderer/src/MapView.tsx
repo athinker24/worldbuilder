@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import '@geoman-io/leaflet-geoman-free'
 import 'leaflet/dist/leaflet.css'
@@ -873,6 +873,26 @@ export default function MapView({
       ro.disconnect()
     }
   }, [])
+  /**
+   * The one resize that must NOT wait a frame: the inspector opening and closing.
+   *
+   * It is a flex sibling of the map, so selecting a polygon takes ~380px of width away from the
+   * map in the very layout React is writing — while both WebGL canvases still hold a bitmap of
+   * the OLD width. Their backing store is only resized inside draw(), and the observer above
+   * cannot get there in time: it fires mid-layout, so it is obliged to defer to a frame. For that
+   * one frame the browser stretches the old picture into the new box, and the whole map squashes
+   * and snaps back — on open and again on close. That flicker is what looked like a reload.
+   *
+   * A layout effect runs after the DOM change and before the paint, which is exactly the window
+   * this needs: invalidateSize fires `move` synchronously, our handler redraws both canvases at
+   * the new size, and the frame that reaches the screen is already correct. The observer stays
+   * for everything that resizes the map WITHOUT re-rendering this component (dragging either
+   * pane's edge, collapsing the sidebar, the window itself).
+   */
+  const panelOpen = !!selected && !hidePanels
+  useLayoutEffect(() => {
+    mapRef.current?.invalidateSize({ animate: false, pan: false })
+  }, [panelOpen])
   // Zoom at which the whole map fits the window — the origin for the % readout.
   // State, not a ref: it is read while rendering the HUD and changes only when a
   // base image loads, so it is nowhere near the zoom hot path.
