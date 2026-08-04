@@ -306,6 +306,20 @@ function probeWorldFile(sourcePath: string): void {
   }
 }
 
+/**
+ * Does calling this method CHANGE THE WORLD?
+ *
+ * The answer drives the dirty flag, which drives the star in the title bar and the Save / Don't
+ * Save / Cancel prompt on close — so a method that changes something and is not recognised here
+ * lets the user close on unsaved work without being asked. That is the most expensive failure
+ * this file can have, and it is silent.
+ *
+ * It lives in db.ts rather than in the IPC dispatch that uses it because "does this change the
+ * world" is a question about the data layer, and because here the self-check can hold it against
+ * the actual method names: every one of them must either match this or be listed as a read.
+ */
+export const MUTATES = /^(create|update|delete|add|set|restore|retype|import|pick)/
+
 /** Our five tables. Anything else a .dunya carries is not part of the format. */
 const OUR_TABLES = new Set(['entities', 'links', 'maps', 'features', 'settings'])
 
@@ -1295,6 +1309,37 @@ export const api = {
 
 // Self-check: `node src/main/db.ts`
 if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
+  // --- every api method is classified -------------------------------------------------------
+  // A method that changes the world and is not matched by MUTATES leaves the dirty flag unset:
+  // no star in the title, no prompt on close, and the user loses the work by doing exactly what
+  // the app told them was safe. The verb list is arbitrary — `renameEntity` or `moveMap` would
+  // both miss it — so the only real protection is that a NEW method cannot be added without
+  // someone deciding which side it is on.
+  {
+    const READS = new Set([
+      'backupNow', // writes a backup FILE, not the world
+      'entityFeatureIds',
+      'entityPlacements',
+      'exportNotes', // writes .txt files, not the world
+      'featuresByEntity',
+      'findEntityByName',
+      'getEntity',
+      'getMap',
+      'getSetting',
+      'hierarchy',
+      'listEntities',
+      'listLinks',
+      'listMaps',
+      'searchContent'
+    ])
+    for (const name of Object.keys(api))
+      assert.equal(
+        MUTATES.test(name),
+        !READS.has(name),
+        `${name}: decide whether it changes the world — match MUTATES, or add it to READS here`
+      )
+  }
+
   // --- the schema and the allow-list must agree ----------------------------------------------
   // dropForeignTables deletes every table an opened file carries that is not in OUR_TABLES. That
   // is what keeps a shared `.dunya` from smuggling one in — and it means a table added to SCHEMA

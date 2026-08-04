@@ -16,6 +16,7 @@ import {
   worldStats,
   resolveAssetPath,
   importAsset,
+  MUTATES,
   NOT_A_WORLD,
   WORLD_TOO_LARGE,
   api as dbApi
@@ -973,7 +974,7 @@ app.whenReady().then(() => {
     const fn = (mainApi as Record<string, (...a: unknown[]) => unknown>)[method]
     // Dirty flag: mutation methods mean changes since the last save (ponytail: a method-name
     // heuristic — get/list/search/export do not match, save/open manage themselves)
-    if (/^(create|update|delete|add|set|restore|retype|import|pick)/.test(method)) {
+    if (MUTATES.test(method)) {
       dirty = true
       updateTitle()
       // The trail records the same set, and for the same reason the flag does: these are the calls
