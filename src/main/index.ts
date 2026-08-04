@@ -15,6 +15,7 @@ import {
   unpackWorld,
   worldStats,
   resolveAssetPath,
+  importAsset,
   NOT_A_WORLD,
   WORLD_TOO_LARGE,
   api as dbApi
@@ -542,19 +543,12 @@ function buildMenu(): void {
   )
 }
 
-// importAsset copies a path from disk into assets/, and it is the only method on the db surface
-// that takes a filesystem path from its caller. The renderer has no business naming that path:
-// the legitimate route is pickImage, where the USER chooses the file in a native dialog and main
-// passes it on. Left exposed, a compromised renderer could copy any image on the machine into
-// assets/, from where the next save would embed it in the .dunya and it would travel to whoever
-// the world is shared with. Nothing in the renderer calls it, so removing it costs no feature.
-// Deleted from the object rather than filtered in the dispatch — a method that is not there
-// cannot be reached by any spelling.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- discarding the key IS the point
-const { importAsset: _mainOnly, ...rendererDbApi } = dbApi
-
+// `...dbApi` is the whole renderer surface, and it is safe to spread wholesale because the one
+// method that takes a filesystem path from its caller — importAsset — is not on that object at
+// all. It is imported separately below, for pickImage, where the USER chooses the file. See its
+// note in db.ts for why it is not simply stripped off here.
 const mainApi = {
-  ...rendererDbApi,
+  ...dbApi,
   // Dumps notes into the .txt tree + opens the folder for browsing (button-triggered, one-way)
   exportNotes: async (): Promise<{ path: string; files: number }> => {
     const r = dbApi.exportNotes()
@@ -700,7 +694,7 @@ const mainApi = {
       properties: ['openFile']
     })
     if (r.canceled || !r.filePaths[0]) return null
-    return dbApi.importAsset(r.filePaths[0])
+    return importAsset(r.filePaths[0])
   },
   // Exports what is on screen (rect: CSS pixels, the .leaflet-host bounds) as a PNG.
   // The equivalent of Wonderdraft's "Export" — not editable, a one-way sharing artifact.

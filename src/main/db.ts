@@ -719,6 +719,30 @@ function patchSql(
   }
 }
 
+/**
+ * Copy an image from anywhere on disk into `assets/`, returning the world-relative path.
+ *
+ * DELIBERATELY NOT ON `api`. Every method there is spread onto the IPC surface in index.ts, and
+ * this is the only one that takes a filesystem path from its caller — left there, a compromised
+ * renderer could copy any image on the machine into assets/, from where the next save embeds it
+ * in the `.dunya` and it travels to whoever the world is shared with. The legitimate route is
+ * `pickImage`, where the USER chooses the file in a native dialog and main passes the path on.
+ *
+ * index.ts used to strip it back off the object with a destructure, which worked and had to be
+ * remembered. A function that was never on the object cannot be spread onto the bridge by any
+ * future edit to the spread — the same reason `patchSql` allow-lists columns rather than trusting
+ * the caller to send the right ones.
+ */
+export function importAsset(srcPath: string): string {
+  if (!/\.(png|jpe?g|webp|gif)$/i.test(srcPath)) throw new Error('Images only')
+  let name = basename(srcPath)
+  if (existsSync(join(assetsDir, name))) {
+    name = `${basename(name, extname(name))}-${Date.now()}${extname(name)}`
+  }
+  copyFileSync(srcPath, join(assetsDir, name))
+  return `assets/${name}`
+}
+
 export const api = {
   // --- maddeler ---
   listEntities(search = ''): unknown[] {
@@ -1107,17 +1131,6 @@ export const api = {
     db.prepare(
       `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`
     ).run(key, value)
-  },
-
-  // --- dosyalar ---
-  importAsset(srcPath: string): string {
-    if (!/\.(png|jpe?g|webp|gif)$/i.test(srcPath)) throw new Error('Images only')
-    let name = basename(srcPath)
-    if (existsSync(join(assetsDir, name))) {
-      name = `${basename(name, extname(name))}-${Date.now()}${extname(name)}`
-    }
-    copyFileSync(srcPath, join(assetsDir, name))
-    return `assets/${name}`
   },
 
   // Manual "back up now" — a timestamped copy independent of the daily automatic one
