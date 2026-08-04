@@ -204,7 +204,7 @@ export const api = {
 export async function getHierConfig(): Promise<HierConfig> {
   const raw = await api.getSetting('hierarchyConfig')
   if (!raw) return { govs: [] }
-  const parsed = JSON.parse(raw) as unknown
+  const parsed = parseSetting(raw, { govs: [] })
   // Legacy shape: a [{tag, mode}] array → convert to the new shape
   if (Array.isArray(parsed)) {
     const old = parsed as { tag: string; mode: string }[]
@@ -403,6 +403,24 @@ export interface MapModes {
  * Not defensive habit: these three are the shapes this file actually consumes, and they are
  * applied only where a wrong one would throw during render.
  */
+/**
+ * Parse a settings value, or fall back.
+ *
+ * The gate in db.ts only validates values that LOOK like JSON — it checks anything starting with
+ * `{` or `[`, because the same table legitimately holds plain text ('dark', 'tr', a file path).
+ * So a `.dunya` that writes `hello` under `templates` walks straight past it, and every loader
+ * below used to hand that to JSON.parse and throw during the screen's first render. The
+ * fallback is the same one an absent value gets.
+ */
+const parseSetting = (raw: string | null | undefined, fallback: unknown): unknown => {
+  if (!raw) return fallback
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return fallback
+  }
+}
+
 const asArray = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : [])
 const asObject = <T extends object>(v: unknown, fallback: T): T =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as T) : fallback
@@ -413,7 +431,7 @@ const asString = (v: unknown, fallback: string): string => (typeof v === 'string
 export async function getMapModes(): Promise<MapModes> {
   const raw = await api.getSetting('mapModes')
   if (!raw) return { dims: [], colors: {} }
-  const p = asObject<Partial<MapModes>>(JSON.parse(raw), {})
+  const p = asObject<Partial<MapModes>>(parseSetting(raw, {}), {})
   return { dims: asArray<string>(p.dims), colors: asObject(p.colors, {}) }
 }
 
@@ -460,7 +478,7 @@ export interface FolderDef {
 }
 
 export const getEntityFolders = async (): Promise<FolderDef[]> =>
-  asArray<FolderDef>(JSON.parse((await api.getSetting('entityFolders')) || '[]'))
+  asArray<FolderDef>(parseSetting(await api.getSetting('entityFolders'), []))
 
 export const saveEntityFolders = (list: FolderDef[]): Promise<void> =>
   api.setSetting('entityFolders', JSON.stringify(list))
@@ -474,7 +492,7 @@ export const personFolderIds = (folders: FolderDef[]): Set<string> =>
   new Set(folders.filter((f) => f.isPerson).map((f) => f.id))
 
 export const getTemplates = async (): Promise<EntityTemplate[]> =>
-  asArray<EntityTemplate>(JSON.parse((await api.getSetting('templates')) || '[]'))
+  asArray<EntityTemplate>(parseSetting(await api.getSetting('templates'), []))
 
 export const saveTemplates = (list: EntityTemplate[]): Promise<void> =>
   api.setSetting('templates', JSON.stringify(list))
@@ -489,7 +507,7 @@ export interface PinImage {
 }
 
 export const getPinImages = async (): Promise<PinImage[]> =>
-  asArray<PinImage>(JSON.parse((await api.getSetting('pinImages')) || '[]'))
+  asArray<PinImage>(parseSetting(await api.getSetting('pinImages'), []))
 
 export const savePinImages = (list: PinImage[]): Promise<void> =>
   api.setSetting('pinImages', JSON.stringify(list))
@@ -510,7 +528,7 @@ export interface MapBoards {
 
 export const getMapBoards = async (mapId: number): Promise<MapBoards> => {
   const all = asObject<Record<number, MapBoards>>(
-    JSON.parse((await api.getSetting('mapBoards')) || '{}'),
+    parseSetting(await api.getSetting('mapBoards'), {}),
     {}
   )
   const one = asObject<Partial<MapBoards>>(all[mapId], {})
@@ -522,7 +540,7 @@ export const saveMapBoards = async (mapId: number, data: MapBoards): Promise<voi
   // back into the setting, which is how a bad value stops being the file's problem and becomes
   // the world's.
   const all = asObject<Record<number, MapBoards>>(
-    JSON.parse((await api.getSetting('mapBoards')) || '{}'),
+    parseSetting(await api.getSetting('mapBoards'), {}),
     {}
   )
   if (data.list.length) all[mapId] = data
@@ -555,7 +573,7 @@ const TIMELINE_DEFAULT: TimelineConfig = {
 export async function getTimeline(): Promise<TimelineConfig> {
   const raw = await api.getSetting('timeline')
   if (!raw) return TIMELINE_DEFAULT
-  const p = asObject<Partial<TimelineConfig>>(JSON.parse(raw), {})
+  const p = asObject<Partial<TimelineConfig>>(parseSetting(raw, {}), {})
   // The numbers drive a range input and the arrays are mapped over during render, so each one is
   // taken only if it is what it claims to be. Everything else keeps the default it had.
   return {
@@ -619,7 +637,7 @@ const RECENT_COLORS = 12
 let recentColors: string[] | null = null
 export async function getRecentColors(): Promise<string[]> {
   if (!recentColors)
-    recentColors = asArray<string>(JSON.parse((await api.getSetting('recentColors')) || '[]'))
+    recentColors = asArray<string>(parseSetting(await api.getSetting('recentColors'), []))
   return recentColors
 }
 export async function pushRecentColor(hex: string): Promise<string[]> {
