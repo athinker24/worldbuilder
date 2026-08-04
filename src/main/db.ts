@@ -1338,6 +1338,12 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
         !READS.has(name),
         `${name}: decide whether it changes the world — match MUTATES, or add it to READS here`
       )
+    // The other half of the same invariant, for the methods that live on mainApi rather than here.
+    // Both prefixes were CHOSEN to miss this regex, and both would be natural to rename: reporting
+    // an error is not a change to the world, and `setPrefs` would mark it unsaved every time the
+    // theme was switched. Written as the literal names because that is what the dispatch sees.
+    for (const name of ['logEvents', 'logRendererError', 'logSessionInfo', 'savePrefs'])
+      assert.ok(!MUTATES.test(name), `${name} must not read as a mutation — see its prefix`)
   }
 
   // --- the schema and the allow-list must agree ----------------------------------------------
