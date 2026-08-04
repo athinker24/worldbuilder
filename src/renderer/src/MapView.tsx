@@ -1946,7 +1946,23 @@ export default function MapView({
     if (!layers?.length || !map) return
     const l = layers[0]
     const b = (l as L.Polygon).getBounds?.() ?? L.latLngBounds([(l as L.Marker).getLatLng()])
-    map.fitBounds(b.pad(0.4), { maxZoom: 2 })
+    /*
+     * animate:false, and it has to be.
+     *
+     * Leaflet's animated zoom moves the map by putting a CSS transition on the map PANE and only
+     * telling anyone the zoom changed when the transition ends. Everything of ours that draws
+     * itself — both WebGL canvases and the base image — sits OVER the panes rather than inside
+     * one (see paintZoom), so it inherits nothing from that transform and hears nothing until
+     * `zoomend`. For the length of the flight the polygons therefore sat at the old zoom over a
+     * map that had already left: they looked like they were hanging in the air, which is what a
+     * user reported.
+     *
+     * The same conflict is why our own wheel zoom exists: the smooth part of it is OUR transform,
+     * applied to the pane and the canvases in the same frame. A flight could be routed through
+     * that loop as well, and it is the only way to have one — Leaflet's own is unusable here.
+     * Until someone wants it enough to write it, a jump is honest and costs nothing.
+     */
+    map.fitBounds(b.pad(0.4), { maxZoom: 2, animate: false })
     let n = 0
     const flash = (): void => {
       for (const ly of layers)
@@ -3561,6 +3577,10 @@ export default function MapView({
       dragging: false,
       zoomControl: false,
       scrollWheelZoom: false,
+      // Left-double-click is a DRAWING gesture here — it is how geoman finishes a polygon — and
+      // Leaflet's stock meaning for it (zoom in one whole step, animated) collided with that: a
+      // double click that missed a shape jumped the map. Zoom is the wheel, and only the wheel.
+      doubleClickZoom: false,
       attributionControl: false
     })
     mapRef.current = map
@@ -4276,7 +4296,7 @@ export default function MapView({
         })
       }
       el.src = assetUrl(worldMap.image_path)
-      map.fitBounds(bounds)
+      map.fitBounds(bounds, { animate: false }) // same reason as focusFeature — no animated zoom here
       const fit = map.getBoundsZoom(bounds)
       setFitZoom(fit)
       mapFitZoom = fit // read by the LOD fade (module scope)
@@ -4548,7 +4568,8 @@ export default function MapView({
     if (found && mapRef.current) {
       const b =
         (found as L.Polygon).getBounds?.() ?? L.latLngBounds([(found as L.Marker).getLatLng()])
-      mapRef.current.fitBounds(b.pad(0.4), { maxZoom: 2 })
+      // animate:false for the reason spelled out in focusFeature.
+      mapRef.current.fitBounds(b.pad(0.4), { maxZoom: 2, animate: false })
     }
   }
 

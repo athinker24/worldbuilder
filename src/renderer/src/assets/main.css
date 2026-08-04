@@ -113,8 +113,8 @@
   --fs-7: 26px;
 
   /* --- motion --- */
-  --dur-fast: 100ms; /* hover, color, icon state */
-  --dur: 160ms; /* popover, menu, dialog, tab */
+  --dur-fast: 130ms; /* hover, color, icon state */
+  --dur: 220ms; /* popover, menu, dialog, tab, page */
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
   --focus-ring: 0 0 0 2px var(--accent-soft);
@@ -3875,7 +3875,7 @@ a {
 @keyframes float-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(8px);
   }
 }
 
@@ -3886,8 +3886,9 @@ a {
 }
 
 /* Things that appear where they were not: menus, popovers, dialogs, the toast.
-   4px is the whole gesture — enough to read as "this arrived", not enough to be
-   a movement anyone has to wait for. */
+   8px is the whole gesture — enough to read as "this arrived", not enough to be
+   a movement anyone has to wait for. It was 4px over 160ms and the honest report
+   was that it could barely be seen. */
 .ctx-menu,
 .color-popup,
 .select-list,
@@ -3905,6 +3906,22 @@ a {
 .dialog-overlay,
 .note-focus-overlay {
   animation: fade-in var(--dur-fast) var(--ease-out);
+}
+
+/* The screen itself arriving — opacity ONLY, no lift. A popover lifts because it
+   came from somewhere; a page did not, and 8px of travel on a full column of
+   text read as a jerk rather than an arrival (tried, reported as "snap"). A real
+   crossfade would need both pages mounted at once, which is a router, not a
+   stylesheet. `:not(.page-loading)` because that class carries its own delayed
+   fade a thousand lines up, and an `animation` shorthand later in the file would
+   replace it — the delay is the whole point of it.
+
+   `.entity-page` is deliberately NOT here. Articles are switched in a run, one
+   click after another, and anything at all on that path reads as a stutter
+   rather than as motion — which is what the whole preload in App went in to
+   remove. A screen you arrive at once may fade; a list you walk down may not. */
+.page:not(.page-loading) {
+  animation: fade-in var(--dur) var(--ease-out);
 }
 
 /* A button that takes the press. One pixel, and only while the mouse is down —
