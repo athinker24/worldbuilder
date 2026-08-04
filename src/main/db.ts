@@ -1282,6 +1282,26 @@ export const api = {
 
 // Self-check: `node src/main/db.ts`
 if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
+  // --- the schema and the allow-list must agree ----------------------------------------------
+  // dropForeignTables deletes every table an opened file carries that is not in OUR_TABLES. That
+  // is what keeps a shared `.dunya` from smuggling one in — and it means a table added to SCHEMA
+  // and forgotten here would be DROPPED on the next open, with its rows, silently, in the one
+  // function whose job is to be ruthless. The trap needs no attacker and no mistake at open time:
+  // a new feature adding a table is enough.
+  {
+    const declared = [...SCHEMA.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)].map((m) => m[1])
+    assert.ok(declared.length >= 5, 'the schema still declares its tables in the expected form')
+    for (const t of declared)
+      assert.ok(
+        OUR_TABLES.has(t),
+        `${t} is in the schema but not in OUR_TABLES — it would be dropped`
+      )
+    // And the other way: a name in the allow-list that no longer exists means a table was removed
+    // and the list was not, which is how a future file's table gets silently adopted.
+    for (const t of OUR_TABLES)
+      assert.ok(declared.includes(t), `OUR_TABLES lists ${t}, which the schema no longer creates`)
+  }
+
   const dir = mkdtempSync(join(tmpdir(), 'worlddb-'))
   initDb(dir)
   // A session file from the FIRST line, so the article events below actually reach a sink. The log
