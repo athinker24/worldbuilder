@@ -1825,13 +1825,10 @@ kbd {
   --canvas-grid: rgba(15, 40, 40, 0.045);
 }
 
-/* The map image reads as a lit object on a dark table, not a texture bleeding
-   into the void. Leaflet gives the base image its own <img> in the overlay pane. */
-.leaflet-image-layer {
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.09),
-    0 8px 40px rgba(0, 0, 0, 0.55);
-}
+/* The map image reads as a lit object on a dark table, not a texture bleeding into the void.
+   It used to be an <img> in Leaflet's overlay pane and wore that as a box-shadow; it is drawn on
+   its own canvas now (see drawBase in MapView), so the rim and the falloff are drawn there in the
+   same values. Nothing in CSS can reach it any more. */
 
 /* Selection highlight (single or Ctrl+click multi-select). A filter, not setStyle, preserves a
    drawing's own color while editing. Applied to SVG paths and divIcons; map content is theme-independent. */
