@@ -367,57 +367,86 @@ export function unpackWorld(sourcePath: string): void {
   const rescue = dbFile + '.rescue'
   db.close()
   copyFileSync(dbFile, rescue)
-  try {
-    copyFileSync(sourcePath, dbFile)
-    db = openDb(dbFile)
-    dropForeignSchema() // BEFORE the schema exec, so a dropped view leaves room for the real table
-    db.exec(SCHEMA)
-  } catch (err) {
+  const putBack = (err: unknown): never => {
+    try {
+      db.close()
+    } catch {
+      /* already closed, or never opened — the copy below is what matters */
+    }
     copyFileSync(rescue, dbFile)
     db = openDb(dbFile)
     db.exec(SCHEMA)
     rmSync(rescue, { force: true })
     throw err
   }
-  rmSync(rescue, { force: true })
-  const hasAssets = db
-    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assets'`)
-    .get()
-  if (hasAssets) {
-    // Bounds on what a file may unpack, checked BEFORE a single byte is written so the rescue
-    // path above can still put the old world back. Measured: 20 000 tiny images inside a 2.1 MB
-    // file froze the main process for 22 seconds and left 20 000 files behind — a ~10x
-    // amplification from a small download, with no privilege gained but the app unusable.
-    // Both limits sit far above any real world: a large project runs to a few hundred images.
-    const tally = db
-      .prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(data)), 0) AS b FROM assets`)
-      .get() as {
-      n: number
-      b: number
-    }
-    if (tally.n > MAX_ASSETS || tally.b > MAX_ASSET_BYTES) throw new Error(WORLD_TOO_LARGE)
-    for (const row of db.prepare(`SELECT name, data FROM assets`).all() as {
-      name: string
-      data: Uint8Array
-    }[]) {
-      // A .dunya is a SHARED file: the embedded name is untrusted input. Without basename,
-      // a name like `../../…` or `C:\…` would write OUTSIDE assets/ (overwriting files).
-      // packWorld only ever writes basenames, so nothing is lost.
-      const name = basename(row.name)
-      if (name && name !== '.' && name !== '..') writeFileSync(join(assetsDir, name), row.data)
-    }
-    db.exec(`DROP TABLE assets`) // the images live on disk now
-    // VACUUM, or the drop above frees pages without shrinking the FILE — which is what the line
-    // above claimed to do and did not. Measured on a real working copy: 102.4 MB, of which 26 206
-    // of 26 217 pages were free; vacuumed, 40 KB. Every backup copied that 102 MB, and three weeks
-    // of them came to 8.4 GB of almost pure empty space. It is also cheap exactly when it matters:
-    // the space to reclaim is proportional to the images just extracted, and this runs once per
-    // open, next to work that already reads and writes all of them.
-    db.exec(`VACUUM`)
+  try {
+    copyFileSync(sourcePath, dbFile)
+    db = openDb(dbFile)
+    dropForeignSchema() // BEFORE the schema exec, so a dropped view leaves room for the real table
+    db.exec(SCHEMA)
+  } catch (err) {
+    putBack(err)
   }
-  dropForeignTables() // assets is consumed by here, so anything left over is not ours
-  repairImportedJson() // reset malformed JSON columns to defaults (rationale below)
-  migrateLegacyKeys() // so old .dunya files (with Turkish keys) still open
+  // Everything the FILE can still make throw runs inside the rescue window: its assets table,
+  // its foreign tables, its malformed columns. Only past this is the old world unrecoverable.
+  try {
+    const hasAssets = db
+      .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assets'`)
+      .get()
+    if (hasAssets) {
+      // Bounds on what a file may unpack, checked BEFORE a single byte is written so the rescue
+      // path above can still put the old world back. Measured: 20 000 tiny images inside a 2.1 MB
+      // file froze the main process for 22 seconds and left 20 000 files behind — a ~10x
+      // amplification from a small download, with no privilege gained but the app unusable.
+      // Both limits sit far above any real world: a large project runs to a few hundred images.
+      const tally = db
+        .prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(data)), 0) AS b FROM assets`)
+        .get() as {
+        n: number
+        b: number
+      }
+      if (tally.n > MAX_ASSETS || tally.b > MAX_ASSET_BYTES) throw new Error(WORLD_TOO_LARGE)
+      for (const row of db.prepare(`SELECT name, data FROM assets`).all() as {
+        name: unknown
+        data: unknown
+      }[]) {
+        // A .dunya is a SHARED file: the embedded name is untrusted input. Without basename,
+        // a name like `../../…` or `C:\…` would write OUTSIDE assets/ (overwriting files).
+        // packWorld only ever writes basenames, so nothing is lost.
+        //
+        // The TYPES are untrusted too, and that is easy to miss because our own schema says
+        // `name TEXT, data BLOB`: SQLite is dynamically typed and the schema being read here is the
+        // FILE's. A name stored as an integer made basename() throw, and a null data made
+        // writeFileSync throw — from a point where the rescue copy had already been dropped, so the
+        // open failed with the working copy already replaced and NONE of the repairs below run.
+        // A row that is not a name and some bytes is simply not an image; skipping it is the whole
+        // response.
+        if (typeof row.name !== 'string' || !ArrayBuffer.isView(row.data)) continue
+        const name = basename(row.name)
+        if (name && name !== '.' && name !== '..')
+          writeFileSync(join(assetsDir, name), row.data as Uint8Array)
+      }
+      db.exec(`DROP TABLE assets`) // the images live on disk now
+      // VACUUM, or the drop above frees pages without shrinking the FILE — which is what the line
+      // above claimed to do and did not. Measured on a real working copy: 102.4 MB, of which 26 206
+      // of 26 217 pages were free; vacuumed, 40 KB. Every backup copied that 102 MB, and three weeks
+      // of them came to 8.4 GB of almost pure empty space. It is also cheap exactly when it matters:
+      // the space to reclaim is proportional to the images just extracted, and this runs once per
+      // open, next to work that already reads and writes all of them.
+      db.exec(`VACUUM`)
+    }
+    dropForeignTables() // assets is consumed by here, so anything left over is not ours
+    repairImportedJson() // reset malformed JSON columns to defaults (rationale below)
+    migrateLegacyKeys() // so old .dunya files (with Turkish keys) still open
+  } catch (err) {
+    putBack(err)
+  }
+  // Only now is the old world unrecoverable, and that is the point: everything above — the schema
+  // exec, the extraction, the foreign tables, the repairs — is the part where a hostile or simply
+  // broken file can still throw. Dropping the rescue after the first three lines meant a failure
+  // in any of the rest left the user with the new file in place, unrepaired, and the message
+  // "that world file could not be opened".
+  rmSync(rescue, { force: true })
   api.setSetting('worldFile', sourcePath)
   pruneUnusedAssets() // drop images the opened world does not use (leftovers from the previous one)
 }
@@ -1777,6 +1806,34 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     // own cycle guard sits where a cycle would be created — which a file bypasses entirely. Nobody
     // downstream survives one: the map breadcrumb is a `while` that never ends, and both trees are
     // recursive renders. The link is cut, never the row: the maps and their drawings are the work.
+    // An assets table whose COLUMN TYPES are not ours. Easy to miss, because our schema says
+    // `name TEXT, data BLOB` — and the schema being read here is the FILE's, in a database that is
+    // dynamically typed. A name stored as an integer threw inside basename(), from a point where
+    // the rescue copy had already been dropped: the open failed with the working copy already
+    // replaced and none of the repairs run.
+    const typed = join(dir, 'typed.dunya')
+    copyFileSync(dunya, typed)
+    const ty = new DatabaseSync(typed)
+    // NO column types, which is the point: a TEXT column would have converted the integer below
+    // on the way in (affinity), and the test would have proved nothing. A file writes its own
+    // schema, and a typeless column keeps whatever it is given.
+    ty.exec(`DROP TABLE IF EXISTS assets`)
+    ty.exec(`CREATE TABLE assets (name, data)`)
+    ty.exec(`INSERT INTO assets (name, data) VALUES (7, x'00'), ('ok.png', x'0102')`)
+    // Referenced by a map, or pruneUnusedAssets deletes it at the end of the open — correctly,
+    // and it would make this assertion test the pruner instead of the extractor.
+    ty.exec(`UPDATE maps SET image_path = 'assets/ok.png'`)
+    ty.close()
+    unpackWorld(typed) // must not throw
+    assert.ok(
+      readdirSync(join(dir, 'assets')).includes('ok.png'),
+      'a row that is not a name and some bytes is skipped, and the rest still extract'
+    )
+    assert.ok(
+      !existsSync(join(dir, 'world.db.rescue')),
+      'and the open completes rather than leaving the rescue copy behind'
+    )
+
     const looped = join(dir, 'looped.dunya')
     copyFileSync(dunya, looped)
     const lp = new DatabaseSync(looped)
