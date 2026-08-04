@@ -1827,6 +1827,18 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       'the coalescing window must outlast the renderer batch, or repeats never merge across two'
     )
 
+    // A record cannot be forged from the outside. The scope and the data KEYS are the two columns
+    // written raw, and `logEvents` hands both straight through from the renderer — which is a page
+    // rendering a shared `.dunya`'s content. A newline in either would print a line that looks
+    // exactly like one the app wrote, in a file whose purpose is to be pasted into a message.
+    logEvent('INFO', 'forged\n12:00:00.000  ERROR  main.uncaught', {
+      'k\nINFO  fake.line': 'v'
+    })
+    flushLog()
+    const forged = readFileSync(only(), 'utf8')
+    assert.ok(!/^12:00:00\.000/m.test(forged), 'a newline in a scope cannot start a line')
+    assert.ok(!/^INFO {2}fake\.line/m.test(forged), 'nor can one in a key')
+
     const txt = readFileSync(only(), 'utf8')
     assert.ok(txt.includes('App       9.9.9'), 'the header carries the version')
     assert.ok(/INFO {2}.*project\.opened.*entities=163/.test(txt), 'one line per event')

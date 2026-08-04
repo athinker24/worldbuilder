@@ -55,9 +55,25 @@ export const kv = (o: Record<string, unknown>): string =>
     .filter(([, v]) => v !== undefined && v !== null && v !== '')
     .map(([k, v]) => {
       const s = typeof v === 'string' ? v : String(v)
-      return `${k}=${/[\s"]/.test(s) ? JSON.stringify(s) : s}`
+      // The VALUE is quoted whenever it holds whitespace, so a newline inside one comes out as
+      // an escape and cannot end the line. The KEY has no such protection and is written raw —
+      // and keys are not all ours: `logEvents` forwards the renderer's `data` object as it
+      // arrives. A key carrying a newline would print a second line that looks exactly like a
+      // record the app wrote, in a file whose whole purpose is to be pasted into a message and
+      // believed. Same reasoning as the scope in eventLine below.
+      return `${tag(k)}=${/[\s"]/.test(s) ? JSON.stringify(s) : s}`
     })
     .join(' ')
+
+/**
+ * A field that is written into the line RAW — a scope or a key. Anything outside the shape those
+ * actually take becomes `_`, so no value can forge the grammar around it.
+ *
+ * The allowed set is what the app's own scopes and keys use: letters, digits, `.`, `:`, `-`, `_`.
+ * A non-ASCII scope would be mangled by this, and that is the right trade — every scope in the
+ * app is an English code constant, while the input this defends against is not ours at all.
+ */
+export const tag = (s: string): string => clip(String(s).replace(/[^\w.:-]/g, '_'), 40)
 
 const SCOPE_W = 22
 
@@ -69,7 +85,10 @@ export const eventLine = (
   at = new Date()
 ): string => {
   const body = clip(kv(data), 600)
-  return `${clock(at)}  ${level.padEnd(5)}  ${scope.padEnd(SCOPE_W)}${body ? ` ${body}` : ''}`
+  // `tag`, for the same reason the keys get it: the scope is the one column written raw, it is
+  // 40 characters of renderer-supplied string by the time it arrives here (see logEvents), and
+  // one newline in it would put a forged record in the file.
+  return `${clock(at)}  ${level.padEnd(5)}  ${tag(scope).padEnd(SCOPE_W)}${body ? ` ${body}` : ''}`
 }
 
 const RULE = '='.repeat(70)
