@@ -673,6 +673,11 @@ const mainApi = {
     // untrusted, and this one writes a file that is read back and spread into the app on every
     // launch. Without the filter a renderer running a hostile world could put anything of any size
     // in there — including a key a later version starts trusting.
+    //
+    // THE COST, AND IT IS REAL: a new preference has to be added here as well as to `Prefs`, or it
+    // will be dropped on the way to disk and look like a setting that does not stick. That is the
+    // trade an allow-list always makes, and it is the right way round — a forgotten line here
+    // fails visibly, while the alternative fails silently and only for someone else.
     const keep: Prefs = {}
     if (typeof patch?.language === 'string') keep.language = patch.language.slice(0, 8)
     if (typeof patch?.theme === 'string') keep.theme = patch.theme.slice(0, 32)
