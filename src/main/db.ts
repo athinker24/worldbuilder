@@ -2092,6 +2092,32 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.ok(scrubbed.includes(join('~', 'app')), 'and what replaces it still names the file')
   }
 
+  // --- the CSP -------------------------------------------------------------------------------
+  // The policy is the spine of the security contract and nothing tested it: it is one attribute in
+  // one HTML file, edited by hand, and every directive in it was added because something specific
+  // was possible without it. A loosened one is invisible in review and silent at runtime — the app
+  // simply allows more. Read from disk on purpose: this asserts the file that ships, not a copy of
+  // its text kept here, which would only ever agree with itself.
+  {
+    const html = readFileSync(join(import.meta.dirname, '../renderer/index.html'), 'utf8')
+    const csp = /content="([^"]*Content-Security|[^"]*default-src[^"]*)"/.exec(html)?.[1] ?? html
+    for (const directive of [
+      "default-src 'self'",
+      "script-src 'self'",
+      "object-src 'none'",
+      "frame-src 'none'",
+      "form-action 'none'",
+      "base-uri 'none'"
+    ])
+      assert.ok(csp.includes(directive), `the CSP must keep ${directive}`)
+    // 'unsafe-eval' is what Pixi wants and what pixi.js/unsafe-eval exists to avoid needing; a
+    // remote origin in script-src or connect-src would be a way to run or reach somebody else's
+    // code. The dev-only widening for the annotation toolbar lives in electron.vite.config.ts and
+    // is applied at serve time, which is exactly why it must not appear in this file.
+    assert.ok(!/unsafe-eval/.test(csp), 'the CSP must never allow unsafe-eval')
+    assert.ok(!/https?:\/\//.test(csp), 'no remote origin belongs in the shipped policy')
+  }
+
   // --- world:// path confinement -----------------------------------------------------------
   // Every one of these is something a `.dunya` can put in a note or a polygon's fill, so the
   // check gets assertions rather than a careful reading. initDb has already run above, so
