@@ -8,7 +8,7 @@ import { homedir, release } from 'os'
 // `type` on the Level import is load-bearing: `node src/main/db.ts` runs this file by stripping
 // types, and a type pulled in through a value import has nothing left to resolve at runtime.
 import type { Level } from './format.ts'
-import { block, clip, eventLine, kv, stamp } from './format.ts'
+import { block, clip, eventLine, kv, stamp, tag } from './format.ts'
 import * as ring from './ring.ts'
 import * as sink from './sink.ts'
 import { COALESCE_MS, slowFor } from './thresholds.ts'
@@ -258,8 +258,12 @@ let lastWhere = ''
  * — the deliberate goal being that a user pastes it into a message and no follow-up question is
  * necessary. `where` is the entry point, not the file: `ipc:updateFeature`, `renderer:onerror`.
  */
-export function error(where: string, err: unknown, extra: Record<string, unknown> = {}): void {
+export function error(rawWhere: string, err: unknown, extra: Record<string, unknown> = {}): void {
   try {
+    // Same treatment as a scope, and for the same reason: `where` arrives from the renderer for
+    // every report it files, and it is written raw into the block, into the `error.echo` event
+    // line and into the trail. tag() is what keeps all three unforgeable.
+    const where = tag(rawWhere)
     const e = err as { message?: string; stack?: string; name?: string }
     const msg = typeof err === 'string' ? err : (e?.message ?? String(err))
     const now = Date.now()
