@@ -509,12 +509,22 @@ export interface MapBoards {
 }
 
 export const getMapBoards = async (mapId: number): Promise<MapBoards> => {
-  const all = JSON.parse((await api.getSetting('mapBoards')) || '{}') as Record<number, MapBoards>
-  return all[mapId] ?? { list: [], active: '' }
+  const all = asObject<Record<number, MapBoards>>(
+    JSON.parse((await api.getSetting('mapBoards')) || '{}'),
+    {}
+  )
+  const one = asObject<Partial<MapBoards>>(all[mapId], {})
+  return { list: asArray(one.list), active: asString(one.active, '') }
 }
 
 export const saveMapBoards = async (mapId: number, data: MapBoards): Promise<void> => {
-  const all = JSON.parse((await api.getSetting('mapBoards')) || '{}') as Record<number, MapBoards>
+  // asObject on the way IN as well: spreading a string here would write one key per character
+  // back into the setting, which is how a bad value stops being the file's problem and becomes
+  // the world's.
+  const all = asObject<Record<number, MapBoards>>(
+    JSON.parse((await api.getSetting('mapBoards')) || '{}'),
+    {}
+  )
   if (data.list.length) all[mapId] = data
   else delete all[mapId]
   await api.setSetting('mapBoards', JSON.stringify(all))
@@ -609,7 +619,7 @@ const RECENT_COLORS = 12
 let recentColors: string[] | null = null
 export async function getRecentColors(): Promise<string[]> {
   if (!recentColors)
-    recentColors = JSON.parse((await api.getSetting('recentColors')) || '[]') as string[]
+    recentColors = asArray<string>(JSON.parse((await api.getSetting('recentColors')) || '[]'))
   return recentColors
 }
 export async function pushRecentColor(hex: string): Promise<string[]> {
