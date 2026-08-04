@@ -4,7 +4,7 @@
 // exercises this file directly; anything needing `app` or a window is passed IN (see `Meta` and
 // `context`). That is the same reason db.ts keeps its distance from Electron.
 
-import { release } from 'os'
+import { homedir, release } from 'os'
 // `type` on the Level import is load-bearing: `node src/main/db.ts` runs this file by stripping
 // types, and a type pulled in through a value import has nothing left to resolve at runtime.
 import type { Level } from './format.ts'
@@ -298,6 +298,14 @@ export function error(where: string, err: unknown, extra: Record<string, unknown
     // `component` is the component STACK, which names the screen that broke — the most valuable
     // field a render crash has, and far too long to sit inside the context line.
     const { component, ...rest } = extra
+    // The stack is the one place a real PATH reaches this file. Every other field is a name on
+    // purpose (see the privacy note in log.ts), and a frame in a packaged build reads
+    // C:\Users\<whoever>\AppData\Local\Programs\... — so pasting a report into a message hands
+    // over the account name with it. `~` keeps the file, the line and the column, which is all a
+    // diagnosis ever wanted from the path.
+    const home = homedir()
+    const scrub = (l: string): string =>
+      home ? l.replaceAll(home, '~').replaceAll(home.replaceAll('\\', '/'), '~') : l
     ring.remember(`error:${where}`)
     settle() // a held line must not surface AFTER the error it came before
     sink.write(
@@ -306,9 +314,9 @@ export function error(where: string, err: unknown, extra: Record<string, unknown
           ['error', clip(headline, 500)],
           ['where', where],
           ['context', clip(kv({ ...context(), ...rest }), 800)],
-          ['screen', component ? clip(String(component), 500).replace(/ < /g, '\n< ') : ''],
+          ['screen', component ? scrub(clip(String(component), 500)).replace(/ < /g, '\n< ') : ''],
           ['last', ring.trail()],
-          ['stack', (own.length ? own : body).slice(0, 25).join('\n')]
+          ['stack', (own.length ? own : body).slice(0, 25).map(scrub).join('\n')]
         ]),
       true
     )

@@ -14,7 +14,7 @@ import {
   utimesSync,
   writeFileSync
 } from 'fs'
-import { tmpdir } from 'os'
+import { homedir, tmpdir } from 'os'
 import assert from 'assert'
 import { flushLog, initLog, logError, logEvent, logSetDebug, logTime, noteCall } from './log.ts'
 import { BATCH_MS, COALESCE_MS } from './log/thresholds.ts'
@@ -1839,6 +1839,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.ok(!/^12:00:00\.000/m.test(forged), 'a newline in a scope cannot start a line')
     assert.ok(!/^INFO {2}fake\.line/m.test(forged), 'nor can one in a key')
 
+
     const txt = readFileSync(only(), 'utf8')
     assert.ok(txt.includes('App       9.9.9'), 'the header carries the version')
     assert.ok(/INFO {2}.*project\.opened.*entities=163/.test(txt), 'one line per event')
@@ -1920,6 +1921,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.ok(capped.includes('log capped'), 'the cap is announced, not silent')
     assert.ok(!capped.includes('long after the cap'), 'and it holds')
 
+
     // Retention: past the age limit a file goes, whatever the count says. Logs must not be a
     // folder that only ever grows on someone's machine.
     const stale = join(logs, '2020-01-01_00-00-00_old_session.log')
@@ -1927,6 +1929,28 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     utimesSync(stale, new Date(0), new Date(0))
     initLog(ldir, '9.9.9', () => ({}))
     assert.ok(!existsSync(stale), 'a log past the retention window is removed on launch')
+
+    // A report is written to be pasted into a message, and a stack frame is the one field that
+    // carries a real path — which in a packaged build sits under the user's account folder.
+    // Its own folder: only() asserts a single file, and the run above has left two by here.
+    // The fake frame is built with join() rather than written out with escapes: a backslash in a
+    // template literal is an escape, so `pp` had silently become `app` and the test passed the
+    // wrong string to the thing it was testing.
+    const sdir = join(dir, 'logscrub')
+    initLog(sdir, '9.9.9', () => ({}))
+    const homeErr = new Error('stack with a home path')
+    const fakeFrame = join(homedir(), 'app', 'out', 'main', 'index.js')
+    homeErr.stack = `Error: stack with a home path
+    at f (${fakeFrame}:1:1)`
+    logError('main:uncaught', homeErr)
+    flushLog()
+    const slogs = join(sdir, 'logs')
+    const scrubbed = readFileSync(
+      join(slogs, readdirSync(slogs).find((f) => /_session\.log$/.test(f))!),
+      'utf8'
+    )
+    assert.ok(!scrubbed.includes(homedir()), 'the home directory never reaches the file')
+    assert.ok(scrubbed.includes(join('~', 'app')), 'and what replaces it still names the file')
   }
 
   // --- world:// path confinement -----------------------------------------------------------
