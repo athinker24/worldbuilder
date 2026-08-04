@@ -948,12 +948,21 @@ app.whenReady().then(() => {
     // where the self-check can assert them.
     const full = resolveAssetPath(rel)
     if (!full) return new Response('forbidden', { status: 403 })
-    const res = await net.fetch(pathToFileURL(full).toString())
+    // A world can outlive the image it names — pruneUnusedAssets removes what nothing referred to
+    // at save time, and a world opened on another machine refers to files that were never here.
+    // net.fetch REJECTS on a missing file, and a rejection inside a protocol handler is an
+    // unhandled one; the request itself deserves an answer instead.
+    let res: Response
+    try {
+      res = await net.fetch(pathToFileURL(full).toString())
+    } catch {
+      return new Response('not found', { status: 404 })
+    }
     // A texture upload from an image of another origin is a security error in WebGL, and this
     // scheme IS another origin — that is what made a polygon's fill image render black instead of
     // showing. Answering the CORS request is what lets the upload through. It widens nothing: the
     // scheme is reachable only from this app's own renderer, and the path above is already
-    // confined to DATA_DIR.
+    // confined to the assets folder.
     const headers = new Headers(res.headers)
     headers.set('Access-Control-Allow-Origin', '*')
     return new Response(res.body, { status: res.status, statusText: res.statusText, headers })
