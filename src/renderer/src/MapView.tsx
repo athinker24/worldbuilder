@@ -3893,9 +3893,13 @@ export default function MapView({
     host.appendChild(bc)
     baseCanvas.current = bc
 
+    // P0 SPIKE: 350, not 450. The base image lives in this canvas now and must stay UNDER
+    // Leaflet's overlay pane (400), where the selected feature and anything under geoman are
+    // still real SVG. The WebGL shapes go under it too, which is the right way round: the thing
+    // being edited belongs on top.
     const sc = document.createElement('canvas')
     sc.style.cssText =
-      'position:absolute;inset:0;width:100%;height:100%;z-index:450;pointer-events:none'
+      'position:absolute;inset:0;width:100%;height:100%;z-index:350;pointer-events:none'
     host.appendChild(sc)
     // A fill image arrives after the frame that asked for it, so the layer says when to redraw.
     const shapes = new ShapeLayer(sc, () => drawShapes())
@@ -4332,13 +4336,17 @@ export default function MapView({
             px: `${bmp.width}x${bmp.height}`
           })
           if (dropped) return bmp.close()
-          baseImg.current = {
+          // P0 SPIKE: the picture goes to the WebGL layer as a mipmapped texture, and the 2D
+          // canvas path is left in place but starved (baseImg stays null, so drawBase clears and
+          // returns). The rim and shadow go with it for now — this step exists to answer one
+          // question: does the per-frame resample disappear.
+          shapeLayer.current?.setBase(
             bmp,
-            x: Math.min(p0.x, p1.x),
-            y: Math.min(p0.y, p1.y),
-            w: Math.abs(p1.x - p0.x),
-            h: Math.abs(p1.y - p0.y)
-          }
+            Math.min(p0.x, p1.x),
+            Math.min(p0.y, p1.y),
+            Math.abs(p1.x - p0.x),
+            Math.abs(p1.y - p0.y)
+          )
           drawShapes() // it arrives a frame or two after the map is up; nothing else asks again
         })
         // A missing or unreadable base image must not take the map down with it: the drawings are
