@@ -581,15 +581,31 @@ h4 {
 }
 
 /* Row actions live in a fixed slot so revealing them never shifts the label. */
-.side-item .locate {
+.side-item .locate,
+.side-item .fav-star {
   flex: none;
   opacity: 0;
   transition: opacity var(--dur-fast);
 }
 
 .side-item:hover .locate,
-.side-item:focus-within .locate {
+.side-item:focus-within .locate,
+.side-item:hover .fav-star,
+.side-item:focus-within .fav-star {
   opacity: 1;
+}
+
+/* A star that is ON stays visible with the pointer somewhere else entirely — it is the row
+   saying what it is, not an action offered on hover (the same split as .sel-box, which is
+   hidden until you hover but stays once it is checked). Gold, because that is already this
+   app's colour for "singled out"; the hover-only star inherits the row's muted icon colour
+   and says nothing until it is pressed. */
+.side-item .fav-star.on {
+  opacity: 1;
+}
+
+.side-item .fav-star.on .icon-btn {
+  color: var(--gold);
 }
 
 /* Workspace navigation: places you GO, distinct from the article rows above and

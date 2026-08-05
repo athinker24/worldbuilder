@@ -497,6 +497,20 @@ export const getTemplates = async (): Promise<EntityTemplate[]> =>
 export const saveTemplates = (list: EntityTemplate[]): Promise<void> =>
   api.setSetting('templates', JSON.stringify(list))
 
+// Favourites (settings 'favorites'): the articles that get a group of their own at the top of
+// the sidebar. Ids, in the world file — deliberately NOT a field on the entity: which articles
+// you keep to hand is your way of working in this world, not a property OF the article, and in
+// `fields` it would surface in templates, in the notes export and on the entity page. An id
+// whose article is gone is simply skipped when the group is built (the orphan-id rule boards
+// already use), so a deletion never has to reach in here.
+export const getFavorites = async (): Promise<number[]> =>
+  asArray<unknown>(parseSetting(await api.getSetting('favorites'), []))
+    .filter((v) => typeof v === 'number')
+    .map((v) => v as number)
+
+export const saveFavorites = (ids: number[]): Promise<void> =>
+  api.setSetting('favorites', JSON.stringify(ids))
+
 // Custom pin image library (settings 'pinImages', global): images the user uploaded to use
 // as pins. path = assets/-relative path, ar = aspect ratio. Purely picker convenience — a
 // pin's own style carries img+imgAR itself, so pins keep rendering correctly even after a

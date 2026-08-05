@@ -120,6 +120,8 @@ interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> 
   danger?: boolean
   active?: boolean
   small?: boolean
+  /** For a toggle whose glyph says its own state — a starred article's star is solid. */
+  filled?: boolean
 }
 
 /** A hit target around a glyph. `label` is required: an icon-only control with
@@ -131,6 +133,7 @@ export function IconButton({
   danger,
   active,
   small,
+  filled,
   className,
   ...rest
 }: IconButtonProps): React.JSX.Element {
@@ -150,7 +153,7 @@ export function IconButton({
         .filter(Boolean)
         .join(' ')}
     >
-      <Icon name={icon} size={size} />
+      <Icon name={icon} size={size} filled={filled} />
     </button>
   )
 }

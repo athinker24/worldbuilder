@@ -7,12 +7,14 @@ import {
   FolderDef,
   folderColor,
   getEntityFolders,
+  getFavorites,
   getLanguage,
   getMapBoards,
   getTheme,
   Lang,
   MapRow,
   saveEntityFolders,
+  saveFavorites,
   Theme
 } from './api'
 import ColorPicker from './ColorPicker'
@@ -74,7 +76,11 @@ export default function App(): React.JSX.Element {
   // The two tiers default opposite ways, and that asymmetry IS the difference between them:
   // a map group is somewhere you are NOT (closed unless listed here), while a board is a layer
   // of the map you ARE on, so it only labels its articles (open unless listed in closedBoards).
-  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set())
+  // Favourites, in settings (so they travel with the world). The group is seeded OPEN here for
+  // the same reason boards are: a map group is somewhere you are not, while the things you
+  // starred are the ones you want in reach — closed by default would defeat the feature.
+  const [favorites, setFavorites] = useState<Set<number>>(new Set())
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set(['fav']))
   const [closedBoards, setClosedBoards] = useState<Set<string>>(new Set())
   const dragItem = useRef<{ kind: 'entity' | 'folder'; id: number | string } | null>(null)
   const histRef = useRef<{ stack: View[]; idx: number }>({ stack: [], idx: -1 })
@@ -111,6 +117,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     getLanguage().then(setLang)
     getTheme().then(setTheme)
+    getFavorites().then((ids) => setFavorites(new Set(ids)))
     api.getPrefs().then((p) => {
       if (p.sidebarWidth) setSidebarW(p.sidebarWidth)
       // The renderer keeps its own copy of the DEBUG switch so a suppressed line costs one boolean
@@ -627,6 +634,25 @@ export default function App(): React.JSX.Element {
     return m
   }, [placements])
 
+  // Starring is not an edit to the world's content, so it takes no undo entry: nothing is
+  // written to the article, and un-starring is the same one click that made it.
+  const toggleFavorite = (id: number): void => {
+    setFavorites((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(id)) next.add(id)
+      void saveFavorites([...next])
+      return next
+    })
+  }
+
+  // The starred articles, as a group — but only the ones that still EXIST. A deleted article
+  // leaves its id behind in settings and this is where that stops mattering; nothing has to
+  // reach into the favourites list when something is deleted.
+  const favAllow = useMemo(
+    () => new Set(entities.filter((e) => favorites.has(e.id)).map((e) => e.id)),
+    [entities, favorites]
+  )
+
   // The sidebar's top tier once a map is open: this map expanded, the others put away, and
   // everything with no drawing at all in its own group at the bottom. Null before any map has
   // been opened — then the tree is the plain folder tree it has always been.
@@ -856,6 +882,20 @@ export default function App(): React.JSX.Element {
         />
       )}
       <span className="side-label">{e.name}</span>
+      {/* Outside `.locate`: that group hides when the pointer leaves, and a star that is ON has
+          to keep saying so. `.on` is the whole difference — same button, two states. */}
+      <span className={`fav-star ${favorites.has(e.id) ? 'on' : ''}`}>
+        <IconButton
+          icon="star"
+          filled={favorites.has(e.id)}
+          label={favorites.has(e.id) ? t('Remove from favorites') : t('Add to favorites')}
+          small
+          onClick={(ev) => {
+            ev.stopPropagation()
+            toggleFavorite(e.id)
+          }}
+        />
+      </span>
       <span className="locate">
         <IconButton
           icon="map-pin"
@@ -973,7 +1013,7 @@ export default function App(): React.JSX.Element {
   const renderGroup = (g: {
     key: string
     name: string
-    kind: 'map' | 'unplaced'
+    kind: 'map' | 'unplaced' | 'fav'
     allow: Set<number>
   }): React.JSX.Element => {
     const open = openGroups.has(g.key)
@@ -986,8 +1026,14 @@ export default function App(): React.JSX.Element {
           onClick={() => setOpenGroups((prev) => toggle(prev, g.key))}
         >
           <span className="tree-caret">{open ? '▾' : '▸'}</span>
-          <Icon name={g.kind === 'map' ? 'map' : 'file-text'} size={13} />
-          <span className="side-label">{g.kind === 'map' ? g.name : t('Not on a map')}</span>
+          <Icon
+            name={g.kind === 'map' ? 'map' : g.kind === 'fav' ? 'star' : 'file-text'}
+            size={13}
+            filled={g.kind === 'fav'}
+          />
+          <span className="side-label">
+            {g.kind === 'map' ? g.name : g.kind === 'fav' ? t('Favorites') : t('Not on a map')}
+          </span>
           <span className="side-group-count">{g.allow.size}</span>
         </button>
         {open && (
@@ -1000,6 +1046,13 @@ export default function App(): React.JSX.Element {
               </p>
             ) : withBoards ? (
               boards.map((b) => renderBoardGroup(b, g.allow))
+            ) : g.kind === 'fav' ? (
+              // FLAT, unlike every other group: a handful of hand-picked articles put back
+              // behind two levels of folder would be the same walk they were starred to avoid.
+              entities
+                .filter((e) => g.allow.has(e.id))
+                .sort(entSort)
+                .map((e) => renderEntityRow(e, 0))
             ) : (
               renderChildren(null, 0, g.allow)
             )}
@@ -1077,14 +1130,20 @@ export default function App(): React.JSX.Element {
                 dropOn(null)
               }}
             >
-              {search.trim()
-                ? entities
-                    .slice()
-                    .sort(entSort)
-                    .map((e) => renderEntityRow(e, 0)) // search = flat: grouping would hide hits
-                : groups
-                  ? groups.map(renderGroup)
-                  : renderChildren(null, 0, null)}
+              {search.trim() ? (
+                entities
+                  .slice()
+                  .sort(entSort)
+                  .map((e) => renderEntityRow(e, 0)) // search = flat: grouping would hide hits
+              ) : (
+                <>
+                  {/* Above the maps, and only when something is starred — an empty box at the
+                      top of the tree would cost every user the space to say nothing. */}
+                  {favAllow.size > 0 &&
+                    renderGroup({ key: 'fav', name: '', kind: 'fav', allow: favAllow })}
+                  {groups ? groups.map(renderGroup) : renderChildren(null, 0, null)}
+                </>
+              )}
             </div>
             {/* Create + sort at the bottom of the column (Obsidian) */}
             <div className="side-foot">

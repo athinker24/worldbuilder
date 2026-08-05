@@ -35,6 +35,7 @@ export type IconName =
   | 'book-open'
   | 'maximize'
   | 'image'
+  | 'star'
   // world concepts
   | 'map'
   | 'map-pin'
@@ -90,6 +91,10 @@ const PATHS: Record<IconName, string> = {
     'M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3',
   image:
     'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM16.5 8.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M3 16l5-5c.93-.89 2.07-.89 3 0l5 5M14 14l1-1c.93-.89 2.07-.89 3 0l3 3',
+  // Drawn to the same optical weight as the rest, so it can be FILLED (the `filled` prop) to say
+  // "this one is a favourite" without also changing colour — a hollow and a solid star are the
+  // same object in two states, which is what the toggle is.
+  star: 'M12 3.4l2.7 5.5 6 .9-4.35 4.2 1.03 6-5.38-2.83L6.6 20l1.03-6L3.28 9.8l6-.9z',
 
   map: 'M9 3L3 6v15l6-3 6 3 6-3V3l-6 3-6-3zM9 3v15M15 6v15',
   'map-pin':
