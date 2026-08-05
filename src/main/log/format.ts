@@ -6,7 +6,7 @@
 // file to analyse. The third is the strict one, and satisfying it happens to satisfy the other two:
 //
 //   time · LEVEL · scope.event · key=value …
-//   12:30:14.882  INFO   project.opened      file="Gerçekdünya.dunya" entities=163 maps=4
+//   12:30:14.882  INFO   project.opened      file="Gerçekdünya.world" entities=163 maps=4
 //
 // Fixed columns, a dotted scope, and values that are ALWAYS key=value. One line per event, never
 // wrapped, so a model never has to guess where a record ends and grep never lies about a match.

@@ -60,7 +60,7 @@ interface Props {
 
 // URL schemes allowed in links. marked copies `[click](javascript:…)` into <a href> verbatim;
 // clicking it would run code in the renderer context (window.api → the whole database). A
-// shared .dunya can carry that, so an allow-list is mandatory.
+// shared .world can carry that, so an allow-list is mandatory.
 // '#' is the wiki links' own href; 'world:' is a local image embedded in a note (![x](world://data/…)).
 const SAFE_URL = /^(https?:|world:|mailto:|#)/i
 const safeHref = (href: string): string => (SAFE_URL.test(href.trim()) ? href : '#')

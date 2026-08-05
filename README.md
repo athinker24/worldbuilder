@@ -25,7 +25,7 @@ open the same app:
 | **`Worldbuilder-…-Setup.exe`** | A normal installer. Asks where to install, creates desktop + Start Menu shortcuts, uninstalls like any app. No administrator rights needed. |
 | **`Worldbuilder-…-portable.zip`** | No installation. Extract to a folder and run `Worldbuilder.exe` inside. Works from a USB stick too. |
 
-Either way, double-clicking a `.dunya` file opens that world directly.
+Either way, double-clicking a `.world` file opens that world directly.
 
 ### The "Windows protected your PC" warning
 
@@ -52,7 +52,7 @@ Documents\Worldbuilder\
 
 No cloud, no account — everything stays on your own computer. To back up, copy that folder.
 
-A **`.dunya` file** is like Photoshop's `.psd`: `Ctrl+S` packs the whole world (images
+A **`.world` file** is like Photoshop's `.psd`: `Ctrl+S` packs the whole world (images
 included) into a single file you can send to someone or open on another computer.
 
 ---
@@ -75,7 +75,7 @@ The complete list lives on the **⌨ Shortcuts** page inside the app.
 
 ---
 
-## `.dunya` files from other people
+## `.world` files from other people
 
 The files are designed to be shared, so their contents are treated as **untrusted input**:
 note content cannot run HTML/JavaScript, embedded images cannot write outside the `assets\`
@@ -116,5 +116,5 @@ A personal hobby project, evolving continuously. If something breaks or looks wr
 
 ## License
 
-The license covers **the application's code**. The world you build with it (your `.dunya`
+The license covers **the application's code**. The world you build with it (your `.world`
 files, maps, articles) is entirely yours and is not part of this repository.

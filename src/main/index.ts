@@ -80,7 +80,7 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow: BrowserWindow | null = null
 
 // --- Wonderdraft-style file model: the working copy (DATA_DIR) is saved instantly at all times,
-// Ctrl+S packs it into a single .dunya file, Open unpacks a file over the working copy.
+// Ctrl+S packs it into a single .world file, Open unpacks a file over the working copy.
 // currentFile = Ctrl+S target (persisted in settings.worldFile); dirty = changes since last save.
 let currentFile: string | null = null
 let dirty = false
@@ -98,8 +98,8 @@ async function saveWorld(as = false): Promise<string | null> {
   let target = as ? null : currentFile
   if (!target) {
     const r = await dialog.showSaveDialog(mainWindow!, {
-      defaultPath: currentFile ?? join(DOCS, 'my-world.dunya'),
-      filters: [{ name: APP_NAME, extensions: ['dunya'] }]
+      defaultPath: currentFile ?? join(DOCS, 'my-world.world'),
+      filters: [{ name: APP_NAME, extensions: ['world'] }]
     })
     if (r.canceled || !r.filePath) return null
     target = r.filePath
@@ -117,11 +117,14 @@ async function saveWorld(as = false): Promise<string | null> {
   return target
 }
 
-// .dunya path from argv (double-click open — the Windows file association passes it as an argument)
-const dunyaArg = (argv: string[]): string | null =>
-  argv.find((a) => a.toLowerCase().endsWith('.dunya') && existsSync(a)) ?? null
+// .world path from argv (double-click open — the Windows file association passes it as an argument)
+// Both extensions: the file the app writes is `.world`, and `.dunya` is what every
+// world saved before the rename is still called on disk.
+const WORLD_EXT = ['.world', '.dunya']
+const worldArg = (argv: string[]): string | null =>
+  argv.find((a) => WORLD_EXT.some((e) => a.toLowerCase().endsWith(e)) && existsSync(a)) ?? null
 
-// Recent .dunya files (Photoshop/Krita start screen). NOT written into DATA_DIR: the working
+// Recent .world files (Photoshop/Krita start screen). NOT written into DATA_DIR: the working
 // copy is reset on every normal launch, and the list must outlive that → userData/recent.json.
 const RECENT = join(app.getPath('userData'), 'recent.json')
 const readRecent = (): string[] => {
@@ -145,19 +148,19 @@ const addRecent = (path: string): void => {
 }
 
 // Application preferences (language, theme). Deliberately NOT in the settings table: rows there
-// live inside world.db, so they travel inside a shared .dunya (opening someone else's file would
+// live inside world.db, so they travel inside a shared .world (opening someone else's file would
 // change your language) and resetWorld() wipes them on any launch that had content (your own
 // choice would not survive a restart). Per-machine, next to recent.json.
 const PREFS = join(app.getPath('userData'), 'prefs.json')
 // Panel widths and the sidebar's open state live here too: they describe how YOU like the app
-// laid out, not what the world contains, so they must not ride inside a shared .dunya.
+// laid out, not what the world contains, so they must not ride inside a shared .world.
 type Prefs = {
   language?: string
   theme?: string
   sidebarWidth?: number
   mapPanelWidth?: number
   // Developer logging. Per machine like everything else here — it describes how YOU want the app
-  // to behave, and a shared .dunya must not be able to turn it on for someone else.
+  // to behave, and a shared .world must not be able to turn it on for someone else.
   debugLog?: boolean
 }
 const readPrefs = (): Prefs => {
@@ -187,7 +190,7 @@ function adoptLegacyPrefs(): void {
   writePrefs(p)
 }
 
-// Open a .dunya file over the working copy (safety backup first)
+// Open a .world file over the working copy (safety backup first)
 function openWorldFile(path: string): void {
   dbApi.backupNow()
   unpackWorld(path)
@@ -368,14 +371,14 @@ function openGuarded(path: string): boolean {
 }
 
 // "New": same path as the blank launch — the current working copy is packed into backups/ as a
-// .dunya, then the schema is emptied. The unsaved-changes confirm lives in the renderer.
+// .world, then the schema is emptied. The unsaved-changes confirm lives in the renderer.
 // File > Close Project runs this too: in this app there is no third state where a project is
 // closed but the working copy still holds it, so "close" and "new" land in the same place.
 function newProject(): void {
   const done = logTime('project.new')
   if (hasContent()) {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.dunya`))
+    packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.world`))
     logEvent('INFO', 'project.autobacked', { reason: 'previous session had content' })
   }
   resetWorld()
@@ -563,12 +566,12 @@ const mainApi = {
   // — here it is just pick + open. The returned path signals "reload" to the renderer.
   async openWorld(): Promise<string | null> {
     const r = await dialog.showOpenDialog(mainWindow!, {
-      filters: [{ name: APP_NAME, extensions: ['dunya'] }],
+      filters: [{ name: APP_NAME, extensions: ['world', 'dunya'] }],
       properties: ['openFile']
     })
     if (r.canceled || !r.filePaths[0]) return null
     // A file that is not one of our worlds is a normal thing for a user to pick (the filter is
-    // only a hint, and Windows lets any name end in .dunya). Say so and leave the open world
+    // only a hint, and Windows lets any name end in .world). Say so and leave the open world
     // alone — unpackWorld has already guaranteed nothing was touched.
     if (!openGuarded(r.filePaths[0])) return null
     // Reload from MAIN: window.location.reload() in the renderer hit the will-navigate
@@ -613,7 +616,7 @@ const mainApi = {
    * stutter it exists to find. The renderer holds them for BATCH_MS (see thresholds.ts).
    *
    * Everything here is untrusted — it crosses from a renderer that may be running a hostile
-   * `.dunya`'s content — so the level is validated against the four known values rather than
+   * `.world`'s content — so the level is validated against the four known values rather than
    * written through, and every field is clipped downstream in format.ts.
    */
   logEvents(
@@ -807,8 +810,8 @@ function createWindow(): void {
       if (!target) {
         target =
           dialog.showSaveDialogSync(win, {
-            defaultPath: join(DOCS, 'my-world.dunya'),
-            filters: [{ name: APP_NAME, extensions: ['dunya'] }]
+            defaultPath: join(DOCS, 'my-world.world'),
+            filters: [{ name: APP_NAME, extensions: ['world'] }]
           }) ?? null
         if (!target) {
           e.preventDefault() // no location picked → cancel the close
@@ -850,14 +853,14 @@ function createWindow(): void {
 // before ready, which is why it sits at module level rather than in the whenReady block.
 app.enableSandbox()
 
-// Single instance: double-clicking a .dunya while the app is open switches the existing
+// Single instance: double-clicking a .world while the app is open switches the existing
 // window to that world instead of spawning a second one (confirm first when dirty)
 if (!app.requestSingleInstanceLock()) app.quit()
 app.on('second-instance', (_e, argv) => {
   if (!mainWindow) return
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.focus()
-  const path = dunyaArg(argv)
+  const path = worldArg(argv)
   if (!path) return
   if (dirty) {
     const r = dialog.showMessageBoxSync(mainWindow, {
@@ -914,33 +917,37 @@ app.whenReady().then(() => {
   // unhandled-rejection void BEFORE any window existed, so Electron saw zero windows and quit
   // with code 0 — the app simply never appeared, with nothing on screen to explain why.
   // Two real ways in: world.db locked by a second instance (EBUSY inside resetWorld), and a
-  // corrupt .dunya passed on the command line, which is untrusted input by the security
+  // corrupt .world passed on the command line, which is untrusted input by the security
   // contract. The renderer has ErrorBoundary for this class of failure; this is main's.
   try {
     backupIfNeeded() // daily dated copy of world.db — restore is manual (the backups/ folder)
-    const arg = dunyaArg(process.argv)
+    const arg = worldArg(process.argv)
     if (arg) {
       openGuarded(arg) // launch with the double-clicked file; a bad one just starts blank
     } else if (hasContent()) {
       // Photoshop pattern: a normal launch is ALWAYS a blank document. The previous session's
-      // working copy (images included) is packed into backups/ as a full .dunya — nothing is
+      // working copy (images included) is packed into backups/ as a full .world — nothing is
       // lost even if it was never saved (subject to the 30-day backup pruning).
       const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-      packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.dunya`))
+      packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.world`))
       resetWorld()
     }
   } catch (err) {
     startupWarning = err instanceof Error ? err.message : String(err)
   }
 
-  // Register the .dunya extension to the CURRENT exe path on every launch (HKCU — no admin
+  // Register the .world extension to the CURRENT exe path on every launch (HKCU — no admin
   // needed): even the portable exe stays double-clickable wherever it is moved or renamed.
   // Disabled in dev (process.execPath would be electron.exe). Errors are swallowed.
   if (process.platform === 'win32' && !is.dev) {
     const reg = (args: string[]): void => {
       execFile('reg.exe', args, () => {})
     }
-    reg(['add', 'HKCU\\Software\\Classes\\.dunya', '/ve', '/d', 'Dunya.World', '/f'])
+    // Both extensions point at the SAME ProgID, and that ProgID keeps its old name on purpose:
+    // renaming it would leave every already-registered .dunya pointing at an entry that no longer
+    // exists, and those files would stop opening on a double click.
+    for (const ext of WORLD_EXT)
+      reg(['add', `HKCU\\Software\\Classes\\${ext}`, '/ve', '/d', 'Dunya.World', '/f'])
     reg([
       'add',
       'HKCU\\Software\\Classes\\Dunya.World\\shell\\open\\command',
@@ -1040,7 +1047,7 @@ app.whenReady().then(() => {
         detail:
           `${startupWarning}\n\n` +
           'This usually means another copy of the app is already open and holding the world ' +
-          'file. The app has started with whatever was already there — save to a .dunya before ' +
+          'file. The app has started with whatever was already there — save to a .world before ' +
           'making changes you care about.'
       })
     )

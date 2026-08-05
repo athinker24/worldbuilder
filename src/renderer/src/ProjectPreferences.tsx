@@ -21,7 +21,7 @@ import { logEvent } from './log'
 import { IconButton, Section } from './ui'
 
 // PROJECT configuration: the systems that define the open world's own structure. All three live
-// in the settings table, so they travel inside the .dunya — that is exactly what separates them
+// in the settings table, so they travel inside the .world — that is exactly what separates them
 // from Preferences (language/theme), which belong to the application and stay per-machine.
 export default function ProjectPreferences(): React.JSX.Element {
   const t = useT()

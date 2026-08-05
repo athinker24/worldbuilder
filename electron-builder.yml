@@ -48,9 +48,14 @@ win:
 # ZIP the app writes its current exe path into HKCU on every launch (see index.ts) — so it is
 # found even after being moved.
 fileAssociations:
-  - ext: dunya
+  - ext: world
     name: Worldbuilder
     description: Worldbuilder world file
+  # Everything saved before the rename. Registered so those files keep opening on a
+  # double click; the app itself only ever writes .world now.
+  - ext: dunya
+    name: Worldbuilder
+    description: Worldbuilder world file (old extension)
 nsis:
   artifactName: Worldbuilder-${version}-Setup.${ext}
   # A wizard opens and asks for the install folder (not a one-click silent install)

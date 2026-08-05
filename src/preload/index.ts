@@ -18,7 +18,7 @@ const api = {
 // context isolation was off. That branch has never run — the window is created with
 // `sandbox: true` and isolation on — and it is the wrong thing to keep as a fallback: it would
 // let the app keep working, silently, with the whole main-process api hanging off the global
-// object of a page that renders content from a shared `.dunya`. If isolation is ever lost, this
+// object of a page that renders content from a shared `.world`. If isolation is ever lost, this
 // should fail loudly instead. A throw here surfaces as `preload-error`, which main logs.
 if (!process.contextIsolated) throw new Error('context isolation is required')
 contextBridge.exposeInMainWorld('api', api)

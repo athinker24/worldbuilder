@@ -35,7 +35,7 @@ const BACKUP_KEEP_FILES = 60
 /**
  * Pragmas set on EVERY connection, before anything reads the file.
  *
- * A `.dunya` is someone else's SQLite database opened over yours, which is the situation SQLite's
+ * A `.world` is someone else's SQLite database opened over yours, which is the situation SQLite's
  * own "defence against dark arts" note is written for.
  *
  * - trusted_schema OFF stops any function call the FILE's schema carries — in a view, a trigger,
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `
 
-/** Open a database with the defensive pragmas already applied. Every open of a file a `.dunya`
+/** Open a database with the defensive pragmas already applied. Every open of a file a `.world`
  *  has ever touched goes through here — see PRAGMAS for what they defend against. */
 function openDb(file: string, opts?: { readOnly: boolean }): DatabaseSync {
   // Not `new DatabaseSync(file, opts)`: node:sqlite rejects an explicit undefined for its options
@@ -118,7 +118,7 @@ export function initDb(dir: string): void {
 // The codebase was Turkish; its data keys were too. Now that the code asks for English keys, a
 // world written by an older build would silently lose its parent chains, banners, notes and
 // dynasty links — the data would still be there, the code would just be looking elsewhere. This
-// renames the keys in place. It runs on every launch and on every .dunya opened, and is
+// renames the keys in place. It runs on every launch and on every .world opened, and is
 // idempotent: a key already migrated is simply absent, and an existing English key is never
 // overwritten by a stale Turkish one.
 const FIELD_RENAMES: Record<string, string> = {
@@ -231,14 +231,14 @@ export function backupIfNeeded(): void {
   if (made || dropped) logEvent('INFO', 'project.backup', { daily: today, dropped })
 }
 
-// --- The .dunya file format (like Wonderdraft's own file): EVERYTHING in one file ---
+// --- The .world file format (like Wonderdraft's own file): EVERYTHING in one file ---
 // Format = a SQLite copy with the same schema + an extra `assets` table (images embedded as BLOBs).
 // The working copy (world.db + assets/) is untouched by this — Save packs, Open unpacks.
 // settings.worldFile carries the file's own path (the Ctrl+S target; updated with the real path on open).
 
-/** Pack the working copy (db + the images in assets/) into a single .dunya file. */
+/** Pack the working copy (db + the images in assets/) into a single .world file. */
 export function packWorld(targetPath: string): void {
-  pruneUnusedAssets() // drop unused images before saving → lean .dunya and working copy
+  pruneUnusedAssets() // drop unused images before saving → lean .world and working copy
   const tmp = targetPath + '.tmp'
   rmSync(tmp, { force: true })
   db.exec(`VACUUM INTO '${tmp.replaceAll("'", "''")}'`) // clean, atomic snapshot
@@ -324,16 +324,16 @@ function probeWorldFile(sourcePath: string): void {
  */
 export const MUTATES = /^(create|update|delete|add|set|restore|retype|import|pick)/
 
-/** Our five tables. Anything else a .dunya carries is not part of the format. */
+/** Our five tables. Anything else a .world carries is not part of the format. */
 const OUR_TABLES = new Set(['entities', 'links', 'maps', 'features', 'settings'])
 
-/** Drop everything a .dunya carries that is not our schema.
+/** Drop everything a .world carries that is not our schema.
  *
  *  A database file holds more than rows. A TRIGGER on entities rides along with the data and
  *  then fires against the USER's own edits from that point on — "after every insert, delete
  *  something else" is sabotage of the world they are building, and it survives every save
  *  because packWorld copies the whole database. Triggers cannot execute code, they are SQL
- *  only, so this is integrity rather than escape; but the file model treats a shared .dunya as
+ *  only, so this is integrity rather than escape; but the file model treats a shared .world as
  *  hostile input, and none of this belongs to the format. packWorld only ever emits our tables
  *  plus `assets`, so nothing legitimate is lost.
  *
@@ -361,7 +361,7 @@ function dropForeignTables(): void {
     if (!OUR_TABLES.has(r.name)) db.exec(`DROP TABLE "${r.name.replaceAll('"', '""')}"`)
 }
 
-/** Open a .dunya file OVER the working copy (the current working copy is overwritten —
+/** Open a .world file OVER the working copy (the current working copy is overwritten —
  *  the caller must confirm/back up first). Embedded images are extracted into assets/. */
 export function unpackWorld(sourcePath: string): void {
   probeWorldFile(sourcePath) // throws before anything is touched
@@ -414,7 +414,7 @@ export function unpackWorld(sourcePath: string): void {
         name: unknown
         data: unknown
       }[]) {
-        // A .dunya is a SHARED file: the embedded name is untrusted input. Without basename,
+        // A .world is a SHARED file: the embedded name is untrusted input. Without basename,
         // a name like `../../…` or `C:\…` would write OUTSIDE assets/ (overwriting files).
         // packWorld only ever writes basenames, so nothing is lost.
         //
@@ -441,7 +441,7 @@ export function unpackWorld(sourcePath: string): void {
     }
     dropForeignTables() // assets is consumed by here, so anything left over is not ours
     repairImportedJson() // reset malformed JSON columns to defaults (rationale below)
-    migrateLegacyKeys() // so old .dunya files (with Turkish keys) still open
+    migrateLegacyKeys() // so old .world files (with Turkish keys) still open
   } catch (err) {
     putBack(err)
   }
@@ -455,7 +455,7 @@ export function unpackWorld(sourcePath: string): void {
   pruneUnusedAssets() // drop images the opened world does not use (leftovers from the previous one)
 }
 
-/** Reset malformed JSON columns in an imported .dunya to defaults; returns rows repaired.
+/** Reset malformed JSON columns in an imported .world to defaults; returns rows repaired.
  *  Deliberately in ONE place: the renderer JSON.parses these columns in 20+ spots and a
  *  single bad row would take down that whole view (the map never opens, the entity page
  *  stays blank). Rather than wrapping every call site in try/catch, the data is repaired at
@@ -596,7 +596,7 @@ function repairImportedJson(): number {
     byKind.settings = (byKind.settings ?? 0) + 1
   }
   // CYCLES AND DEPTH IN THE TWO TREES. A map's parent and a sidebar folder's parent are both plain ids, and
-  // a `.dunya` can carry any pair it likes — nothing has to go through the UI's own guard, which
+  // a `.world` can carry any pair it likes — nothing has to go through the UI's own guard, which
   // is written where a cycle would be CREATED. Downstream both are walked without one: MapView's
   // breadcrumb is a `while (cur)` that never terminates on a loop, and the map tree and the
   // folder tree are recursive renders. So the file, not the eleven readers, is where this is met.
@@ -683,7 +683,7 @@ export const worldStats = (): Record<string, number> => {
  * `assets/`.
  *
  * It lives HERE, next to the folder it defends, rather than inline in the protocol handler: this
- * is the app's only path check driven entirely by hostile input — a `.dunya`'s notes can name any
+ * is the app's only path check driven entirely by hostile input — a `.world`'s notes can name any
  * url they like and its polygon fills are loaded as WebGL textures with CORS answered — and
  * db.ts is the one main-process file the self-check can run, so the check gets assertions instead
  * of a careful reading.
@@ -780,7 +780,7 @@ function patchSql(
  * DELIBERATELY NOT ON `api`. Every method there is spread onto the IPC surface in index.ts, and
  * this is the only one that takes a filesystem path from its caller — left there, a compromised
  * renderer could copy any image on the machine into assets/, from where the next save embeds it
- * in the `.dunya` and it travels to whoever the world is shared with. The legitimate route is
+ * in the `.world` and it travels to whoever the world is shared with. The legitimate route is
  * `pickImage`, where the USER chooses the file in a native dialog and main passes the path on.
  *
  * index.ts used to strip it back off the object with a destructure, which worked and had to be
@@ -883,7 +883,7 @@ export const api = {
       db.prepare(`SELECT id, name FROM entities WHERE name = ? COLLATE NOCASE`).get(name) ?? null
     )
   },
-  // The legacy `type` column is kept (older .dunya files still carry it) but no longer used:
+  // The legacy `type` column is kept (older .world files still carry it) but no longer used:
   // articles are organised by sidebar folders now.
   // The article events are logged HERE rather than at the buttons that cause them: every route in
   // — the sidebar, an entity page, a [[wiki link]], the dynasty form's find-or-create, undo and
@@ -1404,7 +1404,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
 
   // --- the schema and the allow-list must agree ----------------------------------------------
   // dropForeignTables deletes every table an opened file carries that is not in OUR_TABLES. That
-  // is what keeps a shared `.dunya` from smuggling one in — and it means a table added to SCHEMA
+  // is what keeps a shared `.world` from smuggling one in — and it means a table added to SCHEMA
   // and forgotten here would be DROPPED on the next open, with its rows, silently, in the one
   // function whose job is to be ruthless. The trap needs no attacker and no mistake at open time:
   // a new feature adding a table is enough.
@@ -1670,12 +1670,12 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     backupIfNeeded()
     assert.ok(existsSync(stale), 'a fresh backup of an old world must not be pruned as old')
   }
-  // .dunya pack/unpack round trip: the image is embedded; after the working copy is overwritten
+  // .world pack/unpack round trip: the image is embedded; after the working copy is overwritten
   // and reopened, both data and image come back intact, and no assets table remains
   writeFileSync(join(dir, 'assets', 'test.png'), Buffer.from([1, 2, 3]))
   // packWorld now prunes unused images → test.png must be referenced (or it would be deleted)
   api.updateEntity(a.id, { fields: JSON.stringify({ banner: 'assets/test.png' }) })
-  const dunya = join(dir, 'test.dunya')
+  const dunya = join(dir, 'test.world')
   packWorld(dunya)
   assert.ok(existsSync(dunya))
   api.updateEntity(a.id, { name: 'Changed After Packing' })
@@ -1695,9 +1695,9 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     0,
     'unpackWorld must VACUUM: a dropped assets table leaves the file at its old size'
   )
-  // Malicious .dunya: an embedded image name must not write OUTSIDE assets/ (shared file!)
+  // Malicious .world: an embedded image name must not write OUTSIDE assets/ (shared file!)
   {
-    const evil = join(dir, 'evil.dunya')
+    const evil = join(dir, 'evil.world')
     copyFileSync(dunya, evil)
     const ev = new DatabaseSync(evil)
     ev.exec(`CREATE TABLE IF NOT EXISTS assets (name TEXT PRIMARY KEY, data BLOB NOT NULL)`)
@@ -1720,10 +1720,10 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     )
     assert.ok(existsSync(join(dir, 'assets', 'kacti.png'))) // reduced to basename, stayed inside
   }
-  // A .dunya with malformed JSON columns must be repaired on open — otherwise one of the 20+
+  // A .world with malformed JSON columns must be repaired on open — otherwise one of the 20+
   // JSON.parse sites in the renderer throws and that whole view goes down (the map never opens)
   {
-    const broken = join(dir, 'broken.dunya')
+    const broken = join(dir, 'broken.world')
     copyFileSync(dunya, broken)
     const bd = new DatabaseSync(broken)
     bd.exec(`UPDATE entities SET fields = 'BOZUK{{'`)
@@ -1758,7 +1758,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     // ...and a geometry that PARSES but is not one is the same dead map one step further in:
     // L.geoJSON walks `coordinates` and throws inside the reload. A plausible object is not a
     // geometry.
-    const shaped = join(dir, 'shaped.dunya')
+    const shaped = join(dir, 'shaped.world')
     copyFileSync(dunya, shaped)
     const sh = new DatabaseSync(shaped)
     sh.exec(`UPDATE features SET geometry = '{"type":"Polygon","coordinates":"x"}'`)
@@ -1775,13 +1775,13 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   // Without the probe this destroyed world.db and the app could not be launched again at all:
   // initDb threw on the garbage before a window existed, so ErrorBoundary could not help.
   {
-    const notDb = join(dir, 'not-a-world.dunya')
-    writeFileSync(notDb, 'plain text wearing a .dunya extension')
+    const notDb = join(dir, 'not-a-world.world')
+    writeFileSync(notDb, 'plain text wearing a .world extension')
     const before = (api.listEntities() as unknown[]).length
     assert.throws(() => unpackWorld(notDb), /NOT_A_WORLD/, 'a non-database must be refused')
     assert.equal((api.listEntities() as unknown[]).length, before, 'the open world must survive')
     // A real SQLite file that is not OURS is refused the same way (missing tables)
-    const stray = join(dir, 'stray.dunya')
+    const stray = join(dir, 'stray.world')
     const sd = new DatabaseSync(stray)
     sd.exec(`CREATE TABLE notes (id INTEGER PRIMARY KEY)`)
     sd.close()
@@ -1789,7 +1789,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.equal((api.listEntities() as unknown[]).length, before, 'the open world must survive')
     // A file that names a VIEW `entities` reads like a world and passes every SELECT, then
     // refuses writes — it must be caught at the gate, not half-opened.
-    const viewy = join(dir, 'viewy.dunya')
+    const viewy = join(dir, 'viewy.world')
     copyFileSync(dunya, viewy)
     const vd = new DatabaseSync(viewy)
     vd.exec(`ALTER TABLE entities RENAME TO real_ents`)
@@ -1797,11 +1797,11 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     vd.close()
     assert.throws(() => unpackWorld(viewy), /NOT_A_WORLD/, 'a view standing in for a table')
   }
-  // A .dunya carries more than rows. A TRIGGER rides along and then fires against the USER's own
+  // A .world carries more than rows. A TRIGGER rides along and then fires against the USER's own
   // edits from then on — 'after every insert, rename everything' is sabotage that survives every
   // save. None of this is part of the format, so it must not reach the working copy.
   {
-    const rigged = join(dir, 'rigged.dunya')
+    const rigged = join(dir, 'rigged.world')
     copyFileSync(dunya, rigged)
     const rg = new DatabaseSync(rigged)
     rg.exec(
@@ -1838,7 +1838,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     // dynamically typed. A name stored as an integer threw inside basename(), from a point where
     // the rescue copy had already been dropped: the open failed with the working copy already
     // replaced and none of the repairs run.
-    const typed = join(dir, 'typed.dunya')
+    const typed = join(dir, 'typed.world')
     copyFileSync(dunya, typed)
     const ty = new DatabaseSync(typed)
     // NO column types, which is the point: a TEXT column would have converted the integer below
@@ -1861,7 +1861,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       'and the open completes rather than leaving the rescue copy behind'
     )
 
-    const looped = join(dir, 'looped.dunya')
+    const looped = join(dir, 'looped.world')
     copyFileSync(dunya, looped)
     const lp = new DatabaseSync(looped)
     lp.exec(`DELETE FROM maps`)
@@ -1904,7 +1904,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     // both trees are rendered recursively, so what it produces is a stack overflow rather than a
     // hang. 400 is far past MAX_TREE_DEPTH and far short of anything a person builds.
     {
-      const tall = join(dir, 'tall.dunya')
+      const tall = join(dir, 'tall.world')
       copyFileSync(dunya, tall)
       const tp = new DatabaseSync(tall)
       tp.exec(`DELETE FROM maps`)
@@ -1948,7 +1948,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       )
     }
 
-    const deep = join(dir, 'deep.dunya')
+    const deep = join(dir, 'deep.world')
     copyFileSync(dunya, deep)
     const nest = (n: number): string => '{"a":'.repeat(n) + '1' + '}'.repeat(n)
     const dp = new DatabaseSync(deep)
@@ -1967,8 +1967,8 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     // A normally nested world must be untouched — the limit is a ceiling, not a filter
     const okDepth = JSON.stringify({ notes: JSON.stringify([{ title: 't', content: 'c' }]) })
     api.updateEntity(a.id, { fields: okDepth })
-    packWorld(join(dir, 'ok.dunya'))
-    unpackWorld(join(dir, 'ok.dunya'))
+    packWorld(join(dir, 'ok.world'))
+    unpackWorld(join(dir, 'ok.world'))
     assert.equal(
       (api.getEntity(a.id) as { fields: string }).fields,
       okDepth,
@@ -1978,7 +1978,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   // Count: 20 000 tiny embedded images inside a 2 MB file froze the process for 22 seconds and
   // wrote 20 000 files. Refused before a byte is written, so the open world survives.
   {
-    const many = join(dir, 'many.dunya')
+    const many = join(dir, 'many.world')
     copyFileSync(dunya, many)
     const mn = new DatabaseSync(many)
     mn.exec(`CREATE TABLE IF NOT EXISTS assets (name TEXT PRIMARY KEY, data BLOB NOT NULL)`)
@@ -2126,12 +2126,12 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       return join(logs, n[0])
     }
 
-    initLog(ldir, '9.9.9', () => ({ file: 'w.dunya', dirty: true }))
+    initLog(ldir, '9.9.9', () => ({ file: 'w.world', dirty: true }))
     // The header is written at INIT, not on the first error: a session log that only sometimes
     // exists cannot be asked for by a user, which is the whole point of having one.
     assert.ok(readFileSync(only(), 'utf8').includes('SESSION START'), 'header at session start')
 
-    logEvent('INFO', 'project.opened', { file: 'w.dunya', entities: 163 })
+    logEvent('INFO', 'project.opened', { file: 'w.world', entities: 163 })
     logEvent('DEBUG', 'never.written', {})
     logSetDebug(true)
     logEvent('DEBUG', 'now.written', {})
@@ -2183,7 +2183,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
 
     // A record cannot be forged from the outside. The scope and the data KEYS are the two columns
     // written raw, and `logEvents` hands both straight through from the renderer — which is a page
-    // rendering a shared `.dunya`'s content. A newline in either would print a line that looks
+    // rendering a shared `.world`'s content. A newline in either would print a line that looks
     // exactly like one the app wrote, in a file whose purpose is to be pasted into a message.
     logEvent('INFO', 'forged\n12:00:00.000  ERROR  main.uncaught', {
       'k\nINFO  fake.line': 'v'
@@ -2230,7 +2230,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     )
     assert.ok(!txt.includes('logEvents'), 'the act of logging stays out of the trail')
     assert.ok(txt.includes('TypeError: boom'), 'the error itself')
-    assert.ok(txt.includes('file=w.dunya dirty=true'), 'context from the app')
+    assert.ok(txt.includes('file=w.world dirty=true'), 'context from the app')
     assert.ok(txt.includes('updateEntity → updateFeature'), 'the call trail — how it got there')
     assert.ok(
       txt.indexOf('happened.first') < txt.indexOf('arrived.second'),
@@ -2395,7 +2395,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   }
 
   // --- world:// path confinement -----------------------------------------------------------
-  // Every one of these is something a `.dunya` can put in a note or a polygon's fill, so the
+  // Every one of these is something a `.world` can put in a note or a polygon's fill, so the
   // check gets assertions rather than a careful reading. initDb has already run above, so
   // resolveAssetPath is answering about this run's temp data folder.
   {

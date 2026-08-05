@@ -6,7 +6,7 @@ import { logEvent, setDebugLog } from './log'
 import { Row, Section } from './ui'
 
 // APPLICATION preferences: how the app itself behaves, independent of which world is open.
-// These persist in userData/prefs.json, NOT in the .dunya — see api.ts getLanguage/getTheme.
+// These persist in userData/prefs.json, NOT in the .world — see api.ts getLanguage/getTheme.
 // Anything that describes the open project's structure belongs in ProjectPreferences instead.
 interface Props {
   lang: Lang

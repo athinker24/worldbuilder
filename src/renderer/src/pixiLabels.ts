@@ -4,7 +4,7 @@
 // Pixi's own supported answer: it swaps those code paths for interpreted equivalents. Slightly
 // slower to build a shader, identical once built, and it keeps the CSP intact — relaxing that to
 // suit a rendering library would trade a real security property for a startup micro-optimisation,
-// and a .dunya is treated as hostile input (see the security contract in CLAUDE.md).
+// and a .world is treated as hostile input (see the security contract in CLAUDE.md).
 import 'pixi.js/unsafe-eval'
 import { Application, Container, Text, TextStyle } from 'pixi.js'
 
@@ -279,7 +279,7 @@ export class LabelLayer {
   setLabels(specs: LabelSpec[]): void {
     // Clipped HERE, once, so both the straight and the curved path and the hit box all agree.
     //
-    // The text arrives from a `.dunya` — a label's own `style.text` or an entry's name — and a
+    // The text arrives from a `.world` — a label's own `style.text` or an entry's name — and a
     // curved label is ONE Text PER GLYPH: a name of a million characters is a million display
     // objects built synchronously while the map loads, with no gesture needed to trigger it. The
     // straight path is no better, since a texture that wide cannot be allocated at all. This is

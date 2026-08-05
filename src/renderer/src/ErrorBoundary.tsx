@@ -4,7 +4,7 @@ import Icon from './icons'
 import { translate } from './i18n'
 import { logCrash } from './log'
 
-// An opened .dunya is written OVER the working copy: if a corrupt/hostile file throws during
+// An opened .world is written OVER the working copy: if a corrupt/hostile file throws during
 // render, without a boundary the window would sit blank — and the UI for opening a different
 // file would be gone with it, leaving the app unrecoverable. This boundary always leaves an
 // exit: a blank world (the working copy is packed into backups/ and reset) or opening another

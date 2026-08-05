@@ -238,7 +238,7 @@ export default function App(): React.JSX.Element {
   )
   // Every map open writes 'lastMapId' (all switches — toolbar menu included — pass through
   // here) → returning to the app/maps reopens the last viewed map. Lives in the settings
-  // table, so it travels inside the .dunya.
+  // table, so it travels inside the .world.
   // Every switch between maps goes through here, which is why the log line does too.
   const openMap = useCallback(
     (id: number): void => {
@@ -326,7 +326,7 @@ export default function App(): React.JSX.Element {
     [openMap, lang]
   )
 
-  // Save the world as a .dunya / open one from disk (Wonderdraft model). Opening overwrites
+  // Save the world as a .world / open one from disk (Wonderdraft model). Opening overwrites
   // the working copy → confirm first when dirty; then a full page reload (all refs/undo/state
   // start clean).
   // Toast (save confirmation) — not modal, disappears on its own. There was no visual proof
@@ -388,7 +388,7 @@ export default function App(): React.JSX.Element {
     [showToast, lang]
   )
 
-  // Auto-save (Photoshop/Krita pattern): when a .dunya is open and there are changes, pack
+  // Auto-save (Photoshop/Krita pattern): when a .world is open and there are changes, pack
   // silently. With NO file, do nothing — popping a save dialog would steal focus (an unsaved
   // session is packed into backups/ on close anyway).
   useEffect(() => {
@@ -416,7 +416,7 @@ export default function App(): React.JSX.Element {
     await api.openWorld() // main does the reload (webContents.reload — immune to the will-navigate block)
   }, [discardOk])
 
-  // Start screen (Photoshop/Krita): recent .dunya files. The list lives in userData — the
+  // Start screen (Photoshop/Krita): recent .world files. The list lives in userData — the
   // working copy is reset on every launch, so it cannot live in settings.
   // worldFile: with a world open the start screen is hidden (Photoshop shows "home" only
   // with no document too) — the empty view falls back to a plain hint.

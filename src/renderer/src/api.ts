@@ -2,7 +2,7 @@
 const inv = <T>(method: string, ...args: unknown[]): Promise<T> =>
   window.api.invoke(method, ...args) as Promise<T>
 
-// userData/prefs.json — application preferences, per machine, never inside a .dunya.
+// userData/prefs.json — application preferences, per machine, never inside a .world.
 export interface UiPrefs {
   language?: string
   theme?: string
@@ -177,7 +177,7 @@ export const api = {
   backupNow: () => inv<string>('backupNow'),
   // Dumps note tabs into a readable .txt tree (notes/<map>/<type>/<entity>/<note>.txt) + opens the folder
   exportNotes: () => inv<{ path: string; files: number; skipped: number }>('exportNotes'),
-  // The .dunya file model (Wonderdraft-style): save / save as / open + dirty state
+  // The .world file model (Wonderdraft-style): save / save as / open + dirty state
   saveWorld: () => inv<string | null>('saveWorld'),
   saveWorldAs: () => inv<string | null>('saveWorldAs'),
   openWorld: () => inv<string | null>('openWorld'),
@@ -190,7 +190,7 @@ export const api = {
   // Same behaviour as newWorld in this app — a separate command because that is where users
   // look for it (see newProject in main/index.ts).
   closeWorld: () => inv<void>('closeWorld'),
-  // Application preferences (userData/prefs.json) — per machine, NOT part of the .dunya.
+  // Application preferences (userData/prefs.json) — per machine, NOT part of the .world.
   // Layout (panel widths, sidebar open) belongs here for the same reason as language/theme:
   // it describes how you like the app, not what the world contains.
   getPrefs: () => inv<UiPrefs>('getPrefs'),
@@ -396,7 +396,7 @@ export interface MapModes {
  * `repairImportedJson` (db.ts) already guarantees that anything JSON-looking in there PARSES —
  * it resets what does not, at the gate, before the renderer ever sees it. What it cannot know is
  * the shape each key is supposed to have, and the loaders below spread a parsed value straight
- * into a typed object. A `.dunya` carrying `{"dims": "x"}` or `{"periods": 5}` therefore reaches
+ * into a typed object. A `.world` carrying `{"dims": "x"}` or `{"periods": 5}` therefore reaches
  * `.map()` on a string and takes down a whole screen — the map, the timeline, the sidebar —
  * where the honest outcome is that one setting falls back to its default.
  *
@@ -408,7 +408,7 @@ export interface MapModes {
  *
  * The gate in db.ts only validates values that LOOK like JSON — it checks anything starting with
  * `{` or `[`, because the same table legitimately holds plain text ('dark', 'tr', a file path).
- * So a `.dunya` that writes `hello` under `templates` walks straight past it, and every loader
+ * So a `.world` that writes `hello` under `templates` walks straight past it, and every loader
  * below used to hand that to JSON.parse and throw during the screen's first render. The
  * fallback is the same one an absent value gets.
  */
@@ -610,7 +610,7 @@ export const formatYear = (y: number, cfg: TimelineConfig): string =>
   y < 0 ? `${-y} ${cfg.before}` : `${y} ${cfg.after}`
 
 // Language and theme are APPLICATION preferences, so they live in userData/prefs.json rather than
-// the settings table: a row there would ride inside a shared .dunya (opening someone else's world
+// the settings table: a row there would ride inside a shared .world (opening someone else's world
 // would change your language) and resetWorld() would wipe it on the next launch.
 // Interface language — default English; changeable from Preferences.
 export type Lang = 'en' | 'tr'
@@ -638,7 +638,7 @@ export async function getTheme(): Promise<Theme> {
 export const saveTheme = (theme: Theme): Promise<void> => api.savePrefs({ theme })
 
 // Developer logging. Per machine, like language and theme — and deliberately NOT in the world's
-// settings table, or opening someone else's .dunya would switch it on for you.
+// settings table, or opening someone else's .world would switch it on for you.
 export async function getDebugLog(): Promise<boolean> {
   const { debugLog } = await api.getPrefs()
   return debugLog === true

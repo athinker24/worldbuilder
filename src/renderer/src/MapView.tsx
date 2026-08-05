@@ -943,7 +943,7 @@ export default function MapView({
   const [newMapInside, setNewMapInside] = useState(true)
   // The "no base image" card, dismissed for this map. Persisted, not session state: someone
   // working without a base image would otherwise dismiss the same invitation every launch, which
-  // is the definition of a nag. It rides in the .dunya because it is about that map, not about
+  // is the definition of a nag. It rides in the .world because it is about that map, not about
   // this machine.
   const [hintOff, setHintOff] = useState(false)
   const [histOpen, setHistOpen] = useState(false)
@@ -1329,7 +1329,7 @@ export default function MapView({
   //
   // `seen` is not defensive programming for its own sake. The UI's cycle guard sits where a cycle
   // would be CREATED (see the map tree's right-click move), which covers everything this app does
-  // to its own data — and covers nothing about a `.dunya` someone sent you, where parent_map_id is
+  // to its own data — and covers nothing about a `.world` someone sent you, where parent_map_id is
   // just a column with whatever is in it. Without this the loop never ends and never throws: it
   // unshifts into an array until the tab dies. db.ts breaks such a loop at the entry gate now, so
   // this is the second of two locks, and it is the cheap one.
@@ -2327,7 +2327,7 @@ export default function MapView({
         // the answer is a real label placed by hand, not a better guess at where to put this one.
         if (f.entity_name && !derived && !isLabel && !style.hideName) {
           // escapeHtml is REQUIRED (both branches): a string tooltip/label renders via innerHTML
-          // — an entity NAMED `<img onerror=…>` in a shared .dunya would run code with no click.
+          // — an entity NAMED `<img onerror=…>` in a shared .world would run code with no click.
           if (isPolygon) {
             // A marker, not a bound tooltip — see the note in updateOverlaySizes for why
             // (Leaflet's own tooltip auto-reposition on zoom was the app's single biggest cost).

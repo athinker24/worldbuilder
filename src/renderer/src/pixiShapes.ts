@@ -61,7 +61,7 @@ const dashRing = (
 ): void => {
   // The floor is a fraction of the RING, not a constant, and that is a security property rather
   // than a nicety. The pattern comes from lineDashArray(dash, weight), and `weight` is read
-  // straight out of a feature's style — i.e. straight out of a `.dunya` someone sent you. With a
+  // straight out of a feature's style — i.e. straight out of a `.world` someone sent you. With a
   // weight of 1e-9 (or a negative one) every entry lands on the old fixed 1e-6 floor, and this
   // loop then walks a ring thousands of units long in millionths: the renderer hangs the moment
   // the map opens, before anything is drawn to say why.

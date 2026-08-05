@@ -71,7 +71,7 @@ const TR: Record<string, string> = {
   'Open a map first.': 'Önce bir harita aç.',
   'Show panels (Tab)': 'Panelleri göster (Tab)',
   'Drag to resize': 'Boyutlandırmak için sürükle',
-  // Hata sınırı (bozuk .dunya render'ı patlatırsa çıkış yolu)
+  // Hata sınırı (bozuk .world render'ı patlatırsa çıkış yolu)
   'This world could not be opened': 'Bu dünya açılamadı',
   'The file may be corrupt or created by a newer version.':
     'Dosya bozuk olabilir ya da daha yeni bir sürümle oluşturulmuş olabilir.',
@@ -132,7 +132,7 @@ const TR: Record<string, string> = {
   Chronology: 'Kronoloji',
   'This will discard unsaved changes. Continue?':
     'Kaydedilmemiş değişiklikler kaybolacak. Devam edilsin mi?',
-  // Başlangıç ekranı (son kullanılan .dunya dosyaları)
+  // Başlangıç ekranı (son kullanılan .world dosyaları)
   '＋ New world': '＋ Yeni dünya',
   Recent: 'Son kullanılanlar',
   Presets: 'Hazır renkler', // renk seçicideki sabit altılı şerit (son kullanılanlardan ayrı)
