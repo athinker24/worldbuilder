@@ -328,6 +328,12 @@ export class ShapeLayer {
     this.disposed = true
     if (this.idle) clearTimeout(this.idle)
     this.idle = null
+    // The base texture is ~67 MB for a 4096x4096 world map and MapView remounts on every map
+    // switch, so it is released explicitly rather than left to `children: true` — which destroys
+    // display objects but NOT the texture source behind them, the same trap the graphics context
+    // and the text style are documented for above.
+    this.baseSprite?.destroy({ texture: true, textureSource: true })
+    this.baseSprite = null
     this.app?.destroy(false, { children: true })
     this.app = null
   }
