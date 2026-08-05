@@ -3906,7 +3906,7 @@ export default function MapView({
     host.appendChild(bc)
     baseCanvas.current = bc
 
-    // P0 SPIKE: 350, not 450. The base image lives in this canvas now and must stay UNDER
+    // 350, not 450. The base image lives in this canvas now and must stay UNDER
     // Leaflet's overlay pane (400), where the selected feature and anything under geoman are
     // still real SVG. The WebGL shapes go under it too, which is the right way round: the thing
     // being edited belongs on top.

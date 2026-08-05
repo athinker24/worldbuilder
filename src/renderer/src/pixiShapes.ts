@@ -179,7 +179,7 @@ export class ShapeLayer {
   /** url → the loaded texture, or null while it is in flight / after it failed. */
   private textures = new Map<string, Texture | null>()
   /**
-   * P0 SPIKE: the base image as a textured quad.
+   * The base image, as a textured quad.
    *
    * Its own container, added BELOW root, for the same reason handleRoot is a sibling: rebuild()
    * destroys everything under root and this must survive it. Carries the same scale and position,
@@ -221,7 +221,7 @@ export class ShapeLayer {
   }
 
   /**
-   * P0 SPIKE: hand over the base image, in the same zoom-0 layer points everything here uses.
+   * Hand over the base image, in the same zoom-0 layer points everything here uses.
    *
    * MIPMAPS are the whole point. `ctx.drawImage` from a 4096x4096 source resamples 16.7 million
    * pixels every time the destination size changes — 20-50ms a frame, measured. A texture with
