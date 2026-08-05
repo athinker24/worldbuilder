@@ -4294,16 +4294,43 @@ export default function MapView({
         [0, 0],
         [worldMap.height, worldMap.width]
       ]
-      // An <img> rather than fetch(): `world://` is the app's own scheme and this is how every
-      // other asset is loaded; crossOrigin before src, since the scheme is a different origin and
-      // a canvas that draws an image fetched without CORS is tainted (the same trap the WebGL
-      // fill images hit — see pixiShapes.texture).
-      const el = new Image()
-      el.crossOrigin = 'anonymous'
-      el.onload = () => {
-        const p0 = map.project(L.latLng(0, 0), 0)
-        const p1 = map.project(L.latLng(worldMap.height!, worldMap.width!), 0)
-        void createImageBitmap(el).then((bmp) => {
+      /*
+       * The bytes, not an <img>. This is the second half of the decode story in drawBase.
+       *
+       * Moving the picture onto a canvas stopped Leaflet resizing an element and re-decoding on
+       * every zoom — but the decode itself was still being done the expensive way. This used to
+       * load an `<img>` and call `createImageBitmap(el)` from its onload, and Chromium decodes an
+       * already-loaded element SYNCHRONOUSLY ON THE MAIN THREAD: a trace of a launch shows
+       * `EventDispatch type=load → el.onload → Decode Image 170ms`, one unbroken block, landing a
+       * few seconds in — which is exactly when someone opens a map and reaches for the wheel. It
+       * read as "the first zoom is stuck" and it was never the zoom at all.
+       *
+       * `createImageBitmap` from a BLOB decodes on a background thread instead, so the main
+       * thread keeps its frames. The element is gone with it, which also settles the CORS
+       * question it needed `crossOrigin` for: `world://` is registered with `supportFetchAPI` and
+       * `corsEnabled` and its handler answers with the header, so the bitmap is clean and the
+       * canvas is never tainted.
+       */
+      const p0 = map.project(L.latLng(0, 0), 0)
+      const p1 = map.project(L.latLng(worldMap.height, worldMap.width), 0)
+      // How long the map spends WITHOUT its picture. The main thread no longer stalls on the
+      // decode, but that is only half the question: a background decode that arrives late shows
+      // as the drawings appearing over an empty canvas and the image landing after them, which
+      // is a different complaint with the same words. One line per map open.
+      const tImg = performance.now()
+      let bytes = 0
+      void fetch(assetUrl(worldMap.image_path))
+        .then((r) => r.blob())
+        .then((b) => {
+          bytes = b.size
+          return createImageBitmap(b)
+        })
+        .then((bmp) => {
+          logEvent('INFO', 'map.baseImage', {
+            ms: Math.round(performance.now() - tImg),
+            kb: Math.round(bytes / 1024),
+            px: `${bmp.width}x${bmp.height}`
+          })
           if (dropped) return bmp.close()
           baseImg.current = {
             bmp,
@@ -4314,8 +4341,11 @@ export default function MapView({
           }
           drawShapes() // it arrives a frame or two after the map is up; nothing else asks again
         })
-      }
-      el.src = assetUrl(worldMap.image_path)
+        // A missing or unreadable base image must not take the map down with it: the drawings are
+        // the map's content and they render perfectly well over an empty canvas.
+        .catch((err) =>
+          logEvent('WARN', 'map.baseImage', { error: String(err?.message ?? err).slice(0, 80) })
+        )
       map.fitBounds(bounds, { animate: false }) // same reason as focusFeature — no animated zoom here
       const fit = map.getBoundsZoom(bounds)
       setFitZoom(fit)

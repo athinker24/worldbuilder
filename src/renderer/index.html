@@ -8,10 +8,17 @@
          no plugin and no frame, and both are ways to introduce a document that default-src 'self'
          would still have allowed. frame-ancestors is deliberately NOT here — it is one of the
          directives a browser ignores in a meta tag, and a rule that silently does nothing is
-         worse than an absent one. -->
+         worse than an absent one.
+
+         connect-src names `world:` as well as 'self' because the base image is FETCHED rather
+         than loaded into an <img>: decoding a blob happens on a background thread, while
+         decoding an element happens on the main one and stalled the first interaction with the
+         map for ~170ms (see the base-image effect in MapView). Without this line the fetch is
+         refused by default-src and the map quietly loses its picture. It is the app's own
+         protocol, confined to assets/ by resolveAssetPath, and it is not a remote origin. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: world:; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: world:; connect-src 'self' world:; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"
     />
   </head>
 

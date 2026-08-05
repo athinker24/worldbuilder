@@ -2376,6 +2376,10 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     for (const directive of [
       "default-src 'self'",
       "script-src 'self'",
+      // The base image is fetched (a blob decodes off the main thread, an element does not), so
+      // the app's own scheme has to be a legal fetch target. Asserted so it cannot be dropped in
+      // a tidy-up: without it the map loses its picture and the only sign is a WARN in the log.
+      "connect-src 'self' world:",
       "object-src 'none'",
       "frame-src 'none'",
       "form-action 'none'",

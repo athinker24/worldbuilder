@@ -14,9 +14,13 @@ const agentationCsp = {
   name: 'agentation-dev-csp',
   apply: 'serve' as const,
   transformIndexHtml(html: string): string {
+    // The EXISTING connect-src is widened, not a second one inserted. A duplicate directive is
+    // not merged by the browser — the first occurrence wins and the rest are ignored — so
+    // inserting one ahead of the real policy would have silently dropped `world:` in dev and
+    // kept it in the packaged build: the base image working only in the shipped app.
     return html.replace(
-      "default-src 'self';",
-      "default-src 'self'; connect-src 'self' http://localhost:4747;"
+      "connect-src 'self' world:;",
+      "connect-src 'self' world: http://localhost:4747;"
     )
   }
 }
