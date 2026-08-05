@@ -1861,6 +1861,26 @@ kbd {
   background-size: 40px 40px;
 }
 
+/* The pane the smooth zoom transforms, promoted BEFORE the first gesture.
+ *
+ * Measured: the first wheel gesture after a launch has a 60-66ms worst frame and the fourth has
+ * 6ms — and in the run that showed it most clearly, NONE of the named blocks (commitZoom, the
+ * label render, the settle) went over 40ms. A frame that is long while our own code is idle is
+ * not our code: it is the compositor. The first `transform` written to this pane is what promotes
+ * it to a layer of its own and forces its contents to be rasterised at that scale, and it happens
+ * once, on the first zoom, which is exactly the shape of the complaint.
+ *
+ * `will-change` asks for the promotion up front, so the cost lands during the load. It is the ONE
+ * place in this app where the hint is right: the note in MapView's drawBase says will-change does
+ * not help — that was the base image, where what changed was the element's SIZE. Here what
+ * changes is a transform, which is what the property is for.
+ *
+ * Deliberately not on anything else. A permanent layer per element is what the marker _setPos
+ * patch exists to avoid; this is one pane, and it gets a layer during every zoom anyway. */
+.leaflet-map-pane {
+  will-change: transform;
+}
+
 :root {
   --canvas-grid: rgba(255, 255, 255, 0.028);
 }
