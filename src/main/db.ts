@@ -258,6 +258,10 @@ export function packWorld(targetPath: string): void {
   renameSync(tmp, targetPath) // write to tmp then rename — a half-written file can never remain
 }
 
+/** How deep a map or folder tree may be before the entry gate cuts the link. See the tree repair
+ *  in repairImportedJson for why a depth limit sits next to the cycle check. */
+const MAX_TREE_DEPTH = 64
+
 /** Thrown when the chosen file is not one of our worlds. The renderer shows it as a message
  *  rather than a crash, so the code is a stable string and not prose. */
 export const NOT_A_WORLD = 'NOT_A_WORLD'
@@ -591,7 +595,7 @@ function repairImportedJson(): number {
     fixed++
     byKind.settings = (byKind.settings ?? 0) + 1
   }
-  // CYCLES IN THE TWO TREES. A map's parent and a sidebar folder's parent are both plain ids, and
+  // CYCLES AND DEPTH IN THE TWO TREES. A map's parent and a sidebar folder's parent are both plain ids, and
   // a `.dunya` can carry any pair it likes — nothing has to go through the UI's own guard, which
   // is written where a cycle would be CREATED. Downstream both are walked without one: MapView's
   // breadcrumb is a `while (cur)` that never terminates on a loop, and the map tree and the
@@ -599,6 +603,13 @@ function repairImportedJson(): number {
   //
   // Breaking the link rather than deleting the row: the map and its drawings are the user's work,
   // and a map that comes back at the top level has lost only its place in the tree.
+  //
+  // DEPTH is the other half of the same hole, and it was missed the first time: a chain 50 000
+  // long has no cycle in it at all, so the loop check passes it straight through — and both trees
+  // are RECURSIVE renders, so the sidebar meets it as a stack overflow. (Not a brick — the error
+  // boundary catches a render throw — but a world that cannot show its own tree.) 64 is chosen
+  // against what a person builds: continents inside worlds inside campaigns is four or five, and
+  // anyone who reaches sixty-four has stopped organising anything.
   const mapRows = db.prepare(`SELECT id, parent_map_id FROM maps`).all() as {
     id: number
     parent_map_id: number | null
@@ -608,12 +619,13 @@ function repairImportedJson(): number {
   for (const m of mapRows) {
     const seen = new Set<number>([m.id])
     let cur = parentOf.get(m.id) ?? null
-    while (cur !== null && cur !== undefined && !seen.has(cur)) {
+    while (cur !== null && cur !== undefined && !seen.has(cur) && seen.size <= MAX_TREE_DEPTH) {
       seen.add(cur)
       cur = parentOf.get(cur) ?? null
     }
     // Landing back on something already walked means this row sits on a loop. Cutting THIS row's
-    // link is enough to open it; the rest of the chain keeps its shape.
+    // link is enough to open it; the rest of the chain keeps its shape. Running past the depth
+    // limit ends the same way for a different reason — see MAX_TREE_DEPTH.
     if (cur !== null && cur !== undefined) {
       clearParent.run(m.id)
       parentOf.set(m.id, null)
@@ -632,7 +644,7 @@ function repairImportedJson(): number {
       if (!f || typeof f.id !== 'string') continue
       const seen = new Set<string>([f.id])
       let cur = fParent.get(f.id) ?? null
-      while (cur && !seen.has(cur)) {
+      while (cur && !seen.has(cur) && seen.size <= MAX_TREE_DEPTH) {
         seen.add(cur)
         cur = fParent.get(cur) ?? null
       }
@@ -1191,7 +1203,7 @@ export const api = {
   // in no folder under "(no folder)". The middle level MIRRORS the sidebar folder tree (nested).
   // One-way export (app → .txt); the tree is rebuilt from scratch every time, so renames and
   // deletions come out clean.
-  exportNotes(): { path: string; files: number } {
+  exportNotes(): { path: string; files: number; skipped: number } {
     const ents = db.prepare(`SELECT id, name, fields FROM entities`).all() as {
       id: number
       name: string
@@ -1265,7 +1277,7 @@ export const api = {
       const out: string[] = []
       const seen = new Set<string>()
       let cur = id
-      while (cur && !seen.has(cur)) {
+      while (cur && !seen.has(cur) && seen.size <= MAX_TREE_DEPTH) {
         seen.add(cur)
         const f = folderById.get(cur)
         if (!f) break
@@ -1286,6 +1298,7 @@ export const api = {
     mkdirSync(notesDir, { recursive: true })
 
     let files = 0
+    let skipped = 0
     for (const ent of ents) {
       const notes = parseNotes(ent.fields)
       if (!notes.length) continue
@@ -1312,27 +1325,41 @@ export const api = {
       if (!placeDirs.length) placeDirs.push(['(no map)'])
       const fPath = folderPath(folderOf(ent.fields))
       for (const place of placeDirs) {
-        // On a name clash in the same folder, disambiguate with the entity id
-        let entDir = join(notesDir, ...place, ...fPath, safe(ent.name, `entity-${ent.id}`))
-        if (existsSync(entDir)) entDir += ` (#${ent.id})`
-        mkdirSync(entDir, { recursive: true })
-        const used = new Set<string>()
-        notes.forEach((n, i) => {
-          const baseName = safe(n.title, `note-${i + 1}`)
-          let fname = baseName
-          for (let k = 2; used.has(fname.toLowerCase()); k++) fname = `${baseName} (${k})`
-          used.add(fname.toLowerCase())
-          // \r\n for Windows Notepad compatibility
-          writeFileSync(
-            join(entDir, `${fname}.txt`),
-            (n.content ?? '').replace(/\r?\n/g, '\r\n'),
-            'utf8'
-          )
-          files++
-        })
+        // ONE ENTRY MUST NOT ABORT THE EXPORT. Every segment is clamped to 120 characters, but
+        // the PATH is the sum of them: map + board + a folder chain + the entry + the note. Deep
+        // enough or named long enough and Windows refuses the whole path, mkdirSync throws — and
+        // the tree was emptied before this loop started, so a throw here would leave the user
+        // with neither the new export nor the old one. Skipping the entry that cannot be written
+        // costs that entry; letting it out costs all of them.
+        try {
+          // On a name clash in the same folder, disambiguate with the entity id
+          let entDir = join(notesDir, ...place, ...fPath, safe(ent.name, `entity-${ent.id}`))
+          if (existsSync(entDir)) entDir += ` (#${ent.id})`
+          mkdirSync(entDir, { recursive: true })
+          const used = new Set<string>()
+          notes.forEach((n, i) => {
+            const baseName = safe(n.title, `note-${i + 1}`)
+            let fname = baseName
+            for (let k = 2; used.has(fname.toLowerCase()); k++) fname = `${baseName} (${k})`
+            used.add(fname.toLowerCase())
+            // \r\n for Windows Notepad compatibility
+            writeFileSync(
+              join(entDir, `${fname}.txt`),
+              (n.content ?? '').replace(/\r?\n/g, '\r\n'),
+              'utf8'
+            )
+            files++
+          })
+        } catch (err) {
+          skipped++
+          logEvent('WARN', 'notes.export.skipped', {
+            entity: ent.id,
+            reason: (err as Error)?.message?.slice(0, 80) ?? 'unknown'
+          })
+        }
       }
     }
-    return { path: notesDir, files }
+    return { path: notesDir, files, skipped }
   }
 }
 
@@ -1873,6 +1900,54 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     )
     assert.equal(foldersAfter.length, 2, 'and neither folder is thrown away to do it')
 
+    // DEPTH, which the loop check alone lets straight through: this chain has no cycle in it, and
+    // both trees are rendered recursively, so what it produces is a stack overflow rather than a
+    // hang. 400 is far past MAX_TREE_DEPTH and far short of anything a person builds.
+    {
+      const tall = join(dir, 'tall.dunya')
+      copyFileSync(dunya, tall)
+      const tp = new DatabaseSync(tall)
+      tp.exec(`DELETE FROM maps`)
+      const ins = tp.prepare(`INSERT INTO maps (id, name, parent_map_id) VALUES (?, ?, ?)`)
+      for (let i = 1; i <= 400; i++) ins.run(i, `M${i}`, i === 1 ? null : i - 1)
+      const chainF = Array.from({ length: 400 }, (_, i) => ({
+        id: `f${i}`,
+        name: `f${i}`,
+        parent: i === 0 ? null : `f${i - 1}`
+      }))
+      tp.prepare(
+        `INSERT INTO settings (key, value) VALUES ('entityFolders', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+      ).run(JSON.stringify(chainF))
+      tp.close()
+      unpackWorld(tall)
+      const tallMaps = api.listMaps() as { id: number; parent_map_id: number | null }[]
+      const byId = new Map(tallMaps.map((x) => [x.id, x.parent_map_id]))
+      const depth = (start: number): number => {
+        let n = 1
+        let cur = byId.get(start) ?? null
+        while (cur !== null && n < 5000) {
+          n++
+          cur = byId.get(cur) ?? null
+        }
+        return n
+      }
+      assert.ok(
+        tallMaps.every((x) => depth(x.id) <= MAX_TREE_DEPTH + 1),
+        'no map may sit deeper than the limit after an open'
+      )
+      assert.equal(tallMaps.length, 400, 'and not one of them is deleted to achieve it')
+      const tallFolders = JSON.parse(api.getSetting('entityFolders') || '[]') as {
+        id: string
+        parent: string | null
+      }[]
+      assert.equal(tallFolders.length, 400, 'the folder chain keeps every folder')
+      assert.ok(
+        tallFolders.filter((f) => f.parent === null).length > 1,
+        'and is cut into shallower pieces rather than left as one 400-deep chain'
+      )
+    }
+
     const deep = join(dir, 'deep.dunya')
     copyFileSync(dunya, deep)
     const nest = (n: number): string => '{"a":'.repeat(n) + '1' + '}'.repeat(n)
@@ -2257,6 +2332,36 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
         `${doc} must stay out of the shipped asar`
       )
     assert.ok(yml.includes("'!src/**'"), 'the sources must stay out too — a single * misses them')
+  }
+
+  // --- what the WINDOW promises --------------------------------------------------------------
+  // The same reasoning as the fuses below, one layer up. Each of these is a single line whose
+  // absence changes nothing visible: the app opens, the map draws, and a door nobody uses is
+  // unlocked. Read from the source that ships, so this cannot pass by agreeing with a copy.
+  //
+  // The two permission handlers are both listed on purpose — `setPermissionRequestHandler` covers
+  // only the ASKING path, while a synchronous permission CHECK (what `navigator.permissions.query`
+  // and several Blink call sites use) goes through the other one, which defaults to permissive.
+  {
+    const main = readFileSync(join(import.meta.dirname, 'index.ts'), 'utf8')
+    for (const line of [
+      'setPermissionRequestHandler',
+      'setPermissionCheckHandler',
+      'setDevicePermissionHandler',
+      'app.enableSandbox()',
+      // Bound to the APP, not to one window: a second window must not be able to exist without
+      // the navigation guards, and binding them per-window is how that happens by omission.
+      "app.on('web-contents-created'",
+      "wc.on('will-navigate'",
+      'wc.setWindowOpenHandler'
+    ])
+      assert.ok(main.includes(line), `main must keep ${line}`)
+    // shell.openExternal takes whatever it is given — file:, and on Windows anything the shell
+    // knows how to launch. The scheme test is the only thing between a link in a note and that.
+    assert.ok(
+      /openSafe = \(url: string\): void => \{\s*if \(\/\^https\?:/.test(main),
+      'only http(s) may reach the external browser'
+    )
   }
 
   // --- the CSP -------------------------------------------------------------------------------

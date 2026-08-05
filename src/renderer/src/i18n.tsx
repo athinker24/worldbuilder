@@ -146,6 +146,8 @@ const TR: Record<string, string> = {
 
   // ProjectPreferences.tsx (eski Settings.tsx). Not dışa aktarma artık File ▸ Export ▸ Notes.
   'Exported {n} note file(s); opening the folder…': '{n} not dosyası yazıldı; klasör açılıyor…',
+  'Exported {n} note file(s); {s} entry(s) could not be written.':
+    '{n} not dosyası yazıldı; {s} madde yazılamadı.',
   Person: 'Kişi',
   'Hierarchy Ranks': 'Hiyerarşi Kademeleri',
   'Move up': 'Yukarı taşı',

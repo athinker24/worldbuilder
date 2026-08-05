@@ -176,7 +176,7 @@ export const api = {
   pickImage: () => inv<string | null>('pickImage'),
   backupNow: () => inv<string>('backupNow'),
   // Dumps note tabs into a readable .txt tree (notes/<map>/<type>/<entity>/<note>.txt) + opens the folder
-  exportNotes: () => inv<{ path: string; files: number }>('exportNotes'),
+  exportNotes: () => inv<{ path: string; files: number; skipped: number }>('exportNotes'),
   // The .dunya file model (Wonderdraft-style): save / save as / open + dirty state
   saveWorld: () => inv<string | null>('saveWorld'),
   saveWorldAs: () => inv<string | null>('saveWorldAs'),
