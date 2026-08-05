@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, protocol, net, Menu } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, protocol, net, Menu, session } from 'electron'
 import { basename, join } from 'path'
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { writeFile } from 'fs/promises'
@@ -551,7 +551,7 @@ function buildMenu(): void {
 const mainApi = {
   ...dbApi,
   // Dumps notes into the .txt tree + opens the folder for browsing (button-triggered, one-way)
-  exportNotes: async (): Promise<{ path: string; files: number }> => {
+  exportNotes: async (): Promise<{ path: string; files: number; skipped: number }> => {
     const r = dbApi.exportNotes()
     await shell.openPath(r.path)
     return r
@@ -731,6 +731,45 @@ const mainApi = {
   }
 }
 
+/**
+ * The guarantees that must hold for EVERY web contents, not for the one window we happen to make.
+ *
+ * These three rules used to be attached inside createWindow, which made them a property of that
+ * call rather than of the app: a second window, a devtools-hosted page, anything created later
+ * would have come up without them, and nothing would have said so. Bound at the app level they
+ * are structural — a new window inherits them by existing.
+ *
+ * - Navigation: the window can never leave the app. A link in a note that hijacked the window
+ *   would be running with `window.api` in reach, which is the whole database.
+ * - Opening: `window.open` is denied outright; http(s) is handed to the real browser and
+ *   everything else (file:, javascript:, world:) is dropped — `shell.openExternal` will happily
+ *   launch what it is given, so the filter has to be here, not in the browser.
+ * - Permissions: the app uses none of them. Both handlers are set, and that is the point of this
+ *   pass: `setPermissionRequestHandler` only covers the asking path, while a synchronous
+ *   `permission check` (what `navigator.permissions.query` and several Blink call sites use) goes
+ *   through the OTHER handler, which defaults to permissive. Device permissions (USB/HID/serial)
+ *   are a third door and are shut here too.
+ */
+function hardenWebContents(): void {
+  const openSafe = (url: string): void => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
+  }
+  app.on('web-contents-created', (_e, wc) => {
+    wc.setWindowOpenHandler((details) => {
+      openSafe(details.url)
+      return { action: 'deny' }
+    })
+    wc.on('will-navigate', (e, url) => {
+      e.preventDefault()
+      openSafe(url)
+    })
+  })
+  const s = session.defaultSession
+  s.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
+  s.setPermissionCheckHandler(() => false)
+  s.setDevicePermissionHandler(() => false)
+}
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1400,
@@ -799,31 +838,17 @@ function createWindow(): void {
     logError('main:preload', err, { preload: basename(p) })
   )
 
-  // The app uses no browser permissions (camera, location, notifications…) — all denied.
-  // Remote content cannot load anyway; this is a cheap safety latch in case something ever slips.
-  win.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
-
-  // External links only in the browser and only http(s) — file:// and friends cannot run
-  const openSafe = (url: string): void => {
-    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
-  }
-  win.webContents.setWindowOpenHandler((details) => {
-    openSafe(details.url)
-    return { action: 'deny' }
-  })
-  // The window itself can never navigate away from the app (a link in a note must not
-  // hijack the window and reach the database through window.api)
-  win.webContents.on('will-navigate', (e, url) => {
-    e.preventDefault()
-    openSafe(url)
-  })
-
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
+
+// The window asks for `sandbox: true` itself; this makes it the DEFAULT for every renderer the
+// app will ever create, so a future window that forgets the flag is still sandboxed. Must run
+// before ready, which is why it sits at module level rather than in the whenReady block.
+app.enableSandbox()
 
 // Single instance: double-clicking a .dunya while the app is open switches the existing
 // window to that world instead of spawning a second one (confirm first when dirty)
@@ -850,6 +875,7 @@ app.on('second-instance', (_e, argv) => {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.worldbuilding.app')
+  hardenWebContents() // before any window exists, so the first one is covered by the same rules
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

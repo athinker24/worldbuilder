@@ -479,10 +479,18 @@ export default function App(): React.JSX.Element {
             ? exportMapRef.current()
             : showToast(translate(lang, 'Open a map first.'))
         case 'file.exportNotes':
-          return void api.exportNotes().then(({ files }) => {
-            logEvent('INFO', 'notes.export', { files })
+          return void api.exportNotes().then(({ files, skipped }) => {
+            logEvent('INFO', 'notes.export', { files, skipped })
+            // An entry whose path the filesystem refused is skipped rather than allowed to abort
+            // the export (see exportNotes). Said out loud: a silent shortfall in a folder of
+            // hundreds of files is one nobody would ever notice.
             showToast(
-              translate(lang, 'Exported {n} note file(s); opening the folder…', { n: files })
+              skipped
+                ? translate(lang, 'Exported {n} note file(s); {s} entry(s) could not be written.', {
+                    n: files,
+                    s: skipped
+                  })
+                : translate(lang, 'Exported {n} note file(s); opening the folder…', { n: files })
             )
           })
         case 'file.backup':

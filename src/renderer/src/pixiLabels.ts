@@ -174,6 +174,15 @@ const MAX_RES = 8
 const MAX_GLYPH_PX = 256
 
 /**
+ * The longest label this layer will draw. See setLabels for why it exists at all.
+ *
+ * 120 is chosen against what a MAP label is, not against what a string can be: a name that does
+ * not fit in a breath is not something anyone reads off a map. Long enough that no real title is
+ * ever touched, short enough that the per-glyph path stays bounded.
+ */
+const MAX_LABEL_CHARS = 120
+
+/**
  * Stop drawing a label once its glyphs are this many times the viewport height.
  *
  * Zooming deep into one region was heavy while everything else stayed smooth, and turning labels
@@ -268,11 +277,22 @@ export class LabelLayer {
 
   /** Replace the whole label set. Cheap enough to call on every reload — see rebuild(). */
   setLabels(specs: LabelSpec[]): void {
+    // Clipped HERE, once, so both the straight and the curved path and the hit box all agree.
+    //
+    // The text arrives from a `.dunya` — a label's own `style.text` or an entry's name — and a
+    // curved label is ONE Text PER GLYPH: a name of a million characters is a million display
+    // objects built synchronously while the map loads, with no gesture needed to trigger it. The
+    // straight path is no better, since a texture that wide cannot be allocated at all. This is
+    // the same shape of hole as the dash pattern that could be walked in millionths: an ordinary
+    // field, no bound, and the cost paid on OPEN. A name too long to read is not being read.
+    const clipped = specs.map((s) =>
+      s.text.length > MAX_LABEL_CHARS ? { ...s, text: s.text.slice(0, MAX_LABEL_CHARS) + '…' } : s
+    )
     // Dragging the year slider calls this on every tick, and a rebuild re-measures and re-lays
     // out every glyph run — while most years change nothing about which names are shown. The
     // comparison is O(n) over primitives; the rebuild it skips is milliseconds.
-    if (same(this.specs, specs)) return
-    this.specs = specs
+    if (same(this.specs, clipped)) return
+    this.specs = clipped
     this.rebuild()
   }
 
