@@ -221,7 +221,7 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
             <span className="hint">
               {' '}
               — {t('mapped area')}: {fmtArea(total)} {unit ? `${unit}²` : t('mu²')}
-              {!unit && ` (${t('no scale set — use the Scale tool on the map')})`}
+              {!unit && ` (${t('no scale set: use the Scale tool on the map')})`}
             </span>
           </h3>
           {/* Realms and each map-mode dimension side by side rather than stacked: the extra

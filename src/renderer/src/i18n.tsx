@@ -5,8 +5,6 @@ import { Lang } from './api'
 // only needs to hold the Turkish alternative. Missing keys fall back to the English text.
 const TR: Record<string, string> = {
   'New note tab': 'Yeni not sekmesi',
-  'Long notes live in their own tabs — add one with ＋.':
-    'Uzun notlar kendi sekmelerinde yaşar — ＋ ile ekle.',
   // "Fields" named the storage; these are the user's own structured properties.
   Attributes: 'Özellikler',
   'new attribute': 'yeni özellik',
@@ -15,24 +13,24 @@ const TR: Record<string, string> = {
   'Open…': 'Aç…',
   'Person folder': 'Kişi klasörü',
   'Show in panel': 'Panelde göster',
-  'Link to entity…': 'Maddeye bağla…',
+  'Link to entry…': 'Maddeye bağla…',
   map: 'harita',
-  'Pick an entity or a map from the left, or search with Ctrl+K.':
+  'Pick an entry or a map from the left, or search with Ctrl+K.':
     'Soldan bir madde ya da harita seç, ya da Ctrl+K ile ara.',
   'Nothing to measure yet': 'Henüz ölçülecek bir şey yok',
   'Draw base-rank polygons on a map, and set a map scale with the Scale tool to get real areas rather than map units.':
     'Bir haritaya taban kademe poligonları çiz; harita birimi yerine gerçek alanlar için Ölçek aracıyla ölçeği ayarla.',
-  'no scale set — use the Scale tool on the map': 'ölçek atanmamış — haritada Ölçek aracı',
+  'no scale set: use the Scale tool on the map': 'ölçek atanmamış: haritada Ölçek aracı',
   'Nothing recorded yet': 'Henüz kayıt yok',
-  'Add events from the map timeline, or a ruler’s reign from an entity page — both land here.':
-    'Harita zaman çizgisinden olay, madde sayfasından hükümdarlık ekle — ikisi de buraya düşer.',
+  'Add events from the map timeline, or a ruler’s reign from an entry page. Both land here.':
+    'Harita zaman çizgisinden olay, madde sayfasından hükümdarlık ekle. İkisi de buraya düşer.',
   'No relations yet': 'Henüz ilişki yok',
-  'Link two entities from the Relations section of an entity page and the web draws itself.':
+  'Link two entries from the Relations section of an entry page and the web draws itself.':
     'Bir madde sayfasının İlişkiler bölümünden iki maddeyi bağla, ağ kendiliğinden çizilir.',
-  'Removing only takes it out of this list; the file stays in your assets folder.':
-    'Kaldırmak yalnızca listeden çıkarır; dosya assets klasöründe kalır.',
+  'Removed from the list only; the file stays in assets.':
+    'Yalnızca listeden çıkar; dosya assets klasöründe kalır.',
   // Map hint bars: the glyph became a leading <Icon>, so the key lost it.
-  'Click the conqueror — the picks join it…': 'Fethedene tıkla — seçtiklerin ona bağlanır…',
+  'Click the conqueror; the picks join it…': 'Fethedene tıkla; seçtiklerin ona bağlanır…',
   'Select polygons to join {name} ({n} selected)':
     "{name}'e katılacak poligonları seç ({n} seçili)",
   'Click the START pin…': 'Başlangıç pinine tıkla…',
@@ -59,8 +57,8 @@ const TR: Record<string, string> = {
   'map name': 'harita adı',
   'Delete "{name}" and all drawings on it?':
     '"{name}" haritası ve üzerindeki tüm çizimler silinsin mi?',
-  Entities: 'Maddeler',
-  'New Entity': 'Yeni Madde',
+  Entries: 'Maddeler',
+  'New Entry': 'Yeni Madde',
   'New region': 'Yeni bölge',
   'New pin': 'Yeni pin',
   'New path': 'Yeni yol',
@@ -85,13 +83,13 @@ const TR: Record<string, string> = {
   '⌨ Shortcuts': '⌨ Kısayollar',
   Shortcuts: 'Kısayollar',
   General: 'Genel',
-  'Map — selection': 'Harita — seçim',
-  'Map — copy': 'Harita — kopyalama',
-  'Map — view & drawing': 'Harita — görünüm ve çizim',
+  'Map: selection': 'Harita: seçim',
+  'Map: copy': 'Harita: kopyalama',
+  'Map: view & drawing': 'Harita: görünüm ve çizim',
   Timeline: 'Zaman çizgisi',
   Notes: 'Notlar',
-  'Suggest entity names — ↑↓ to pick, Enter/Tab to insert':
-    'Madde adı öner — ↑↓ ile seç, Enter/Tab ile ekle',
+  'Suggest entry names: ↑↓ to pick, Enter/Tab to insert':
+    'Madde adı öner: ↑↓ ile seç, Enter/Tab ile ekle',
   'Close the suggestion list': 'Öneri listesini kapat',
   'Search everything (palette)': 'Her şeyde ara (palet)',
   'Go to the map (the last one you were on)': 'Haritaya git (en son bulunduğun harita)',
@@ -103,7 +101,7 @@ const TR: Record<string, string> = {
   'Undo / Redo': 'Geri al / Yinele',
   'Back / Forward in history': 'Geçmişte geri / ileri',
   'This page': 'Bu sayfa',
-  'Delete selected entities (in the list)': 'Seçili maddeleri sil (listede)',
+  'Delete selected entries (in the list)': 'Seçili maddeleri sil (listede)',
   Click: 'Tık',
   'Select a drawing': 'Bir çizim seç',
   'Ctrl+click': 'Ctrl+tık',
@@ -118,8 +116,8 @@ const TR: Record<string, string> = {
   Wheel: 'Tekerlek',
   'Smooth zoom': 'Yumuşak yakınlaştırma',
   'Shift+wheel': 'Shift+tekerlek',
-  'Size/thickness — of the selection, or of the active tool default':
-    'Boyut/kalınlık — seçilinin, seçim yoksa aktif aracın varsayılanının',
+  'Size/thickness: of the selection, or of the active tool default':
+    'Boyut/kalınlık: seçilinin, seçim yoksa aktif aracın varsayılanının',
   'Ctrl+drag a vertex': 'Ctrl+köşe sürükle',
   'Weld: move the neighbouring polygon vertex along with it':
     'Kaynak: komşu poligonun köşesini de birlikte taşı',
@@ -130,8 +128,7 @@ const TR: Record<string, string> = {
   'Type a year by hand': 'Elle yıl gir',
   // Haritada çoklu seçim
   '{n} drawings selected': '{n} çizim seçili',
-  'Edits apply to all selected drawings. Ctrl+click to add/remove.':
-    'Düzenlemeler seçili tüm çizimlere uygulanır. Ctrl+tık ile ekle/çıkar.',
+  'Edits apply to every selected drawing.': 'Düzenlemeler seçili her çizime uygulanır.',
   Chronology: 'Kronoloji',
   'This will discard unsaved changes. Continue?':
     'Kaydedilmemiş değişiklikler kaybolacak. Devam edilsin mi?',
@@ -139,13 +136,13 @@ const TR: Record<string, string> = {
   '＋ New world': '＋ Yeni dünya',
   Recent: 'Son kullanılanlar',
   Presets: 'Hazır renkler', // renk seçicideki sabit altılı şerit (son kullanılanlardan ayrı)
-  'No recent worlds yet — save one with Ctrl+S.':
-    'Henüz son kullanılan dünya yok — Ctrl+S ile kaydet.',
+  'No recent worlds yet. Save one with Ctrl+S.':
+    'Henüz son kullanılan dünya yok. Ctrl+S ile kaydet.',
   'file not found': 'dosya bulunamadı',
   'File not found: {p}': 'Dosya bulunamadı: {p}',
   'Remove from list': 'Listeden çıkar',
   World: 'Dünya',
-  'This entity is not marked on any map yet.': 'Bu madde henüz hiçbir haritada işaretli değil.',
+  'This entry is not marked on any map yet.': 'Bu madde henüz hiçbir haritada işaretli değil.',
 
   // ProjectPreferences.tsx (eski Settings.tsx). Not dışa aktarma artık File ▸ Export ▸ Notes.
   'Exported {n} note file(s); opening the folder…': '{n} not dosyası yazıldı; klasör açılıyor…',
@@ -159,8 +156,8 @@ const TR: Record<string, string> = {
   'Add starter ladders…': 'Başlangıç merdivenleri ekle…',
   Medieval: 'Orta Çağ',
   Modern: 'Modern',
-  'Each government form has its own rank ladder (top to bottom: empire → county, for example). Government forms appear here as tabs as they are written into the "Government form" field on entity pages.':
-    'Her yönetim biçiminin kendi kademe merdiveni vardır (sıra üstten alta: imparatorluk → kontluk gibi). Yönetim biçimleri madde sayfasındaki "Yönetim biçimi" alanına yazıldıkça burada sekme olarak belirir.',
+  'Each government form has its own ladder, highest rank first.':
+    'Her yönetim biçiminin kendi merdiveni var, en üst kademe başta.',
   'new government form (feudal, nomadic…)': 'yeni yönetim biçimi (feodal, göçebe…)',
   'Delete government form': 'Yönetim biçimini sil',
   'Delete government form "{name}" and its rank ladder?':
@@ -168,13 +165,13 @@ const TR: Record<string, string> = {
   'add tag to ladder (#county…)': 'merdivene etiket ekle (#kontluk…)',
   'Unassigned tags: {list}': 'Atanmamış etiketler: {list}',
   'Map Modes': 'Harita Modları',
-  'Dimensions like religion, language, culture. Each dimension you add appears as a field on entity pages (e.g. "religion: Islam"); the map is painted by that dimension from the Hierarchy panel.':
-    'Din, dil, kültür gibi boyutlar. Eklenen her boyut madde sayfasında bir alan olarak belirir (örn. "din: İslam"); haritada Hiyerarşi panelinden o boyuta göre boyama yapılır.',
+  'Religion, language, culture… each becomes a field on entries and a paint mode on the map.':
+    'Din, dil, kültür… her biri maddelerde bir alan, haritada bir boyama modu olur.',
   'religion, language, culture…': 'din, dil, kültür…',
   // Madde şablonları
-  'Entity Templates': 'Madde Şablonları',
-  'A starting point, never a constraint: pick a template on a new entity and its fields arrive ready. Leave a value empty for a blank field, or fill it in as a default. Everything stays editable afterwards — on the entity and here.':
-    'Başlangıç noktası, dayatma değil: yeni bir maddede şablon seç, alanları hazır gelsin. Değeri boş bırakırsan alan boş gelir, doldurursan varsayılan olur. Sonrasında her şey değiştirilebilir — hem maddede hem burada.',
+  'Entry Templates': 'Madde Şablonları',
+  'The fields a new entry starts with. Everything stays editable afterwards.':
+    'Yeni bir maddenin başlangıç alanları. Sonrasında her şey değiştirilebilir.',
   'new template (city, dynasty…)': 'yeni şablon (şehir, hanedan…)',
   'Delete template "{name}"?': '"{name}" şablonu silinsin mi?',
   'default value (optional)': 'varsayılan değer (isteğe bağlı)',
@@ -195,7 +192,7 @@ const TR: Record<string, string> = {
   'Work without one': 'Görselsiz devam et',
   'Drawings work without one, but a map usually starts with a picture.':
     'Çizim için şart değil, ama bir harita genelde bir görselle başlar.',
-  'Add to article:': 'Şu maddeye ekle:',
+  'Add to entry:': 'Şu maddeye ekle:',
   'Move to the top level': 'En üst seviyeye taşı',
   'Move under "{name}"': '"{name}" altına taşı',
   'inside "{name}"': '"{name}" içinde',
@@ -208,16 +205,15 @@ const TR: Record<string, string> = {
   Bold: 'Kalın',
   Italic: 'Eğik',
   'Show the name on the map': 'Adı haritada göster',
-  'Place a label with the 🏷 tool and bind it to the same article.':
-    '🏷 aletiyle bir etiket koy ve aynı maddeye bağla.',
-  'Move to another article': 'Başka maddeye taşı',
-  'Remove the emptied article': 'Boşalan madde silindi',
-  'new article each time': 'her seferinde yeni madde',
+  'Name it with the 🏷 Label tool instead.': 'Bunun yerine 🏷 Etiket aletiyle adlandır.',
+  'Move to another entry': 'Başka maddeye taşı',
+  'Remove the emptied entry': 'Boşalan madde silindi',
+  'new entry each time': 'her seferinde yeni madde',
   History: 'Geçmiş',
   Opened: 'Açıldı',
   'Go to this step': 'Bu adıma dön',
-  'Delete article': 'Madde silindi',
-  'Delete {n} articles': '{n} madde silindi',
+  'Delete entry': 'Madde silindi',
+  'Delete {n} entries': '{n} madde silindi',
   'Edit "{name}"': '"{name}" düzenlendi',
   'Remove relation': 'İlişki kaldırıldı',
   'Move to a folder': 'Klasöre taşındı',
@@ -240,9 +236,9 @@ const TR: Record<string, string> = {
   'Dark Teal': 'Koyu Turkuaz',
 
   // Palette.tsx
-  entity: 'madde',
-  'Create new entity named "{query}"': '"{query}" adında yeni madde oluştur',
-  'Search entity or map…': 'Madde ya da harita ara…',
+  entry: 'madde',
+  'Create new entry named "{query}"': '"{query}" adında yeni madde oluştur',
+  'Search entry or map…': 'Madde ya da harita ara…',
 
   // ToolPanel.tsx
   Polygon: 'Poligon',
@@ -301,19 +297,16 @@ const TR: Record<string, string> = {
   'Names on polygons and free text': 'Poligon adları ve serbest yazılar',
   // 🏷 Serbest metin etiketi
   Label: 'Etiket',
-  'Free text on the map — name seas, mountain ranges, regions.':
-    'Harita üzerine serbest yazı — deniz, dağ sırası, bölge adlandır.',
+  'Free text on the map: name seas, mountain ranges, regions.':
+    'Harita üzerine serbest yazı: deniz, dağ sırası, bölge adlandır.',
   Text: 'Metin',
   'sea, mountain range…': 'deniz, dağ sırası…',
   Angle: 'Açı',
   Curve: 'Eğri',
-  'Gentle curves read best; sharp ones crowd the letters.':
-    'Hafif eğriler en okunaklısıdır; sert eğrilerde harfler sıkışır.',
   'Exported to {path}': '{path} konumuna aktarıldı',
   Backup: 'Yedekleme',
-  'A dated copy of world.db is made automatically once a day (last 30 days kept). Restoring is manual: with the app closed, copy a file from the backups folder over world.db.':
-    "world.db'nin tarihli bir kopyası günde bir kez otomatik alınır (son 30 gün saklanır). Geri yükleme elle yapılır: uygulama kapalıyken backups klasöründeki bir dosyayı world.db üzerine kopyala.",
-  'Take an extra backup with File ▸ Back Up Now.': 'Fazladan bir yedek için File ▸ Şimdi Yedekle.',
+  'A dated copy is kept daily, for 30 days. To restore, close the app and copy one over world.db.':
+    'Günde bir tarihli kopya alınır, 30 gün saklanır. Geri yüklemek için uygulamayı kapat ve birini world.db üzerine kopyala.',
   'Backed up to {path}': '{path} konumuna yedeklendi',
   Size: 'Boyut',
   'Select a tool; its settings appear here.': 'Bir araç seç; ayarları burada görünür.',
@@ -327,11 +320,11 @@ const TR: Record<string, string> = {
   type: 'tip',
   'new field': 'yeni alan',
   value: 'değer',
-  'Markdown content… link to other entities with [[Entity Name]].':
+  'Markdown content… link to other entries with [[Entry Name]].':
     'Markdown içerik… [[Madde Adı]] ile diğer maddelere bağlanabilirsin.',
-  'No entity named "{name}". Create it?': '"{name}" adında madde yok. Oluşturulsun mu?',
+  'No entry named "{name}". Create it?': '"{name}" adında madde yok. Oluşturulsun mu?',
   Hierarchy: 'Hiyerarşi',
-  'county, religion, language…': 'kontluk, din, dil…',
+  'county, duchy, kingdom…': 'kontluk, düklük, krallık…',
   'Government form': 'Yönetim biçimi',
   'feudal, nomadic…': 'feodal, göçebe…',
   'Belongs to': 'Bağlı olduğu',
@@ -343,7 +336,7 @@ const TR: Record<string, string> = {
   always: 'her zaman',
   Relations: 'İlişkiler',
   'relation (rules, member of…)': 'ilişki (yönetir, mensubu…)',
-  'target entity': 'hedef madde',
+  'target entry': 'hedef madde',
   'Linked from here': 'Buraya bağlananlar',
   'mentions in content': 'içerikte anıyor',
   'New tab': 'Yeni sekme',
@@ -359,9 +352,9 @@ const TR: Record<string, string> = {
   Died: 'Ölüm',
   Fields: 'Alanlar',
   'Delete field': 'Alanı sil',
-  'Open entity': 'Maddeyi aç',
+  'Open entry': 'Maddeyi aç',
   'Open full page': 'Tam sayfayı aç',
-  'Independent — belongs to no other realm.': 'Bağımsız — başka bir ülkeye bağlı değil.',
+  'Independent: no realm above it.': 'Bağımsız: üstünde başka ülke yok.',
   Appearance: 'Görünüm',
   Close: 'Kapat',
   Expand: 'Genişlet',
@@ -374,7 +367,7 @@ const TR: Record<string, string> = {
   Created: 'Oluşturulma',
   Modified: 'Değiştirilme',
   'Folder color': 'Klasör rengi',
-  'Enlarge — center it on screen for reading': 'Büyüt — okumak için ekranın ortasına al',
+  'Enlarge: center it on screen': 'Büyüt: ekranın ortasına al',
   'Pin folders': 'Pin klasörleri',
   rank: 'kademe',
   base: 'taban',
@@ -383,7 +376,7 @@ const TR: Record<string, string> = {
   'This region has no owner at that rank in this year.':
     'Bu bölgenin o yıl o kademede bir sahibi yok.',
   '(no folder)': '(klasörsüz)',
-  '＋ Entity': '＋ Madde',
+  '＋ Entry': '＋ Madde',
   'Not on a map': 'Haritada değil',
   Favorites: 'Favoriler',
   'Add to favorites': 'Favorilere ekle',
@@ -401,9 +394,9 @@ const TR: Record<string, string> = {
   Triangle: 'Üçgen',
   Cross: 'Haç',
   'Nothing drawn on this map yet.': 'Bu haritada henüz bir çizim yok.',
-  'Every article is on a map.': 'Bütün maddeler bir haritada.',
+  'Every entry is on a map.': 'Bütün maddeler bir haritada.',
   '＋ Folder': '＋ Klasör',
-  'Delete folder "{name}"? (articles are kept)': '"{name}" klasörü silinsin mi? (maddeler korunur)',
+  'Delete folder "{name}"? (entries are kept)': '"{name}" klasörü silinsin mi? (maddeler korunur)',
   'Add banner': 'Sancak ekle',
   'Replace banner': 'Sancağı değiştir',
   'Remove banner': 'Sancağı kaldır',
@@ -413,7 +406,7 @@ const TR: Record<string, string> = {
   'Ruling house': 'Yöneten hane',
   'ruling house': 'yöneten hane',
   'Delete selected ({n})': 'Seçilenleri sil ({n})',
-  'Delete {n} entities?': '{n} madde silinsin mi?',
+  'Delete {n} entries?': '{n} madde silinsin mi?',
   Clear: 'Temizle',
   Cancel: 'İptal',
   Family: 'Aile',
@@ -440,11 +433,11 @@ const TR: Record<string, string> = {
 
   // HierarchyPanel.tsx
   All: 'Tümü',
-  'No ladder yet. Write a government form on entities, then order the ranks from Settings.':
+  'No ladder yet. Write a government form on entries, then order the ranks from Settings.':
     "Henüz merdiven yok. Maddelere yönetim biçimi yaz, Ayarlar'dan kademeleri sırala.",
   Conquest: 'Fetih',
-  'No entities in this rank.': 'Bu kademede madde yok.',
-  'No values in this dimension. Write a "{dim}" field on entities.':
+  'No entries in this rank.': 'Bu kademede madde yok.',
+  'No values in this dimension. Write a "{dim}" field on entries.':
     'Bu boyutta değer yok. Maddelere "{dim}" alanı yaz.',
 
   // Timeline.tsx
@@ -458,7 +451,8 @@ const TR: Record<string, string> = {
   'After epoch': 'Dönümden sonra',
   'Year range': 'Yıl aralığı',
   'period name': 'dönem adı',
-  'start.': 'başl.',
+  // 'start' is up with the feature time fields — one word, one entry (the abbreviated 'başl.'
+  // that used to live here was the same placeholder said twice, and it carried a full stop).
   end: 'bitiş',
   'event name (no location)': 'olay adı (konumsuz)',
   year: 'yıl',
@@ -508,14 +502,14 @@ const TR: Record<string, string> = {
   OK: 'Tamam',
   'event name': 'olay adı',
   add: 'ekle',
-  'This entity has no drawing on the map.': 'Bu maddenin haritada çizimi yok.',
+  'This entry has no drawing on the map.': 'Bu maddenin haritada çizimi yok.',
   'Drawing #{id}': 'Çizim #{id}',
   'View:': 'Görünüm:',
   'Blank = always. A negative year is before the epoch.':
     'Boş = her zaman. Negatif yıl dönümden öncedir.',
-  'Unlink entity': 'Madde bağlantısını kaldır',
-  'Link to entity': 'Maddeye bağla',
-  'search entity…': 'madde ara…',
+  'Unlink entry': 'Madde bağlantısını kaldır',
+  'Link to entry': 'Maddeye bağla',
+  'search entry…': 'madde ara…',
   'Link / Create': 'Bağla / Oluştur',
   Scale: 'Ölçek',
   'Set the map scale; measure distance and area without drawing.':
@@ -524,15 +518,15 @@ const TR: Record<string, string> = {
   'km, miles, leagues…': 'km, mil, fersah…',
   'Map width ({unit})': 'Harita genişliği ({unit})',
   'e.g. 3000': 'örn. 3000',
-  'No base image — measure a known distance instead.':
-    'Zemin görseli yok — onun yerine bilinen bir mesafeyi ölç.',
+  'No base image: measure a known distance instead.':
+    'Zemin görseli yok: onun yerine bilinen bir mesafeyi ölç.',
   'Measure known distance…': 'Bilinen mesafeyi ölç…',
   'Remove scale': 'Ölçeği kaldır',
   'Measure (not saved)': 'Ölç (kaydedilmez)',
   Distance: 'Mesafe',
   Area: 'Alan',
-  'Click to add points; Esc to finish. Measurements are not saved.':
-    'Tıklayarak nokta ekle; Esc bitirir. Ölçümler kaydedilmez.',
+  'Click to add points, Esc to finish. Not saved.':
+    'Tıklayarak nokta ekle, Esc bitirir. Kaydedilmez.',
   // 🧭 Navigasyon
   Navigate: 'Rota',
   'Pick two pins; the route follows your drawn paths.':
@@ -549,8 +543,8 @@ const TR: Record<string, string> = {
   '{val} days': '{val} gün',
   '(off-road)': '(yol dışı)',
   '(unnamed path)': '(adsız yol)',
-  'No route — make sure the paths meet at a shared point.':
-    'Rota yok — yolların ortak bir noktada birleştiğinden emin ol.',
+  'No route. Make sure the paths meet at a shared point.':
+    'Rota yok. Yolların ortak bir noktada birleştiğinden emin ol.',
   Finish: 'Bitir',
   'Distance: {val} {unit}': 'Mesafe: {val} {unit}',
   'Length: {val} {unit}': 'Uzunluk: {val} {unit}',

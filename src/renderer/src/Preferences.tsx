@@ -76,10 +76,9 @@ export default function Preferences({
       <Section title={t('Backup')}>
         <p className="hint">
           {t(
-            'A dated copy of world.db is made automatically once a day (last 30 days kept). Restoring is manual: with the app closed, copy a file from the backups folder over world.db.'
+            'A dated copy is kept daily, for 30 days. To restore, close the app and copy one over world.db.'
           )}
         </p>
-        <p className="hint">{t('Take an extra backup with File ▸ Back Up Now.')}</p>
       </Section>
 
       {/* Every session already writes a log; this only decides how much detail goes into it.
@@ -102,9 +101,7 @@ export default function Preferences({
           />
         </Row>
         <p className="hint">
-          {t(
-            'Every run writes a log of what happened. Turn this on to add timings and internal detail — useful when reporting a problem.'
-          )}
+          {t('Adds timings and internal detail to the log, for reporting a problem.')}
         </p>
         <button className="mini" onClick={() => void api.openLogFolder()}>
           {t('Open Log Folder')}

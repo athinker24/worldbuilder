@@ -85,7 +85,7 @@ export default function Kronoloji({ onOpenEntity, onLocateFeature }: Props): Rea
           icon="calendar"
           title={t('Nothing recorded yet')}
           hint={t(
-            'Add events from the map timeline, or a ruler’s reign from an entity page — both land here.'
+            'Add events from the map timeline, or a ruler’s reign from an entry page. Both land here.'
           )}
         />
       )}

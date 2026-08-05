@@ -609,7 +609,7 @@ export default function EntityPage({
     const found = await api.findEntityByName(name)
     if (found) {
       onOpen(found.id)
-    } else if (await confirmDialog(t('No entity named "{name}". Create it?', { name }))) {
+    } else if (await confirmDialog(t('No entry named "{name}". Create it?', { name }))) {
       const { id: newId } = await api.createEntity({ name })
       onChanged()
       onOpen(newId)
@@ -696,7 +696,7 @@ export default function EntityPage({
           >
             <input
               list="tag-list"
-              placeholder={t('county, religion, language…')}
+              placeholder={t('county, duchy, kingdom…')}
               value={tagInput}
               onChange={(e) => setTagInput(e.target.value)}
             />
@@ -764,9 +764,7 @@ export default function EntityPage({
           time (barony → county → duchy), not a bag of tags. */}
       {!isPerson && (
         <Section title={t('Belongs to')} icon="map">
-          {parents.length === 0 && (
-            <p className="hint">{t('Independent — belongs to no other realm.')}</p>
-          )}
+          {parents.length === 0 && <p className="hint">{t('Independent: no realm above it.')}</p>}
           {parents.map((p, i) => (
             <Row
               key={i}
@@ -839,7 +837,7 @@ export default function EntityPage({
               <a
                 href="#"
                 onClick={(e) => (e.preventDefault(), onOpen(r.id))}
-                title={t('Open entity')}
+                title={t('Open entry')}
               >
                 {allEntities.find((x) => x.id === r.id)?.name ?? `#${r.id}`}
               </a>
@@ -880,11 +878,10 @@ export default function EntityPage({
               <Icon name="plus" size={12} />
             </button>
           </form>
-        </Section>
-      )}
-
-      {!isPerson && (
-        <Section title={t('Ruling house')} icon="users" defaultOpen={houses.length > 0}>
+          {/* The ruling house is the same question one level up — who holds this realm, as a
+              family rather than as a person. It was a section of its own, which put a fold
+              between two halves of one answer. */}
+          <div className="panel-title">{t('Ruling house')}</div>
           {houses.map((r, i) => (
             <Row
               key={i}
@@ -901,7 +898,7 @@ export default function EntityPage({
               <a
                 href="#"
                 onClick={(e) => (e.preventDefault(), onOpen(r.id))}
-                title={t('Open entity')}
+                title={t('Open entry')}
               >
                 {allEntities.find((x) => x.id === r.id)?.name ?? `#${r.id}`}
               </a>
@@ -953,7 +950,7 @@ export default function EntityPage({
               <a
                 href="#"
                 onClick={(e) => (e.preventDefault(), onOpen(r.eid))}
-                title={t('Open entity')}
+                title={t('Open entry')}
               >
                 {r.name}
               </a>
@@ -1155,7 +1152,7 @@ export default function EntityPage({
           />
           <input
             list="entity-list"
-            placeholder={t('target entity')}
+            placeholder={t('target entry')}
             value={linkTarget}
             onChange={(e) => setLinkTarget(e.target.value)}
           />
@@ -1317,7 +1314,7 @@ export default function EntityPage({
           }}
           onInput={onNoteInput}
           onKeyDown={onNoteKeyDown}
-          placeholder={t('Markdown content… link to other entities with [[Entity Name]].')}
+          placeholder={t('Markdown content… link to other entries with [[Entry Name]].')}
         />
       ) : (
         <div
@@ -1351,9 +1348,6 @@ export default function EntityPage({
           <h4>{t('Notes')}</h4>
           <IconButton icon="plus" label={t('New note tab')} small onClick={addNoteTab} />
         </div>
-        {notes.length === 0 && (
-          <p className="hint">{t('Long notes live in their own tabs — add one with ＋.')}</p>
-        )}
         {notes.map((n, i) => (
           <div className="note-tab" key={i}>
             <div className="note-head">
@@ -1379,7 +1373,7 @@ export default function EntityPage({
               />
               <IconButton
                 icon="maximize"
-                label={t('Enlarge — center it on screen for reading')}
+                label={t('Enlarge: center it on screen')}
                 small
                 onClick={() => setFocusNote(i)}
               />
@@ -1434,7 +1428,7 @@ export default function EntityPage({
                   }}
                   onInput={onNoteInput}
                   onKeyDown={onNoteKeyDown}
-                  placeholder={t('Markdown content… link to other entities with [[Entity Name]].')}
+                  placeholder={t('Markdown content… link to other entries with [[Entry Name]].')}
                 />
               ) : (
                 <div
@@ -1527,9 +1521,7 @@ export default function EntityPage({
                     }}
                     onInput={onNoteInput}
                     onKeyDown={onNoteKeyDown}
-                    placeholder={t(
-                      'Markdown content… link to other entities with [[Entity Name]].'
-                    )}
+                    placeholder={t('Markdown content… link to other entries with [[Entry Name]].')}
                   />
                 ) : (
                   <div

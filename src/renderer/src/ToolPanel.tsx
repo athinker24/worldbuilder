@@ -142,7 +142,7 @@ export const TOOLS: { key: Tool; icon: IconName; name: string; hint?: string }[]
     key: 'label',
     icon: 'label',
     name: 'Label',
-    hint: 'Free text on the map — name seas, mountain ranges, regions.'
+    hint: 'Free text on the map: name seas, mountain ranges, regions.'
   },
   {
     key: 'scale',
@@ -573,7 +573,6 @@ export default function ToolPanel({
                 })
               }
             />
-            <p className="hint">{t('Gentle curves read best; sharp ones crowd the letters.')}</p>
             <label>{t('Halo')}</label>
             <Select
               value={settings.label.halo}
@@ -677,7 +676,7 @@ export default function ToolPanel({
                 }}
               />
             ) : (
-              <p className="hint">{t('No base image — measure a known distance instead.')}</p>
+              <p className="hint">{t('No base image: measure a known distance instead.')}</p>
             )}
             {/* Method B: measure a known distance on the map */}
             <button className="mini" onClick={onCalibrate}>
@@ -706,9 +705,7 @@ export default function ToolPanel({
                 <Icon name="polygon" size={12} /> {t('Area')}
               </button>
             </div>
-            <p className="hint">
-              {t('Click to add points; Esc to finish. Measurements are not saved.')}
-            </p>
+            <p className="hint">{t('Click to add points, Esc to finish. Not saved.')}</p>
           </>
         )}
         {active === 'nav' &&
@@ -770,7 +767,7 @@ export default function ToolPanel({
                   if (!r)
                     return (
                       <p className="hint">
-                        {t('No route — make sure the paths meet at a shared point.')}
+                        {t('No route. Make sure the paths meet at a shared point.')}
                       </p>
                     )
                   const k = scale?.perUnit ?? 1

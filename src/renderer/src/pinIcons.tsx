@@ -49,9 +49,7 @@ export function ImageStrip({
         </button>
       </div>
       {images.length > 0 && (
-        <p className="hint">
-          {t('Removing only takes it out of this list; the file stays in your assets folder.')}
-        </p>
+        <p className="hint">{t('Removed from the list only; the file stays in assets.')}</p>
       )}
     </>
   )

@@ -64,7 +64,7 @@ export default function Palette({
       .map((e) => ({
         key: `e${e.id}`,
         label: e.name,
-        badge: folders.find((f) => f.id === e.folder)?.name || t('entity'),
+        badge: folders.find((f) => f.id === e.folder)?.name || t('entry'),
         color: folderColor(folders, e.folder ?? null),
         open: () => onOpenEntity(e.id)
       }))
@@ -84,7 +84,7 @@ export default function Palette({
     if (query.trim() && !exact) {
       list.push({
         key: 'new',
-        label: t('Create new entity named "{query}"', { query: query.trim() }),
+        label: t('Create new entry named "{query}"', { query: query.trim() }),
         badge: '',
         color: 'transparent',
         open: async () => {
@@ -107,7 +107,7 @@ export default function Palette({
       <div className="palette" onMouseDown={(e) => e.stopPropagation()}>
         <input
           autoFocus
-          placeholder={t('Search entity or map…')}
+          placeholder={t('Search entry or map…')}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value)

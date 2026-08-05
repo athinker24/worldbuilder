@@ -107,11 +107,7 @@ export default function ProjectPreferences(): React.JSX.Element {
       </div>
 
       <Section title={t('Hierarchy Ranks')}>
-        <p className="hint">
-          {t(
-            'Each government form has its own rank ladder (top to bottom: empire → county, for example). Government forms appear here as tabs as they are written into the "Government form" field on entity pages.'
-          )}
-        </p>
+        <p className="hint">{t('Each government form has its own ladder, highest rank first.')}</p>
         <div className="field-row" style={{ marginBottom: 8 }}>
           <span className="field-key">{t('Load preset')}</span>
           <Select
@@ -242,7 +238,7 @@ export default function ProjectPreferences(): React.JSX.Element {
       <Section title={t('Map Modes')}>
         <p className="hint">
           {t(
-            'Dimensions like religion, language, culture. Each dimension you add appears as a field on entity pages (e.g. "religion: Islam"); the map is painted by that dimension from the Hierarchy panel.'
+            'Religion, language, culture… each becomes a field on entries and a paint mode on the map.'
           )}
         </p>
         <div className="hier-tags">
@@ -278,11 +274,9 @@ export default function ProjectPreferences(): React.JSX.Element {
         </div>
       </Section>
 
-      <Section title={t('Entity Templates')}>
+      <Section title={t('Entry Templates')}>
         <p className="hint">
-          {t(
-            'A starting point, never a constraint: pick a template on a new entity and its fields arrive ready. Leave a value empty for a blank field, or fill it in as a default. Everything stays editable afterwards — on the entity and here.'
-          )}
+          {t('The fields a new entry starts with. Everything stays editable afterwards.')}
         </p>
         <div className="hier-tags">
           {tpls.map((x) => (

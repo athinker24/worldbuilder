@@ -83,7 +83,7 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
           icon="link"
           title={t('No relations yet')}
           hint={t(
-            'Link two entities from the Relations section of an entity page and the web draws itself.'
+            'Link two entries from the Relations section of an entry page and the web draws itself.'
           )}
         />
       )}
