@@ -317,7 +317,7 @@ export default function App(): React.JSX.Element {
         drawings: feats.length
       })
       if (!feats.length) {
-        alertDialog(translate(lang, 'This entity is not marked on any map yet.'))
+        alertDialog(translate(lang, 'This entry is not marked on any map yet.'))
         return
       }
       setFocus({ featureId: feats[0].id, token: Date.now() })
@@ -772,9 +772,7 @@ export default function App(): React.JSX.Element {
   // Delete a folder: its direct child folders + articles are promoted to the folder's parent
   const deleteFolder = async (folder: FolderDef): Promise<void> => {
     if (
-      !(await confirmDialog(
-        t('Delete folder "{name}"? (articles are kept)', { name: folder.name })
-      ))
+      !(await confirmDialog(t('Delete folder "{name}"? (entries are kept)', { name: folder.name })))
     )
       return
     const parent = folder.parent
@@ -788,7 +786,7 @@ export default function App(): React.JSX.Element {
     refresh()
   }
   const addEntity = async (folderId: string | null = null): Promise<void> => {
-    const { id } = await api.createEntity({ name: t('New Entity') })
+    const { id } = await api.createEntity({ name: t('New Entry') })
     if (folderId) await setEntityFolder(id, folderId)
     await refresh()
     // A new article has no drawing yet, so it lands in the unplaced group — which is closed by
@@ -810,7 +808,7 @@ export default function App(): React.JSX.Element {
       x: ev.clientX,
       y: ev.clientY,
       items: [
-        { icon: 'file-text', label: t('New Entity'), onClick: () => addEntity(folder.id) },
+        { icon: 'file-text', label: t('New Entry'), onClick: () => addEntity(folder.id) },
         { icon: 'folder', label: t('New folder'), onClick: () => addFolder(folder.id) },
         { icon: 'pencil', label: t('Rename'), onClick: () => setRenamingFolder(folder.id) },
         {
@@ -1042,7 +1040,7 @@ export default function App(): React.JSX.Element {
               <p className="hint">
                 {g.kind === 'map'
                   ? t('Nothing drawn on this map yet.')
-                  : t('Every article is on a map.')}
+                  : t('Every entry is on a map.')}
               </p>
             ) : withBoards ? (
               boards.map((b) => renderBoardGroup(b, g.allow))
@@ -1109,7 +1107,7 @@ export default function App(): React.JSX.Element {
 
           <div className="side-section grow">
             <div className="side-head">
-              <span>{t('Entities')}</span>
+              <span>{t('Entries')}</span>
             </div>
             {selected.size > 0 && (
               <div className="bulk-bar">
@@ -1147,8 +1145,8 @@ export default function App(): React.JSX.Element {
             </div>
             {/* Create + sort at the bottom of the column (Obsidian) */}
             <div className="side-foot">
-              <button className="mini" title={t('New Entity')} onClick={() => addEntity()}>
-                {t('＋ Entity')}
+              <button className="mini" title={t('New Entry')} onClick={() => addEntity()}>
+                {t('＋ Entry')}
               </button>
               <button className="mini" title={t('New folder')} onClick={() => addFolder()}>
                 {t('＋ Folder')}
@@ -1232,7 +1230,7 @@ export default function App(): React.JSX.Element {
                   </div>
                   <h4>{t('Recent')}</h4>
                   {recent.length === 0 ? (
-                    <p>{t('No recent worlds yet — save one with Ctrl+S.')}</p>
+                    <p>{t('No recent worlds yet. Save one with Ctrl+S.')}</p>
                   ) : (
                     <ul className="recent-list">
                       {recent.map((r) => (
@@ -1260,7 +1258,7 @@ export default function App(): React.JSX.Element {
                   )}
                 </>
               )}
-              <p>{t('Pick an entity or a map from the left, or search with Ctrl+K.')}</p>
+              <p>{t('Pick an entry or a map from the left, or search with Ctrl+K.')}</p>
             </div>
           )}
           {view.kind === 'entity' && (

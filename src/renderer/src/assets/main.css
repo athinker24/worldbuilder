@@ -984,17 +984,60 @@ h4 {
   font-size: 11px;
 }
 
-/* Shortcut help (F1 / sidebar) */
-.shortcut-table {
-  border-collapse: collapse;
-  margin-bottom: 8px;
+/* Shortcut help (F1 / sidebar).
+
+   One card per group, in as many columns as the window gives us. `auto-fill` rather than a fixed
+   count: this page is read at whatever width the window happens to be, and a column count picked
+   here would be wrong at half of them. */
+.sc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--sp-5) var(--sp-6);
+  align-items: start;
+  max-width: 1100px;
 }
-.shortcut-table td {
-  padding: 3px 12px 3px 0;
-  vertical-align: top;
+
+.sc-group {
+  min-width: 0;
 }
-.shortcut-table td:first-child {
+
+/* The keys align down a column of their own, which is what makes a card scannable — but the
+   column is sized to the widest key IN THAT CARD (max-content), not to the widest on the page,
+   so "Right click on a drawing" does not push every other group's descriptions across. */
+.sc-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  margin: 0;
+}
+
+.sc-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+}
+
+.sc-row + .sc-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sc-row dt {
+  display: flex;
+  align-items: center;
+  gap: 3px;
   white-space: nowrap;
+}
+
+.sc-row dd {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+/* The + and / between keys: text, not a key cap. */
+.sc-sep {
+  color: var(--text-faint);
 }
 /* A key cap reads as a physical thing: raised surface, a hairline, and a bottom
    edge that suggests depth. It borrowed the control background before, so it
@@ -3450,6 +3493,12 @@ a {
   flex-direction: column;
   gap: var(--sp-1);
   padding-bottom: var(--sp-3);
+}
+
+/* A sub-heading inside a section (the ruling house under the rulers): a break in one answer,
+   not a new question, so it takes a little air above and none of a section's own weight. */
+.section-body > .panel-title:not(:first-child) {
+  margin-top: var(--sp-3);
 }
 
 /* --- row: label / value / action. The workhorse of the rail and both

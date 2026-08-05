@@ -31,7 +31,7 @@ export async function deleteEntityWithUndo(id: number): Promise<boolean> {
   const featureIds = await api.entityFeatureIds(id)
   // restoreEntity restores under the same id; redo can delete that same id
   pushUndo({
-    label: 'Delete article',
+    label: 'Delete entry',
     params: { name: entity.name },
     undo: () => api.restoreEntity(entity, links, featureIds),
     redo: () => api.deleteEntity(id)
@@ -48,7 +48,7 @@ export async function deleteEntityWithUndo(id: number): Promise<boolean> {
 export async function deleteEntitiesWithUndo(ids: number[]): Promise<boolean> {
   if (!ids.length) return false
   const lang = await getLanguage()
-  if (!(await confirmDialog(translate(lang, 'Delete {n} entities?', { n: ids.length }))))
+  if (!(await confirmDialog(translate(lang, 'Delete {n} entries?', { n: ids.length }))))
     return false
 
   const rows: Parameters<typeof api.restoreEntities>[0] = []
@@ -76,7 +76,7 @@ export async function deleteEntitiesWithUndo(ids: number[]): Promise<boolean> {
   }
   const links = [...linkMap.values()]
   pushUndo({
-    label: 'Delete {n} articles',
+    label: 'Delete {n} entries',
     params: { n: rows.length },
     undo: () => api.restoreEntities(rows, links, features),
     redo: async () => {

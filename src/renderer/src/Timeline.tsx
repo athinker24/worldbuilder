@@ -422,7 +422,7 @@ export default function Timeline({
             />
             <input
               type="number"
-              placeholder={t('start.')}
+              placeholder={t('start')}
               value={periodFrom}
               onChange={(e) => setPeriodFrom(e.target.value)}
             />

@@ -145,7 +145,7 @@ export default function HierarchyPanel({
         {cfg.govs.length === 0 && (
           <p className="hint">
             {t(
-              'No ladder yet. Write a government form on entities, then order the ranks from Settings.'
+              'No ladder yet. Write a government form on entries, then order the ranks from Settings.'
             )}
           </p>
         )}
@@ -190,7 +190,7 @@ export default function HierarchyPanel({
                 </button>
               </div>
             ))}
-            {list.length === 0 && <p className="hint">{t('No entities in this rank.')}</p>}
+            {list.length === 0 && <p className="hint">{t('No entries in this rank.')}</p>}
           </div>
         </>
       )}
@@ -209,7 +209,7 @@ export default function HierarchyPanel({
           ))}
           {dimValues.length === 0 && (
             <p className="hint">
-              {t('No values in this dimension. Write a "{dim}" field on entities.', {
+              {t('No values in this dimension. Write a "{dim}" field on entries.', {
                 dim: paintDim
               })}
             </p>

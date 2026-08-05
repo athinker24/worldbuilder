@@ -177,7 +177,7 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
         </span>
         <button
           className="mini"
-          title={t('Open entity')}
+          title={t('Open entry')}
           onClick={(e) => {
             e.stopPropagation()
             onClose()

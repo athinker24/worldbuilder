@@ -2593,12 +2593,12 @@ export default function MapView({
           if (f.entity_id)
             items.push({
               icon: 'file-text',
-              label: t('Open entity'),
+              label: t('Open entry'),
               onClick: () => onOpenEntity(f.entity_id!)
             })
           items.push({
             icon: f.entity_id ? 'search' : 'link',
-            label: f.entity_id ? t('Show in panel') : t('Link to entity…'),
+            label: f.entity_id ? t('Show in panel') : t('Link to entry…'),
             onClick: () => setSelected(f)
           })
           // Edit and Move are MODIFYING actions on an existing drawing, so they live here rather
@@ -4576,7 +4576,7 @@ export default function MapView({
   const locateEntity = async (eid: number): Promise<void> => {
     const feats = await api.featuresByEntity(eid)
     if (!feats.length) {
-      alertDialog(t('This entity has no drawing on the map.'))
+      alertDialog(t('This entry has no drawing on the map.'))
       return
     }
     const here = feats.find((f) => f.map_id === id)
@@ -4629,7 +4629,7 @@ export default function MapView({
     // do on the user's behalf, however empty the row. No links or features to restore — that is
     // precisely what qualified it.
     pushUndo({
-      label: 'Remove the emptied article',
+      label: 'Remove the emptied entry',
       params: { name: ent.name },
       undo: () => api.restoreEntity(row, [], []).then(onChanged),
       redo: () => api.deleteEntity(entityId).then(onChanged)
@@ -5064,7 +5064,7 @@ export default function MapView({
               />
               {conquest?.step === 'receiver' && (
                 <div className="link-hint">
-                  <Icon name="conquest" size={13} /> {t('Click the conqueror — the picks join it…')}{' '}
+                  <Icon name="conquest" size={13} /> {t('Click the conqueror; the picks join it…')}{' '}
                   <label>
                     {t('conqueror')}{' '}
                     <Select
@@ -5281,7 +5281,7 @@ export default function MapView({
                     tool === 'marker' ||
                     tool === 'label') && (
                     <div className="panel-block">
-                      <label>{t('Add to article:')}</label>
+                      <label>{t('Add to entry:')}</label>
                       {drawInto ? (
                         <button className="mini" onClick={() => setDrawInto(null)}>
                           <Icon name="unlink" size={12} />
@@ -5293,7 +5293,7 @@ export default function MapView({
                             // Its own id: two datalists with one id is invalid HTML even when
                             // they cannot appear together (tool popover vs selected panel).
                             list="entity-list-draw"
-                            placeholder={t('new article each time')}
+                            placeholder={t('new entry each time')}
                             value={drawIntoName}
                             onChange={(e) => {
                               setDrawIntoName(e.target.value)
@@ -5412,9 +5412,7 @@ export default function MapView({
               {selIds.length > 1 && (
                 // Controls follow the primary feature's kind; edits apply to the WHOLE selection
                 <div className="panel-block">
-                  <p className="hint">
-                    {t('Edits apply to all selected drawings. Ctrl+click to add/remove.')}
-                  </p>
+                  <p className="hint">{t('Edits apply to every selected drawing.')}</p>
                 </div>
               )}
 
@@ -5461,9 +5459,7 @@ export default function MapView({
                       {t('Show the name on the map')}
                     </label>
                     {selStyle.hideName ? (
-                      <p className="hint">
-                        {t('Place a label with the 🏷 tool and bind it to the same article.')}
-                      </p>
+                      <p className="hint">{t('Name it with the 🏷 Label tool instead.')}</p>
                     ) : (
                       <>
                         <label>{t('Label font')}</label>
@@ -5826,7 +5822,7 @@ export default function MapView({
                     )}
                   >
                     <Icon name="unlink" size={12} />
-                    {t('Unlink entity')}
+                    {t('Unlink entry')}
                   </button>
                 </div>
               )}
@@ -5836,11 +5832,11 @@ export default function MapView({
                   field that does it. One step now, and the emptied article goes with it. */}
               <div className="panel-block">
                 <label>
-                  {selected.entity_id ? t('Move to another article') : t('Link to entity')}
+                  {selected.entity_id ? t('Move to another entry') : t('Link to entry')}
                 </label>
                 <input
                   list="entity-list-map"
-                  placeholder={t('search entity…')}
+                  placeholder={t('search entry…')}
                   value={linkName}
                   onChange={(e) => setLinkName(e.target.value)}
                 />
