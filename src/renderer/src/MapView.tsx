@@ -401,6 +401,15 @@ const pinDivIcon = (m: {
 // on the point and the inner div centers itself via translate(-50%,-50%) → no width math per
 // text length. Zoom scales it via the `--lz` custom property (LABEL_BASE = zoom-0 base).
 const LABEL_BASE = 16
+/**
+ * The widest base image that goes to the GPU whole.
+ *
+ * WebGL guarantees far less than this and real hardware allows far more (D3D11 does 16384), but
+ * a texture that exceeds the limit does not degrade — the upload fails and the map has no
+ * picture. 8192 is past any hand-made world map and inside every desktop GPU of the last decade;
+ * anything larger is scaled once at load rather than refused.
+ */
+const MAX_BASE_PX = 8192
 // Derived-mode label (rank/paint): a base font (map units) below this means the region is too
 // small, so no label is drawn (CK3 does not name tiny regions either)
 const LABEL_MIN = 5
@@ -796,9 +805,14 @@ export default function MapView({
   // drawBase). x/y/w/h are the image's rectangle in zoom-0 layer space, the same space the WebGL
   // layers work in — MapView owns every conversion out of Leaflet, here as everywhere.
   const baseCanvas = useRef<HTMLCanvasElement | null>(null)
-  const baseImg = useRef<{ bmp: ImageBitmap; x: number; y: number; w: number; h: number } | null>(
-    null
-  )
+  /**
+   * Where the base image sits, in zoom-0 layer points. The PICTURE is not here: it is a mipmapped
+   * texture in the shape layer (see setBase in pixiShapes). What is left on the 2D canvas is the
+   * frame around it — the shadow and the rim — which is seven stroked rectangles a frame and was
+   * never the expensive part. Splitting it that way keeps the look exactly as it was drawn while
+   * the one costly call, drawImage of 16.7 million pixels, is gone.
+   */
+  const baseImg = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
   // Polygon name labels live in a WebGL layer, not the DOM — see pixiLabels.ts for the
   // measurements that forced it. `polySpec` is the label each polygon WOULD draw; applyYear
   // decides which of them are actually visible this year and hands that subset to the layer.
@@ -1688,7 +1702,6 @@ export default function MapView({
       ctx.lineWidth = i * 6
       ctx.strokeRect(x - i * 3, y - i * 3 + 8, dw + i * 6, dh + i * 6)
     }
-    ctx.drawImage(b.bmp, x, y, dw, dh)
     ctx.strokeStyle = 'rgba(255,255,255,0.09)'
     ctx.lineWidth = 1
     ctx.strokeRect(x - 0.5, y - 0.5, dw + 1, dh + 1)
@@ -3893,9 +3906,13 @@ export default function MapView({
     host.appendChild(bc)
     baseCanvas.current = bc
 
+    // 350, not 450. The base image lives in this canvas now and must stay UNDER
+    // Leaflet's overlay pane (400), where the selected feature and anything under geoman are
+    // still real SVG. The WebGL shapes go under it too, which is the right way round: the thing
+    // being edited belongs on top.
     const sc = document.createElement('canvas')
     sc.style.cssText =
-      'position:absolute;inset:0;width:100%;height:100%;z-index:450;pointer-events:none'
+      'position:absolute;inset:0;width:100%;height:100%;z-index:350;pointer-events:none'
     host.appendChild(sc)
     // A fill image arrives after the frame that asked for it, so the layer says when to redraw.
     const shapes = new ShapeLayer(sc, () => drawShapes())
@@ -4236,8 +4253,9 @@ export default function MapView({
       shapeLayer.current?.destroy()
       shapeLayer.current = null
       sc.remove()
-      // A decoded 4096x4096 image is ~67 MB, and MapView remounts on every map switch.
-      baseImg.current?.bmp.close()
+      // The picture is the shape layer's texture now and goes down with it (destroy() above frees
+      // the source); what is left here is four numbers. MapView remounts on every map switch, and
+      // a 4096x4096 texture is ~67 MB, so the release has to be certain either way.
       baseImg.current = null
       baseCanvas.current = null
       bc.remove()
@@ -4287,8 +4305,8 @@ export default function MapView({
     const map = mapRef.current
     if (!map) return
     let dropped = false
-    baseImg.current?.bmp.close()
     baseImg.current = null
+    shapeLayer.current?.setBase(null, 0, 0, 0, 0)
     if (worldMap?.image_path && worldMap.width && worldMap.height) {
       const bounds: L.LatLngBoundsExpression = [
         [0, 0],
@@ -4325,6 +4343,27 @@ export default function MapView({
           bytes = b.size
           return createImageBitmap(b)
         })
+        // A texture cannot be wider than the GPU allows, and a world map is exactly the kind of
+        // file that gets exported at 8192 or 16384 "just in case". Past the limit the upload
+        // fails and the map loses its picture with nothing on screen to say why, so it is scaled
+        // down ONCE here — on the background thread, like the decode above.
+        .then((bmp) =>
+          Math.max(bmp.width, bmp.height) <= MAX_BASE_PX
+            ? bmp
+            : createImageBitmap(bmp, {
+                resizeWidth: Math.round(
+                  bmp.width * (MAX_BASE_PX / Math.max(bmp.width, bmp.height))
+                ),
+                resizeHeight: Math.round(
+                  bmp.height * (MAX_BASE_PX / Math.max(bmp.width, bmp.height))
+                ),
+                resizeQuality: 'high'
+              }).then((small) => {
+                bmp.close()
+                logEvent('INFO', 'map.baseImage.scaled', { to: MAX_BASE_PX })
+                return small
+              })
+        )
         .then((bmp) => {
           logEvent('INFO', 'map.baseImage', {
             ms: Math.round(performance.now() - tImg),
@@ -4332,13 +4371,15 @@ export default function MapView({
             px: `${bmp.width}x${bmp.height}`
           })
           if (dropped) return bmp.close()
-          baseImg.current = {
-            bmp,
+          const rect = {
             x: Math.min(p0.x, p1.x),
             y: Math.min(p0.y, p1.y),
             w: Math.abs(p1.x - p0.x),
             h: Math.abs(p1.y - p0.y)
           }
+          baseImg.current = rect
+          // The picture becomes a texture; the shadow and rim stay on the 2D canvas below.
+          shapeLayer.current?.setBase(bmp, rect.x, rect.y, rect.w, rect.h)
           drawShapes() // it arrives a frame or two after the map is up; nothing else asks again
         })
         // A missing or unreadable base image must not take the map down with it: the drawings are

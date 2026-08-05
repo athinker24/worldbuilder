@@ -1,5 +1,5 @@
 import 'pixi.js/unsafe-eval'
-import { Application, Container, Graphics, Texture } from 'pixi.js'
+import { Application, Container, Graphics, ImageSource, Sprite, Texture } from 'pixi.js'
 import { GC_IDLE_MS, GC_UNUSED_MS } from './pixiLabels'
 
 // Polygons and paths, drawn in WebGL rather than as SVG.
@@ -178,6 +178,15 @@ export class ShapeLayer {
   private disposed = false
   /** url → the loaded texture, or null while it is in flight / after it failed. */
   private textures = new Map<string, Texture | null>()
+  /**
+   * The base image, as a textured quad.
+   *
+   * Its own container, added BELOW root, for the same reason handleRoot is a sibling: rebuild()
+   * destroys everything under root and this must survive it. Carries the same scale and position,
+   * set together in draw().
+   */
+  private baseRoot = new Container()
+  private baseSprite: Sprite | null = null
   private onLoaded: () => void
   private idle: ReturnType<typeof setTimeout> | null = null
   readonly ready: Promise<void>
@@ -200,6 +209,8 @@ export class ShapeLayer {
           return
         }
         this.app = app
+        // First child = drawn first = underneath everything else in this layer.
+        app.stage.addChild(this.baseRoot)
         app.stage.addChild(this.root)
         // A SIBLING of root, not a child: rebuild() destroys everything under root, and the dots
         // must survive that. It carries the same scale and position, set together in draw().
@@ -207,6 +218,35 @@ export class ShapeLayer {
         this.rebuild()
       })
     this.ready.catch(() => {})
+  }
+
+  /**
+   * Hand over the base image, in the same zoom-0 layer points everything here uses.
+   *
+   * MIPMAPS are the whole point. `ctx.drawImage` from a 4096x4096 source resamples 16.7 million
+   * pixels every time the destination size changes — 20-50ms a frame, measured. A texture with
+   * generated mip levels is filtered ONCE at upload and the hardware samples the level it needs,
+   * so a zoom costs nothing per frame. `null` clears it (a map with no image, or a map switch).
+   */
+  setBase(bmp: ImageBitmap | null, x: number, y: number, w: number, h: number): void {
+    this.baseSprite?.destroy({ texture: true, textureSource: true })
+    this.baseSprite = null
+    this.baseRoot.removeChildren()
+    if (!bmp) return
+    const source = new ImageSource({
+      resource: bmp,
+      autoGenerateMipmaps: true,
+      scaleMode: 'linear'
+    })
+    const sp = new Sprite(new Texture({ source }))
+    sp.position.set(x, y)
+    sp.width = w
+    sp.height = h
+    this.baseSprite = sp
+    this.baseRoot.addChild(sp)
+    // Upload and filter NOW, while the map is still loading. Left to the first frame that draws
+    // it, this lands inside the user's first gesture — which is the whole complaint.
+    if (this.app && this.last) this.draw(...this.last)
   }
 
   setShapes(specs: ShapeSpec[]): void {
@@ -251,6 +291,8 @@ export class ShapeLayer {
     this.last = [originX, originY, scale, width, height]
     if (app.renderer.width !== width || app.renderer.height !== height)
       app.renderer.resize(width, height)
+    this.baseRoot.scale.set(scale)
+    this.baseRoot.position.set(-originX, -originY)
     this.root.scale.set(scale)
     this.root.position.set(-originX, -originY)
     this.handleRoot.scale.set(scale)
@@ -286,6 +328,12 @@ export class ShapeLayer {
     this.disposed = true
     if (this.idle) clearTimeout(this.idle)
     this.idle = null
+    // The base texture is ~67 MB for a 4096x4096 world map and MapView remounts on every map
+    // switch, so it is released explicitly rather than left to `children: true` — which destroys
+    // display objects but NOT the texture source behind them, the same trap the graphics context
+    // and the text style are documented for above.
+    this.baseSprite?.destroy({ texture: true, textureSource: true })
+    this.baseSprite = null
     this.app?.destroy(false, { children: true })
     this.app = null
   }
