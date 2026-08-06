@@ -47,19 +47,29 @@ window.addEventListener('unhandledrejection', (e) => {
 // What the session header cannot know from main: which graphics backend the map actually got, and
 // the screen it is being drawn on. Both are the first thing to check when a report is about the
 // map looking wrong rather than behaving wrong.
-void api.logSessionInfo({
-  renderer: (() => {
-    try {
-      const gl = document.createElement('canvas').getContext('webgl2')
-      const info = gl?.getExtension('WEBGL_debug_renderer_info')
-      return info ? String(gl?.getParameter(info.UNMASKED_RENDERER_WEBGL)).slice(0, 80) : 'webgl2'
-    } catch {
-      return 'unknown'
-    }
-  })(),
-  screen: `${screen.width}x${screen.height}`,
-  dpr: window.devicePixelRatio
-})
+// Guarded, and the reason is the LINE ORDER rather than the call. This runs at module scope,
+// above createRoot — so a throw here means the module never finishes evaluating and React never
+// mounts at all: a blank window with no ErrorBoundary in it, which is the one thing that boundary
+// exists to make impossible. `window.api` is undefined whenever the preload threw, which it does
+// on purpose when context isolation is lost (preload/index.ts), and `inv` reaches straight into
+// it. A session-info line is the least important thing in this file; mounting is the most.
+try {
+  void api.logSessionInfo({
+    renderer: (() => {
+      try {
+        const gl = document.createElement('canvas').getContext('webgl2')
+        const info = gl?.getExtension('WEBGL_debug_renderer_info')
+        return info ? String(gl?.getParameter(info.UNMASKED_RENDERER_WEBGL)).slice(0, 80) : 'webgl2'
+      } catch {
+        return 'unknown'
+      }
+    })(),
+    screen: `${screen.width}x${screen.height}`,
+    dpr: window.devicePixelRatio
+  })
+} catch {
+  /* no bridge — the app still has to mount so the boundary can offer a way out */
+}
 // The batch queue is held in memory for half a second; a close in that window would drop the last
 // few events, which are the ones that say how the session ended.
 window.addEventListener('beforeunload', flushEvents)
