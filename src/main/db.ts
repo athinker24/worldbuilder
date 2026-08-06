@@ -2509,6 +2509,14 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       /openSafe = \(url: string\): void => \{\s*if \(\/\^https\?:/.test(main),
       'only http(s) may reach the external browser'
     )
+    // The instance that LOSES the lock must die before it can touch anything. app.quit() returns
+    // and lets whenReady run, which walks the startup sequence — schema exec and migration UPDATEs
+    // into the winner's open database, then resetWorld() deleting its world.db and emptying
+    // assets/. One word apart, and the difference is another process's data.
+    assert.ok(
+      main.includes('if (!app.requestSingleInstanceLock()) app.exit(0)'),
+      'the losing instance must exit(), not quit() and carry on into the startup sequence'
+    )
   }
 
   // --- the CSP -------------------------------------------------------------------------------

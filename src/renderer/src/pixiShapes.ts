@@ -136,6 +136,10 @@ const same = (a: ShapeSpec[], b: ShapeSpec[]): boolean => {
 export const hexNum = (css: string | undefined, fallback = 0x888888): number => {
   if (!css || css[0] !== '#') return fallback
   const h = css.slice(1)
+  // The digits are checked, not assumed. `#zzzzzz` is the right length and parseInt returns NaN
+  // for it, and NaN is not a colour Pixi can convert — it throws, inside the shape rebuild, which
+  // is the whole map. The length test alone let it through, and a `.world` writes this column.
+  if (!/^[0-9a-fA-F]+$/.test(h)) return fallback
   if (h.length === 3) return parseInt(h[0] + h[0] + h[1] + h[1] + h[2] + h[2], 16)
   if (h.length === 6) return parseInt(h, 16)
   return fallback

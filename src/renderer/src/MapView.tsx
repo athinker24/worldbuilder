@@ -382,11 +382,14 @@ const pinDivIcon = (m: {
   // With an image it is clipped to a circle inside the badge; without one it is a shape from
   // the abstract set (see pinIcons). The svg is 100%×100% of the icon box, which the zoom hot
   // path already resizes — so shapes scale with zoom for free, no branch added there.
-  // Only `color` is interpolated, and it is escaped: the shape bodies are static markup.
+  // Only `color` is interpolated, and it goes through cssColor rather than escapeHtml: it lands
+  // inside a style attribute, where escaping is undone by the HTML parser before CSS reads it.
+  // The shape bodies are static markup.
+  const css = cssColor(color, PIN_DEFAULT_COLOR)
   const html = m.img
-    ? `<div class="pin-badge" style="background:${escapeHtml(color)}">` +
+    ? `<div class="pin-badge" style="background:${css}">` +
       `<img class="pin-badge-img" src="${escapeHtml(assetUrl(m.img))}"></div>`
-    : `<svg class="pin-shape" viewBox="0 0 24 24" style="color:${escapeHtml(color)}">${pinShapeBody(m.shape)}</svg>`
+    : `<svg class="pin-shape" viewBox="0 0 24 24" style="color:${css}">${pinShapeBody(m.shape)}</svg>`
   return L.divIcon({
     className: 'pin-marker',
     html,
@@ -416,6 +419,24 @@ const LABEL_MIN = 5
 // The text is user input embedded into an html string → must be escaped (no XSS from a shared
 // world.db; same rationale as blocking raw HTML in markdown).
 const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+
+/**
+ * Values that land INSIDE a `style="…"` attribute, where escapeHtml is the wrong tool.
+ *
+ * It looks right and is not: the HTML parser decodes `&#39;` back to `'` before the CSS parser
+ * ever sees the attribute, so `x'; background:url(…` reassembles itself on the other side of the
+ * escaping and the extra declarations apply. A pin's colour and a label's font come out of a
+ * shared world's style JSON as free strings, so that is reachable from a file. Nothing dramatic
+ * follows today — the CSP's `img-src` keeps a `url()` from leaving the machine — but the fix
+ * belongs at the source rather than in an argument about what CSS can still do.
+ *
+ * Cut, do not repair. These are a hex colour and a font NAME; anything that is not one is not a
+ * damaged version of one, it is something else, and the fallback is a perfectly good pin.
+ */
+const cssColor = (v: string | undefined, fallback: string): string =>
+  /^#[0-9a-fA-F]{3,8}$/.test(v ?? '') ? (v as string) : fallback
+const cssFont = (v: string | undefined): string =>
+  (v ?? '').replace(/[^\w -]/g, '').slice(0, 40) || 'Cinzel'
 // A textPath href resolves document-wide → every label's path id must be unique
 let labelSeq = 0
 // Feature clipboard (Ctrl+C/V). MODULE level: MapView remounts on map switch (App keys it
@@ -441,8 +462,10 @@ const labelDivIcon = (
   basePx: number
 ): L.DivIcon => {
   const text = escapeHtml(s.text ?? '')
-  const color = escapeHtml(s.color ?? '#ffffff')
-  const font = escapeHtml(s.font ?? 'Cinzel')
+  // Both land inside attributes CSS reads (`fill=` is a presentation attribute, `font-family` is
+  // in a style attribute), so they are checked rather than escaped — see cssColor.
+  const color = cssColor(s.color, '#ffffff')
+  const font = cssFont(s.font)
   const angle = Number(s.angle) || 0
   const curve = Number(s.curve) || 0
   // Straight text renders through SVG textPath too (curve=0 → the arc collapses to a line;
@@ -2178,8 +2201,11 @@ export default function MapView({
             x: at.x,
             y: at.y,
             text,
-            color: style.color ?? '#ffffff',
-            font: style.font ?? 'Cinzel',
+            // Straight from a shared world's style JSON into Pixi, which THROWS on a colour
+            // string it cannot parse — one bad value would take the label layer, and with it the
+            // map, down. Same two checks as the DOM path above.
+            color: cssColor(style.color, '#ffffff'),
+            font: cssFont(style.font),
             size,
             angle: Number(style.angle) || 0,
             curve: Number(style.curve) || 0,
@@ -2336,7 +2362,7 @@ export default function MapView({
             // shape for an irregular coastline like these) computed off the raw ring: the layer
             // is not added to the map yet at this point in the loop, and getCenter() throws
             // until it is.
-            const font = style.font ?? 'Cinzel'
+            const font = cssFont(style.font)
             const b = (layer as L.Polygon).getBounds()
             const base = Math.min(
               200,

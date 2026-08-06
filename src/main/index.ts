@@ -854,8 +854,21 @@ function createWindow(): void {
 app.enableSandbox()
 
 // Single instance: double-clicking a .world while the app is open switches the existing
-// window to that world instead of spawning a second one (confirm first when dirty)
-if (!app.requestSingleInstanceLock()) app.quit()
+// window to that world instead of spawning a second one (confirm first when dirty).
+//
+// `app.exit(0)`, NOT `app.quit()`. quit() asks politely and returns: the module keeps running,
+// `whenReady` below still fires, and the losing instance walks the whole startup sequence against
+// the WINNER's live data — `initDb` runs the schema and `migrateLegacyKeys`' UPDATEs into a
+// database another process has open, `packWorld` snapshots it, and then `resetWorld` DELETES
+// world.db and empties assets/. Today that last step usually fails with EBUSY (node:sqlite holds
+// the file without share-delete) and becomes a startupWarning — which is how it was found, in
+// the comment that names it inside whenReady. Landing on EBUSY is luck, not a design, and two
+// processes writing one SQLite file is the kind of corruption that is discovered much later.
+//
+// exit() terminates now: no ready event, no handlers, nothing touched. There is nothing to flush
+// either — initLog has not run yet. Electron has already handed our argv to the first instance by
+// the time the lock comes back false, so the double-clicked file still opens, over there.
+if (!app.requestSingleInstanceLock()) app.exit(0)
 app.on('second-instance', (_e, argv) => {
   if (!mainWindow) return
   if (mainWindow.isMinimized()) mainWindow.restore()
