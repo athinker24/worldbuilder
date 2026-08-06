@@ -927,7 +927,34 @@ app.whenReady().then(() => {
       exit: d.exitCode
     })
   )
-  initDb(DATA_DIR)
+  // The one startup step with no best-effort fallback: without a database there is no app. It sat
+  // OUTSIDE the try below, which is the same silent death that block was written to end — a throw
+  // here escaped into the unhandled-rejection void before any window existed, Electron saw zero
+  // windows and quit with code 0, and the app simply never appeared. Nothing on screen, and the
+  // log line nobody knows to look for.
+  //
+  // Every realistic cause is outside our control: Documents held open by OneDrive or an antivirus,
+  // a disk with nothing left, a world.db truncated by a power cut mid-write. In all of them the
+  // user's work is still sitting in backups/ — which they will never think to look in if the app
+  // just fails to launch. So the app still cannot start, but it says why, and where the copies are.
+  try {
+    initDb(DATA_DIR)
+  } catch (err) {
+    logError('main:initDb', err)
+    flushLog()
+    dialog.showMessageBoxSync({
+      type: 'error',
+      title: APP_NAME,
+      message: 'The world could not be opened, so the app cannot start.',
+      detail:
+        `${err instanceof Error ? err.message : String(err)}\n\n` +
+        `Dated copies of your world are kept in:\n${join(DATA_DIR, 'backups')}\n\n` +
+        'If world.db itself is damaged: close the app, move it out of the folder above its ' +
+        'backups folder, and copy one of those copies in its place under the name world.db.'
+    })
+    app.exit(1)
+    return
+  }
   adoptLegacyPrefs() // language/theme out of the settings table — BEFORE the resetWorld() below
   // Everything from here to createWindow() is best-effort. A throw used to escape into the
   // unhandled-rejection void BEFORE any window existed, so Electron saw zero windows and quit
