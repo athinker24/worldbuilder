@@ -81,7 +81,9 @@ let mainWindow: BrowserWindow | null = null
 
 // --- Wonderdraft-style file model: the working copy (DATA_DIR) is saved instantly at all times,
 // Ctrl+S packs it into a single .world file, Open unpacks a file over the working copy.
-// currentFile = Ctrl+S target (persisted in settings.worldFile); dirty = changes since last save.
+// currentFile = the Ctrl+S target, kept in memory here and nowhere else; dirty = changes since
+// the last save. (settings.worldFile is a working-copy convenience that nothing reads, and
+// packWorld strips it so a shared file never carries the author's path — see db.ts.)
 let currentFile: string | null = null
 let dirty = false
 // Set when the startup sequence failed. Reported once the window exists — the point is that the
@@ -821,7 +823,38 @@ function createWindow(): void {
           return
         }
       }
-      packWorld(target)
+      // GUARDED, because this is the last moment the work exists as the user left it. A throw here
+      // never called preventDefault, so the exception went out through the close listener and the
+      // window shut anyway: they clicked Save, saw nothing, and the file on disk was the old one.
+      // Every realistic cause is ordinary — a full disk, a target on a USB stick that has been
+      // pulled, a folder OneDrive or an antivirus has locked. (The file itself is never half
+      // written: packWorld renames a finished temp copy into place.)
+      //
+      // Refusing to close is what every document app does when a save fails, and it is the only
+      // answer that keeps the work reachable: the session is still open, so Save As to somewhere
+      // else is one keystroke away.
+      try {
+        packWorld(target)
+        currentFile = target
+        dirty = false
+        // The save path does this and the close path did not, so a world saved on the way out
+        // never appeared on the start screen next launch.
+        addRecent(target)
+        updateTitle()
+      } catch (err) {
+        logError('main:closeSave', err)
+        e.preventDefault()
+        dialog.showMessageBoxSync(win, {
+          type: 'error',
+          title: APP_NAME,
+          message: 'Could not save, so the app has not closed.',
+          detail:
+            `${err instanceof Error ? err.message : String(err)}
+
+` + 'Nothing is lost — the world is still open. Try Save As to a different folder.'
+        })
+        return
+      }
     }
   })
 
