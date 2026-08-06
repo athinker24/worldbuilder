@@ -242,7 +242,13 @@ export function packWorld(targetPath: string): void {
   const tmp = targetPath + '.tmp'
   rmSync(tmp, { force: true })
   db.exec(`VACUUM INTO '${tmp.replaceAll("'", "''")}'`) // clean, atomic snapshot
-  const out = new DatabaseSync(tmp)
+  // openDb, not a bare DatabaseSync: the claim in PRAGMAS is that EVERY open of a file a `.world`
+  // has touched applies them, and this was the one that did not. The tmp is a VACUUM INTO of the
+  // working copy, which after an open carries a schema that came from someone else's file — the
+  // foreign triggers and views are dropped by then, so nothing is known to be wrong here. An
+  // invariant with one exception in it is not an invariant, and this is the cheaper end of proving
+  // that.
+  const out = openDb(tmp)
   out.exec(`CREATE TABLE IF NOT EXISTS assets (name TEXT PRIMARY KEY, data BLOB NOT NULL)`)
   const ins = out.prepare(`INSERT OR REPLACE INTO assets (name, data) VALUES (?, ?)`)
   for (const name of readdirSync(assetsDir)) {

@@ -269,12 +269,31 @@ export interface ParentRec {
   id: number // the parent entity's id (survives renames)
 }
 
-/** Read the year-based {from, id} list in fields[key] (parent chain, ruler history…). */
+/**
+ * Read the year-based {from, id} list in fields[key] (parent chain, ruler history…).
+ *
+ * The ELEMENTS are checked, not just the array, and this is the one list where that is not
+ * pedantry: `parentAt` reads `r.from` in a loop that runs per base polygon on every year tick, so
+ * a single null in a shared world's `fields.parent` throws inside `applyYear` — which is the map.
+ * `repairImportedJson` cannot reach it either: that gate proves `fields` parses to an object, and
+ * this list lives as a JSON string INSIDE one of its values, a level below where it looks.
+ *
+ * `from` is allowed to be absent as well as null — an older world wrote `{id}` alone, and
+ * `parentAt` has always read it as "since the beginning".
+ */
 export function getYearRecs(fieldsJson: string, key: string): ParentRec[] {
   try {
     const f = JSON.parse(fieldsJson || '{}') as Record<string, string>
-    const p = JSON.parse(f[key] ?? '[]') as ParentRec[]
-    return Array.isArray(p) ? p : []
+    const p: unknown = JSON.parse(f[key] ?? '[]')
+    if (!Array.isArray(p)) return []
+    return (p.slice(0, MAX_LIST_ITEMS) as unknown[]).filter((r): r is ParentRec => {
+      if (!r || typeof r !== 'object') return false
+      const rec = r as { from?: unknown; id?: unknown }
+      return (
+        typeof rec.id === 'number' &&
+        (rec.from === null || rec.from === undefined || typeof rec.from === 'number')
+      )
+    })
   } catch {
     return []
   }
@@ -452,14 +471,36 @@ const parseSetting = (raw: string | null | undefined, fallback: unknown): unknow
  * lists in a real world runs to a few dozen, and anyone who reaches five thousand map-mode
  * dimensions has stopped building a world.
  */
-const MAX_SETTING_ITEMS = 5000
+const MAX_LIST_ITEMS = 5000
+// Nullish elements are dropped as well as the array being bounded. Almost every consumer reads a
+// field off each item (`p.name`, `f.id`, `r.from`), so one `null` in a shared world's list is a
+// throw during render — and none of these lists has ever legitimately held one.
 const asArray = <T>(v: unknown): T[] =>
-  Array.isArray(v) ? (v.slice(0, MAX_SETTING_ITEMS) as T[]) : []
+  Array.isArray(v)
+    ? (v.slice(0, MAX_LIST_ITEMS).filter((x) => x !== null && x !== undefined) as T[])
+    : []
 const asObject = <T extends object>(v: unknown, fallback: T): T =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as T) : fallback
 const asNumber = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback
 const asString = (v: unknown, fallback: string): string => (typeof v === 'string' ? v : fallback)
+
+/**
+ * The two coercions above, exported for settings that are read where they are USED rather than
+ * through a loader here — the layers panel, the per-map scale, the dismissed base-image hints,
+ * travel modes, drawing defaults.
+ *
+ * Those six sites each did a bare `JSON.parse(raw || '{}')`. The gate in `repairImportedJson`
+ * DELETES a settings value that looks like JSON and is not, which covers `{bozuk` — but a value
+ * that does not start with `{` or `[` is not checked at all, because the same table legitimately
+ * holds `dark`, `tr` and a file path. So `mapScales` set to the word `hello` by a shared world
+ * threw inside a `.then()`, and the scale bar, the layer toggles or the drawing defaults simply
+ * did not arrive, with an unhandled rejection as the only trace.
+ */
+export const settingObject = <T extends object>(raw: string | null | undefined, fallback: T): T =>
+  asObject<T>(parseSetting(raw, fallback), fallback)
+export const settingArray = <T>(raw: string | null | undefined): T[] =>
+  asArray<T>(parseSetting(raw, []))
 
 export async function getMapModes(): Promise<MapModes> {
   const raw = await api.getSetting('mapModes')

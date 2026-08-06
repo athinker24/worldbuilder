@@ -5,6 +5,7 @@ import {
   formatYear,
   getHierConfig,
   getMapModes,
+  settingObject,
   getParents,
   getTimeline,
   HierConfig,
@@ -68,7 +69,7 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
       setEnts(h.entities)
       setCfg(hc)
       setModes(mm)
-      setScales(JSON.parse(sc || '{}') as Record<string, MapScale>)
+      setScales(settingObject<Record<string, MapScale>>(sc, {}))
       setTl(tcfg)
       setYear(tcfg.year)
     })

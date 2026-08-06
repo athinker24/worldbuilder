@@ -129,8 +129,11 @@ const worldArg = (argv: string[]): string | null =>
 const RECENT = join(app.getPath('userData'), 'recent.json')
 const readRecent = (): string[] => {
   try {
-    const l = JSON.parse(readFileSync(RECENT, 'utf8'))
-    return Array.isArray(l) ? (l as string[]) : []
+    const l: unknown = JSON.parse(readFileSync(RECENT, 'utf8'))
+    // The ELEMENTS, not just the array: `recentWorlds` calls basename() and existsSync() on each
+    // one, and both throw on a non-string. That is the START SCREEN, so a half-written file (a
+    // power cut mid-save is the realistic way) would leave the app with no way back in.
+    return Array.isArray(l) ? l.filter((p): p is string => typeof p === 'string') : []
   } catch {
     return [] // first launch / corrupt file: start with an empty list
   }

@@ -9,6 +9,8 @@ import shadowUrl from 'leaflet/dist/images/marker-shadow.png'
 import {
   api,
   assetUrl,
+  settingObject,
+  settingArray,
   autoColor,
   EntityRow,
   Feature,
@@ -1171,7 +1173,7 @@ export default function MapView({
   }
   // Single writer: save/delete the scale (settings 'mapScales', per map)
   const persistScale = async (sc: MapScale | null): Promise<void> => {
-    const all = JSON.parse((await api.getSetting('mapScales')) || '{}')
+    const all = settingObject<Record<number, MapScale>>(await api.getSetting('mapScales'), {})
     if (sc) all[id] = sc
     else delete all[id]
     await api.setSetting('mapScales', JSON.stringify(all))
@@ -3110,7 +3112,7 @@ export default function MapView({
   useEffect(() => {
     api.getSetting('mapLayers').then((raw) => {
       if (!raw) return
-      const v = { ...layersRef.current, ...(JSON.parse(raw) as Partial<typeof layersOn>) }
+      const v = { ...layersRef.current, ...settingObject<Partial<typeof layersOn>>(raw, {}) }
       setLayersOn(v)
       layersRef.current = v
       applyYear(yearRef.current)
@@ -3161,7 +3163,7 @@ export default function MapView({
   const dismissMapHint = async (): Promise<void> => {
     setHintOff(true)
     const raw = await api.getSetting('hideMapHint')
-    const list = new Set((JSON.parse(raw || '[]') as number[]) ?? [])
+    const list = new Set(settingArray<number>(raw))
     list.add(id)
     await api.setSetting('hideMapHint', JSON.stringify([...list]))
   }
@@ -4238,13 +4240,13 @@ export default function MapView({
     })
     api.listEntities().then(setAllEntities)
     api.getSetting('mapScales').then((raw) => {
-      const sc = (JSON.parse(raw || '{}') as Record<number, MapScale>)[id] ?? null
+      const sc = settingObject<Record<number, MapScale>>(raw, {})[id] ?? null
       setMapScale(sc)
     })
     api.getSetting('hideMapHint').then((raw) => {
-      setHintOff(((JSON.parse(raw || '[]') as number[]) ?? []).includes(id))
+      setHintOff(settingArray<number>(raw).includes(id))
     })
-    api.getSetting('travelModes').then((raw) => setTravelModesState(JSON.parse(raw || '[]')))
+    api.getSetting('travelModes').then((raw) => setTravelModesState(settingArray<TravelMode>(raw)))
     getMapBoards(id).then((b) => {
       boardsRef.current = b
       setBoards(b)
@@ -4254,7 +4256,7 @@ export default function MapView({
     api.getSetting('drawSettings').then((raw) => {
       if (!raw) return
       // Merge per field: settings missing from old records (e.g. font) come from defaults
-      const p = JSON.parse(raw) as Partial<DrawSettings>
+      const p = settingObject<Partial<DrawSettings>>(raw, {})
       const s: DrawSettings = {
         marker: { ...DEFAULT_DRAW.marker, ...p.marker },
         polygon: { ...DEFAULT_DRAW.polygon, ...p.polygon },
