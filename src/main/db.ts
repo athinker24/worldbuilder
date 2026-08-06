@@ -383,6 +383,7 @@ export function packWorld(targetPath: string): void {
   let packed = false
   try {
     out.exec(`CREATE TABLE IF NOT EXISTS assets (name TEXT PRIMARY KEY, data BLOB NOT NULL)`)
+    out.exec(`PRAGMA user_version = ${FORMAT_VERSION}`) // header field, not a row — see FORMAT_VERSION
     const ins = out.prepare(`INSERT OR REPLACE INTO assets (name, data) VALUES (?, ?)`)
     for (const name of readdirSync(assetsDir)) {
       const p = join(assetsDir, name)
@@ -404,6 +405,29 @@ export function packWorld(targetPath: string): void {
 /** How deep a map or folder tree may be before the entry gate cuts the link. See the tree repair
  *  in repairImportedJson for why a depth limit sits next to the cycle check. */
 const MAX_TREE_DEPTH = 64
+
+/**
+ * The format this build writes, and the highest it will open.
+ *
+ * The reason is `dropForeignTables`: anything in a file that is not one of OUR five tables is
+ * deleted on open, with its rows, silently — which is right for a smuggled table and catastrophic
+ * for a table a LATER version of this app added. Save with a future build, open with this one, and
+ * the new data is gone with nothing said. The error screen has always told users a file "may have
+ * been created by a newer version"; nothing gave the app any way to know.
+ *
+ * It lives in `PRAGMA user_version`, a field in the database header rather than a row: no cell to
+ * leave residue, and `VACUUM INTO` carries it (verified). Files written before this existed read
+ * back as 0, which is below 1, so every world already on disk still opens.
+ *
+ * BUMP THIS when a change would make an older build destroy data — a new table, a column an older
+ * build would drop, a meaning change an older build would misread. Not for ordinary additions:
+ * a new settings key or a new field inside `fields` is invisible to the gates and costs nothing.
+ */
+export const FORMAT_VERSION = 1
+
+/** Thrown when a file was written by a build that knows more than this one does. Refusing rather
+ *  than opening, because the failure mode is silent deletion, not a visible error. */
+export const WORLD_TOO_NEW = 'WORLD_TOO_NEW'
 
 /** Thrown when the chosen file is not one of our worlds. The renderer shows it as a message
  *  rather than a crash, so the code is a stable string and not prose. */
@@ -429,6 +453,10 @@ const MAX_ASSET_BYTES = 4 * 1024 * 1024 * 1024
  *  separates one of our worlds from someone's unrelated SQLite file. */
 function probeWorldFile(sourcePath: string): void {
   let probe: DatabaseSync | null = null
+  // Set inside the try and rethrown after it: the catch below turns EVERY failure into
+  // NOT_A_WORLD, and "this is not a world" is the wrong thing to tell someone whose file is
+  // simply newer than their app.
+  let tooNew = false
   try {
     probe = openDb(sourcePath, { readOnly: true })
     // An empty world is legitimate — these return no row. Only a MISSING table throws.
@@ -446,11 +474,14 @@ function probeWorldFile(sourcePath: string): void {
       )
       .get() as { n: number }
     if (real.n !== 3) throw new Error(NOT_A_WORLD)
+    const v = probe.prepare(`PRAGMA user_version`).get() as { user_version?: number }
+    tooNew = Number(v?.user_version ?? 0) > FORMAT_VERSION
   } catch {
     throw new Error(NOT_A_WORLD)
   } finally {
     probe?.close()
   }
+  if (tooNew) throw new Error(WORLD_TOO_NEW)
 }
 
 /**
@@ -2215,6 +2246,39 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.equal(assetName('Türkiye.JPG'), 'Türkiye.JPG') // non-ASCII, any case
     assert.equal(assetName(7), null) // SQLite is dynamically typed; the FILE's schema is not ours
     assert.equal(assetName('x'.repeat(300) + '.png'), null)
+  }
+  // A world from a LATER version of this app. dropForeignTables deletes anything that is not one
+  // of our five tables, with its rows and without a word — right for a smuggled table, catastrophic
+  // for one a future build added. The error screen has always said a file "may have been created by
+  // a newer version"; until now nothing gave the app a way to know. Refusing beats opening, because
+  // the failure it prevents is silent deletion rather than a visible error.
+  {
+    // What this build writes, read back off the file it just wrote.
+    const stamped = new DatabaseSync(dunya, { readOnly: true })
+    const v = (stamped.prepare(`PRAGMA user_version`).get() as { user_version: number })
+      .user_version
+    stamped.close()
+    assert.equal(v, FORMAT_VERSION, 'a packed world carries the format version it was written with')
+
+    const future = join(dir, 'future.world')
+    rmSync(future, { force: true })
+    copyFileSync(dunya, future)
+    const fd = new DatabaseSync(future)
+    fd.exec(`PRAGMA user_version = ${FORMAT_VERSION + 1}`)
+    fd.close()
+    assert.throws(() => unpackWorld(future), /WORLD_TOO_NEW/, 'a newer world must be refused')
+    assert.ok(api.getEntity(a.id), 'and refusing must not disturb the open world')
+
+    // Everything already on disk reads back as 0, which is below the current version, so no world
+    // written before this gate existed is locked out by it.
+    const old = join(dir, 'old-format.world')
+    rmSync(old, { force: true })
+    copyFileSync(dunya, old)
+    const od = new DatabaseSync(old)
+    od.exec(`PRAGMA user_version = 0`)
+    od.close()
+    unpackWorld(old) // must not throw
+    assert.ok(api.getEntity(a.id), 'a world from before the gate still opens')
   }
   // A .world whose tables carry our NAMES but not our SHAPE. `CREATE TABLE IF NOT EXISTS` is a
   // no-op against a table that already exists, so this passes the read-only probe (real tables,

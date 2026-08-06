@@ -19,6 +19,7 @@ import {
   MUTATES,
   NOT_A_WORLD,
   WORLD_TOO_LARGE,
+  WORLD_TOO_NEW,
   api as dbApi
 } from './db'
 import {
@@ -366,7 +367,9 @@ function openGuarded(path: string): boolean {
         ? ml('That file is not a world file.')
         : code === WORLD_TOO_LARGE
           ? ml('That world file carries far more images than a world should.')
-          : ml('That world file could not be opened.'),
+          : code === WORLD_TOO_NEW
+            ? ml('That world was saved by a newer version of this app. Update before opening it.')
+            : ml('That world file could not be opened.'),
       detail: basename(path)
     } as const
     if (mainWindow) dialog.showMessageBoxSync(mainWindow, opts)
