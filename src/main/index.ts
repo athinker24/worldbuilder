@@ -1065,7 +1065,16 @@ app.whenReady().then(() => {
     // it and resolveAssetPath is given it relative to the data folder. Confinement, and the
     // reasoning for confining to assets/ rather than to DATA_DIR, live with the folder in db.ts —
     // where the self-check can assert them.
-    const full = resolveAssetPath(rel)
+    // resolveAssetPath is pure path arithmetic and is not known to throw — but it sat outside every
+    // guard in a handler whose whole documented hazard is that a throw here is an unhandled
+    // REJECTION rather than a failed request. Being safe by inspection is not the same as being
+    // safe by construction, and this is one line to make it the second.
+    let full: string | null
+    try {
+      full = resolveAssetPath(rel)
+    } catch {
+      return new Response('bad request', { status: 400 })
+    }
     if (!full) return new Response('forbidden', { status: 403 })
     // A world can outlive the image it names — pruneUnusedAssets removes what nothing referred to
     // at save time, and a world opened on another machine refers to files that were never here.

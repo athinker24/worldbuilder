@@ -22,6 +22,24 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
   }
 
   componentDidCatch(error: Error, info: { componentStack?: string | null }): void {
+    // THE WHOLE BODY IS GUARDED, because a throw in here defeats the boundary itself: React treats
+    // an error inside componentDidCatch as unrecoverable and unmounts the tree, which is the blank
+    // screen this class exists to prevent.
+    //
+    // It is not hypothetical. Both calls below go through `window.api`, and the preload THROWS on
+    // purpose when context isolation is lost (see preload/index.ts) — so in that failure the
+    // bridge is undefined, App's first api call throws during render, this catches it, and then
+    // `window.api.invoke` throws SYNCHRONOUSLY here. Not a rejected promise, so the `.catch()`
+    // never sees it. The one scenario where the exit screen matters most was the one that removed
+    // it. Reporting the crash is worth less than showing the way out.
+    try {
+      this.report(error, info)
+    } catch {
+      /* no bridge, no log; the fallback below still renders */
+    }
+  }
+
+  private report(error: Error, info: { componentStack?: string | null }): void {
     console.error('Caught render error:', error)
     // The component stack is the point of logging here: a render crash's own stack is minified
     // build output, while the component stack names the actual screen that broke.
