@@ -2494,6 +2494,26 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       '{"type":"Point","coordinates":[0,0]}',
       'deep geometry reset'
     )
+    // BRACES INSIDE STRINGS. The depth check scans rather than parses, so it has to know that a
+    // brace inside a string value is text and not nesting — and getting that wrong does not throw,
+    // it silently resets the entry's fields to '{}' at the entry gate. Silent data loss on a
+    // perfectly good world, which is the worst failure this function can have and the one nothing
+    // was testing. Not contrived either: someone writing about a constructed language keeps
+    // grammar notation, sample code and quoted text in their notes.
+    const bracey = JSON.stringify({
+      note: '{'.repeat(100) + '}'.repeat(100), // 100 deep if the scanner counts these
+      quoted: 'he said "{" and then a backslash \\ and "{" again',
+      esc: '\\' // last character a backslash — the escape must not swallow the quote
+    })
+    api.updateEntity(a.id, { fields: bracey })
+    packWorld(join(dir, 'bracey.world'))
+    unpackWorld(join(dir, 'bracey.world'))
+    assert.equal(
+      (api.getEntity(a.id) as { fields: string }).fields,
+      bracey,
+      'braces and escapes inside strings are text, not nesting'
+    )
+
     // A normally nested world must be untouched — the limit is a ceiling, not a filter
     const okDepth = JSON.stringify({ notes: JSON.stringify([{ title: 't', content: 'c' }]) })
     api.updateEntity(a.id, { fields: okDepth })
