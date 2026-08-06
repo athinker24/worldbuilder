@@ -2553,6 +2553,32 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     // is applied at serve time, which is exactly why it must not appear in this file.
     assert.ok(!/unsafe-eval/.test(csp), 'the CSP must never allow unsafe-eval')
     assert.ok(!/https?:\/\//.test(csp), 'no remote origin belongs in the shipped policy')
+
+    // …and the dev-only widening, which the two assertions above can only say is absent from the
+    // SOURCE html. What actually keeps it out of the shipped app is one line in the Vite config,
+    // and its absence is invisible: `npm run build` still succeeds, the app still runs, and the
+    // packaged policy quietly permits http://localhost:4747. A development tool must never buy
+    // itself an exception in the app users get, and that promise was resting on a line nothing
+    // tested. Verified against a real build too — out/renderer keeps the original policy.
+    //
+    // COMMENTS ARE STRIPPED FIRST, and that is not tidiness. The config explains itself in prose
+    // that quotes the very line being asserted, so the first version of this passed with the line
+    // deleted — it was matching the paragraph describing it. Read against the code only.
+    const vite = readFileSync(join(import.meta.dirname, '../../electron.vite.config.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+    assert.ok(
+      /apply:\s*'serve'/.test(vite),
+      "the dev CSP widening must stay apply: 'serve' — without it, it ships"
+    )
+    // The widening REPLACES the real directive rather than inserting a second one (a duplicate is
+    // not merged: the first occurrence wins). That only works while the string it searches for is
+    // still the string the policy contains, and nothing else would notice it had stopped matching.
+    const needle = /html\.replace\(\s*"([^"]+)"/.exec(vite)?.[1]
+    assert.ok(
+      needle && csp.includes(needle.replace(/;$/, '')),
+      'the dev widening no longer matches the CSP it edits'
+    )
   }
 
   // --- world:// path confinement -----------------------------------------------------------
