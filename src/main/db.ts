@@ -2530,6 +2530,18 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
         `${doc} must stay out of the shipped asar`
       )
     assert.ok(yml.includes("'!src/**'"), 'the sources must stay out too — a single * misses them')
+    // The root is not covered by any of the patterns above it: electron-builder ships everything
+    // it is not told to leave out, so a file added beside package.json ships by default. That is
+    // how the renderer check harness would have gone out with the app.
+    assert.ok(
+      yml.includes("'!check-api.mjs'"),
+      'the renderer check harness must stay out of the asar'
+    )
+    // The developer's own setup. `.claude/settings.local.json` holds absolute paths with the
+    // account name in them, and the log has a whole gate about not leaking that name — shipping it
+    // inside the binary is the same leak in every copy, permanently.
+    for (const dev of ["'!.claude'", "'!.agents'", "'!.mcp.json'", "'!skills-lock.json'"])
+      assert.ok(yml.includes(dev), `agent configuration must stay out of the asar: ${dev}`)
   }
 
   // --- what the WINDOW promises --------------------------------------------------------------

@@ -12,6 +12,22 @@ files:
   # Dev notes never ship to users: a detailed map of the internals + every security
   # mitigation, i.e. a ready-made roadmap for an attacker. (README.md is excluded above.)
   - '!{CLAUDE.md,DURUM.md,HANDOFF.md,AGENTS.md,TANITIM.md}'
+  # The renderer-side check harness. It lives at the repo ROOT, which the excludes above do not
+  # cover — everything not named here ships. Harmless in itself, but a test that stubs the IPC
+  # bridge is a description of the bridge, and nothing that exists for development belongs in the
+  # app users get. Same rule as the dev CSP widening.
+  - '!check-api.mjs'
+  # Agent and editor configuration. Nothing above covers the repo root, and electron-builder ships
+  # whatever it is not told to leave out — so `.claude/`, `.agents/`, `.mcp.json` and
+  # `skills-lock.json` were going out INSIDE every copy of the app, and
+  # `.claude/settings.local.json` carries absolute paths with the account name in them. The log has
+  # a whole gate about not leaking that name; shipping it in the binary is the same leak, in every
+  # copy, permanently. Found by listing the built asar, not by reading this file — which is the
+  # only way this class of mistake ever shows up.
+  - '!.claude'
+  - '!.agents'
+  - '!.mcp.json'
+  - '!skills-lock.json'
 asarUnpack:
   - resources/**
 # Electron fuses: flags flipped in the binary itself, so they cannot be turned back on by an
