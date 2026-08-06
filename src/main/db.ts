@@ -110,9 +110,36 @@ export function initDb(dir: string): void {
   dbFile = join(dataDir, 'world.db')
   backupsDir = join(dataDir, 'backups')
   notesDir = join(dataDir, 'notes')
+  rescueLeftover()
   db = openDb(dbFile)
   db.exec(SCHEMA)
   migrateLegacyKeys()
+}
+
+/**
+ * A `.rescue` still on disk means the last `unpackWorld` never finished — the process died between
+ * the copy that put the old world aside and the line that drops it. So world.db is whatever that
+ * interrupted open left behind, possibly the new file half-applied, and the `.rescue` beside it is
+ * the user's only intact copy of what they had.
+ *
+ * It used to just sit there under a name nobody would ever open, and the next open would silently
+ * write over it. Moved into `backups/`, it lands in the one folder the app tells people to look in
+ * when something is wrong, it is dated so a second interruption cannot overwrite the first, and it
+ * inherits the retention every other backup gets. Never restored automatically: which of the two
+ * files is the one they want is not a decision to make on their behalf at launch.
+ */
+function rescueLeftover(): void {
+  const rescue = dbFile + '.rescue'
+  if (!existsSync(rescue)) return
+  try {
+    mkdirSync(backupsDir, { recursive: true })
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const to = join(backupsDir, `interrupted-open-${stamp}.db`)
+    renameSync(rescue, to)
+    logEvent('WARN', 'project.rescued', { file: basename(to) })
+  } catch {
+    /* the world still opens without this; a rescue we cannot move is not worth refusing to start */
+  }
 }
 
 // The codebase was Turkish; its data keys were too. Now that the code asks for English keys, a
@@ -2618,6 +2645,32 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.equal(resolveAssetPath('assets-other/x.png'), null, 'a sibling folder must not pass')
     // The check must not be defeated by the thing it looks for appearing later in the path.
     assert.equal(resolveAssetPath('backups/assets/x.png'), null, 'assets/ elsewhere is not assets/')
+  }
+
+  // A .rescue left on disk means the last open died halfway: world.db is whatever that
+  // interrupted unpack left behind, and the .rescue beside it is the only intact copy of what the
+  // user had. Under its own name nobody would ever find it and the next open would write straight
+  // over it, so a launch moves it into backups/ — the one folder the app tells people to look in
+  // — dated, so a second interruption cannot overwrite the first. Never restored automatically:
+  // which of the two files they want is not a decision to make for them at launch.
+  //
+  // LAST, and in its own folder: initDb rebinds every module path and opens a second handle on
+  // world.db, so anything after it would be asserting against a different world.
+  {
+    const rdir = mkdtempSync(join(tmpdir(), 'worldrescue-'))
+    writeFileSync(join(rdir, 'world.db.rescue'), 'pretend this is the old world')
+    initDb(rdir) // a launch
+    assert.ok(!existsSync(join(rdir, 'world.db.rescue')), 'the leftover must not be left in place')
+    const moved = readdirSync(join(rdir, 'backups')).filter((f) =>
+      f.startsWith('interrupted-open-')
+    )
+    assert.equal(moved.length, 1, 'and it must land in backups/ under a dated name')
+    assert.equal(
+      readFileSync(join(rdir, 'backups', moved[0]), 'utf8'),
+      'pretend this is the old world',
+      'moved, not recreated — the bytes are the point'
+    )
+    assert.ok(!hasContent(), 'and the world still opens')
   }
 
   console.log('db self-check OK')
