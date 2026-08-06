@@ -2944,10 +2944,8 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     // The root is not covered by any of the patterns above it: electron-builder ships everything
     // it is not told to leave out, so a file added beside package.json ships by default. That is
     // how the renderer check harness would have gone out with the app.
-    assert.ok(
-      yml.includes("'!check-api.mjs'"),
-      'the renderer check harness must stay out of the asar'
-    )
+    for (const harness of ["'!check-api.mjs'", "'!check-corrupt.mjs'"])
+      assert.ok(yml.includes(harness), `a check harness must stay out of the asar: ${harness}`)
     // The developer's own setup. `.claude/settings.local.json` holds absolute paths with the
     // account name in them, and the log has a whole gate about not leaking that name — shipping it
     // inside the binary is the same leak in every copy, permanently.

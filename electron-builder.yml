@@ -17,6 +17,7 @@ files:
   # bridge is a description of the bridge, and nothing that exists for development belongs in the
   # app users get. Same rule as the dev CSP widening.
   - '!check-api.mjs'
+  - '!check-corrupt.mjs'
   # Agent and editor configuration. Nothing above covers the repo root, and electron-builder ships
   # whatever it is not told to leave out — so `.claude/`, `.agents/`, `.mcp.json` and
   # `skills-lock.json` were going out INSIDE every copy of the app, and

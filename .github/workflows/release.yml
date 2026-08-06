@@ -37,6 +37,7 @@ jobs:
       - run: npm run typecheck
       - run: node src/main/db.ts # database self-check (schema + CRUD + undo + security asserts)
       - run: node check-api.mjs # the renderer's settings loaders against hostile values
+      - run: node check-corrupt.mjs # 600 damaged .world files; the app must survive every one
 
       - run: npm run build:win
 
