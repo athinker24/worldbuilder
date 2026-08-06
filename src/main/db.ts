@@ -2427,7 +2427,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     )
     assert.ok(txt.includes('chars]'), 'oversized fields are clipped, not written whole')
     // A logger that throws while reporting is worse than none: unwritable directory, no crash.
-    initLog(join(dir, 'nope', ' bad'), '1', () => ({}))
+    initLog(join(dir, 'nope', '\u0000bad'), '1', () => ({}))
     logError('main:uncaught', new Error('during a broken log dir'))
     // One file per RUN: a second run writes its own, and files from the older naming schemes are
     // cleared out rather than left to sit there looking as current as everything else.
@@ -2466,7 +2466,7 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     // carries a real path — which in a packaged build sits under the user's account folder.
     // Its own folder: only() asserts a single file, and the run above has left two by here.
     // The fake frame is built with join() rather than written out with escapes: a backslash in a
-    // template literal is an escape, so `pp` had silently become `app` and the test passed the
+    // template literal is an escape, so `\app` had silently become `app` and the test passed the
     // wrong string to the thing it was testing.
     const sdir = join(dir, 'logscrub')
     initLog(sdir, '9.9.9', () => ({}))
