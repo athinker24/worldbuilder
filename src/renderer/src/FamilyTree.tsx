@@ -194,7 +194,17 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
   // member's childrenOf (the house flows along the bloodline). Spouses are decoration, never
   // descended into. seen prevents cycles and double renders (cousin/inter-dynasty marriages).
   // With multiple spouses all children sit in one group.
-  const renderNode = (pid: number, seen: Set<number>): React.JSX.Element => {
+  //
+  // DEPTH, not only cycles. `seen` stops a loop in the links, but an ACYCLIC line 50 000 long has
+  // no loop in it — and this is a recursive render, so the sidebar meets it as a stack overflow.
+  // The links table comes out of a shared `.world` and nothing repairs it at the gate: a cycle in
+  // maps or folders is one parent pointer that can be cut, while a family tree is a general graph
+  // with no single link to break. So the limit lives in the VIEW, which is honest — a tree that
+  // stops after two hundred generations is a tree that will not draw the two hundred and first,
+  // and nobody has built that line. Same reasoning and the same order as MAX_TREE_DEPTH in db.ts.
+  const MAX_GENERATIONS = 200
+  const renderNode = (pid: number, seen: Set<number>, depth = 0): React.JSX.Element | null => {
+    if (depth > MAX_GENERATIONS) return null
     seen.add(pid)
     // Partners = co-parents of shared children + formal 'spouse' links (those not in seen)
     const kids = (childrenOf.get(pid) ?? []).filter((k) => !seen.has(k))
@@ -216,7 +226,7 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
             </span>
           ))}
         </div>
-        {kids.length > 0 && <ul>{kids.map((k) => renderNode(k, seen))}</ul>}
+        {kids.length > 0 && <ul>{kids.map((k) => renderNode(k, seen, depth + 1))}</ul>}
       </li>
     )
   }
