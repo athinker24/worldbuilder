@@ -82,6 +82,68 @@ for (const [key, load, ok] of LOADERS) {
   }
 }
 
+// READ-MODIFY-WRITE. A saver that reads the current value, changes part of it and writes the whole
+// thing back is where a hostile value stops being the FILE's problem and becomes the world's: it
+// gets persisted into whatever the user saves next, and from then on it is their data. What must
+// hold is that after any save, the stored value still parses and still has the shape its loader
+// expects — whatever was there before.
+const ROUNDTRIP = [
+  [
+    'mapBoards',
+    async () => A.saveMapBoards(1, { list: [{ id: 'a', name: 'Board' }], active: 'a' }),
+    (v) => {
+      const o = JSON.parse(v)
+      return o && typeof o === 'object' && !Array.isArray(o) && Array.isArray(o['1'].list)
+    }
+  ],
+  [
+    'recentColors',
+    () => A.pushRecentColor('#AABBCC'),
+    (v) => {
+      const l = JSON.parse(v)
+      return Array.isArray(l) && l.length <= 12 && l.every((c) => /^#[0-9a-fA-F]{3,8}$/.test(c))
+    }
+  ]
+]
+for (const [key, save, ok] of ROUNDTRIP) {
+  for (const v of HOSTILE) {
+    settings.clear()
+    if (v !== null) settings.set(key, v)
+    // pushRecentColor caches at module level, so each case needs the module's view reset. The only
+    // handle a caller has is the getter, so the cache is refilled from the value under test first.
+    if (key === 'recentColors') {
+      const mod = await import('./src/renderer/src/api.ts?bust=' + encodeURIComponent(String(v)))
+      try {
+        await mod.pushRecentColor('#AABBCC')
+      } catch (e) {
+        console.log(`THREW  save:${key.padEnd(10)} ${String(v).slice(0, 30)} → ${e.message}`)
+        fails++
+        continue
+      }
+    } else {
+      try {
+        await save()
+      } catch (e) {
+        console.log(`THREW  save:${key.padEnd(10)} ${String(v).slice(0, 30)} → ${e.message}`)
+        fails++
+        continue
+      }
+    }
+    const stored = settings.get(key)
+    let good = false
+    try {
+      good = ok(stored)
+    } catch {
+      good = false
+    }
+    if (!good) {
+      const short = v === null ? '(absent)' : String(v).slice(0, 40)
+      console.log(`WROTE  save:${key.padEnd(10)} ${short} → ${String(stored).slice(0, 80)}`)
+      fails++
+    }
+  }
+}
+
 // The pure helpers, with the kind of values a .world can carry.
 const pure = [
   [

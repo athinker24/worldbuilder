@@ -731,8 +731,15 @@ export const saveDebugLog = (on: boolean): Promise<void> => api.savePrefs({ debu
 const RECENT_COLORS = 12
 let recentColors: string[] | null = null
 export async function getRecentColors(): Promise<string[]> {
+  // Filtered to actual hex, not merely to an array. This list is read, then written back by the
+  // next pushRecentColor — so whatever a shared world seeded here would be persisted into the
+  // user's OWN world on their next colour pick, which is the failure saveMapBoards' comment
+  // describes: a bad value stops being the file's problem and becomes the world's. Every entry
+  // this app has ever written is `#rrggbb`, so nothing real is lost.
   if (!recentColors)
-    recentColors = asArray<string>(parseSetting(await api.getSetting('recentColors'), []))
+    recentColors = asArray<unknown>(parseSetting(await api.getSetting('recentColors'), [])).filter(
+      (c): c is string => typeof c === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(c)
+    )
   return recentColors
 }
 export async function pushRecentColor(hex: string): Promise<string[]> {
