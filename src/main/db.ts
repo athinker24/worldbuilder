@@ -318,7 +318,10 @@ function stripJpeg(buf: Buffer): Buffer {
     if (!JPEG_DROP.has(marker)) out.push(buf.subarray(i, i + 2 + len))
     i += 2 + len
   }
-  return Buffer.concat(out)
+  // Ran out of bytes without ever reaching SOS. That is not a JPEG this function followed to the
+  // end, so it hands back the original rather than a version it has quietly shortened — see the
+  // note on stripPng's tail for why that distinction is the whole rule.
+  return buf
 }
 
 function stripPng(buf: Buffer): Buffer {
@@ -333,9 +336,16 @@ function stripPng(buf: Buffer): Buffer {
     // Whole chunks are dropped, so no CRC has to be recomputed — every chunk kept is byte-identical.
     if (!PNG_DROP.has(type)) out.push(buf.subarray(i, end))
     i = end
-    if (type === 'IEND') break
+    if (type === 'IEND') {
+      // Some tools append data after IEND. It is not a chunk and we do not know what it is, so it
+      // is carried over VERBATIM — not dropped, and not made a reason to give up on the whole
+      // file, which would let the metadata ride along in exactly the files that are already
+      // unusual. Removing metadata is the job; shortening an image is not.
+      if (i < buf.length) out.push(buf.subarray(i))
+      return Buffer.concat(out)
+    }
   }
-  return Buffer.concat(out)
+  return buf
 }
 
 /** Pack the working copy (db + the images in assets/) into a single .world file. */
@@ -1971,6 +1981,98 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     0,
     'unpackWorld must VACUUM: a dropped assets table leaves the file at its old size'
   )
+  // FUZZ the metadata stripper. It is the only byte-level parser in this app, it was written in one
+  // sitting, and it runs over every image on the way into a shared file — so "it worked on my two
+  // fixtures" is not enough. Mutated JPEGs and PNGs, driven by a seeded generator so a failure is
+  // reproducible, against the two properties that actually matter:
+  //
+  //   1. it never throws (a save must not die on a strange image), and
+  //   2. it either returns the input UNCHANGED or something strictly shorter that still begins with
+  //      the same signature — it may remove, it may never add or rewrite.
+  //
+  // Anything it cannot follow must come back byte-identical, which is the property that keeps a
+  // half-understood file from being corrupted on its way out.
+  {
+    let seed = 0x2545f491
+    const rnd = (n: number): number => {
+      // xorshift32 — deterministic, so a failing case can be reproduced from the seed alone
+      seed ^= seed << 13
+      seed ^= seed >>> 17
+      seed ^= seed << 5
+      return Math.abs(seed) % n
+    }
+    const baseJpeg = Buffer.concat([
+      Buffer.from([0xff, 0xd8]),
+      Buffer.from([0xff, 0xe0, 0x00, 0x09]),
+      Buffer.from('JFIF-OK', 'latin1'),
+      Buffer.from([0xff, 0xe1, 0x00, 0x0c]),
+      Buffer.from('ExifSECRET', 'latin1'),
+      Buffer.from([0xff, 0xda, 0x00, 0x02]),
+      Buffer.from([0x11, 0x22, 0xff, 0xd9])
+    ])
+    const basePng = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from([0, 0, 0, 4]),
+      Buffer.from('IHDR', 'latin1'),
+      Buffer.from('DATA', 'latin1'),
+      Buffer.from([0, 0, 0, 0]),
+      Buffer.from([0, 0, 0, 6]),
+      Buffer.from('tEXtSECRET', 'latin1'),
+      Buffer.from([0, 0, 0, 0]),
+      Buffer.from([0, 0, 0, 0]),
+      Buffer.from('IEND', 'latin1'),
+      Buffer.from([0, 0, 0, 0])
+    ])
+    let changed = 0
+    for (let i = 0; i < 4000; i++) {
+      const src = i % 2 ? baseJpeg : basePng
+      const b = Buffer.from(src)
+      // One to three byte-level mutations: truncation, a flipped byte, a bogus length.
+      const muts = 1 + rnd(3)
+      for (let m = 0; m < muts; m++) b[rnd(b.length)] = rnd(256)
+      const buf = rnd(4) === 0 ? b.subarray(0, 1 + rnd(b.length)) : b
+      const out = stripImageMetadata(Buffer.from(buf))
+      assert.ok(out.length <= buf.length, 'the stripper may remove, never add')
+      if (out.length !== buf.length) {
+        changed++
+        assert.deepEqual(
+          [...out.subarray(0, 2)],
+          [...buf.subarray(0, 2)],
+          'a rewritten image keeps its signature'
+        )
+        assert.ok(
+          !out.includes('SECRET') || !buf.includes('SECRET'),
+          'if it rewrote the file at all, the metadata block went with it'
+        )
+      } else {
+        assert.deepEqual([...out], [...buf], 'unchanged length must mean unchanged bytes')
+      }
+    }
+    // A JPEG that runs out before SOS has no image data in it at all, so it is not a file this
+    // function followed to the end and it comes back whole. Directed for the same reason as the
+    // case below: the mutator rarely lands on one, and a guard no test reaches is not a guard.
+    const noSos = Buffer.concat([
+      Buffer.from([0xff, 0xd8]),
+      Buffer.from([0xff, 0xe1, 0x00, 0x0c]),
+      Buffer.from('ExifSECRET', 'latin1')
+    ])
+    assert.deepEqual(
+      [...stripImageMetadata(noSos)],
+      [...noSos],
+      'a JPEG that ends before its image data is left alone'
+    )
+    // Bytes AFTER IEND. Some tools append them; the mutator above never produces a file that is
+    // both valid to IEND and followed by something, so this branch gets a fixture of its own.
+    // Reverting it must break a test, or it is a guard nobody can trust.
+    const withTail = Buffer.concat([basePng, Buffer.from('APPENDED-TAIL', 'latin1')])
+    const tailOut = stripImageMetadata(withTail)
+    assert.ok(!tailOut.includes('SECRET'), 'metadata still goes when the file has a tail')
+    assert.ok(tailOut.includes('APPENDED-TAIL'), 'and whatever follows IEND is carried over whole')
+    assert.ok(tailOut.length < withTail.length, 'so the result is shorter by exactly the chunk')
+
+    // The run has to actually exercise the rewriting path, or it is 4000 no-ops.
+    assert.ok(changed > 100, `the fuzz must reach the rewrite path (reached it ${changed} times)`)
+  }
   // DELETED CONTENT MUST NOT TRAVEL. A SQLite delete frees the page, it does not erase the bytes —
   // so a plain file copy of world.db would hand whoever you shared it with every entry you ever
   // wrote and removed, readable with a text editor. packWorld uses VACUUM INTO, which REBUILDS the
