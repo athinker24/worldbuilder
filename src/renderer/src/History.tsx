@@ -1,5 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { getHistory, goTo, subscribeHistory } from './undo'
+import { alertDialog } from './dialog'
 import { useT } from './i18n'
 import Icon from './icons'
 
@@ -33,8 +34,13 @@ export default function History({ onApplied }: Props): React.JSX.Element {
 
   const jump = async (target: number): Promise<void> => {
     if (target === applied) return
-    await goTo(target)
+    // goTo stops at the first step that fails and returns how far it actually got — the stacks stay
+    // intact, but the world is NOT where the click asked for. Without saying so the panel just
+    // seemed to ignore the click, or to move part of the way for no stated reason.
+    const reached = await goTo(target)
     onApplied()
+    if (reached !== target)
+      void alertDialog(t('Stopped here — the next step could not be applied.'))
   }
 
   return (

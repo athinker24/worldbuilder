@@ -33,7 +33,7 @@ import { startPaneResize } from './paneResize'
 import Preferences from './Preferences'
 import ProjectPreferences from './ProjectPreferences'
 import Shortcuts from './Shortcuts'
-import { pushUndo, redo, undo } from './undo'
+import { pushUndo, redo, type StepResult, undo } from './undo'
 import { logEvent, setDebugLog } from './log'
 
 // Workspaces (places you go) vs commands (things you do): the commands all live in the
@@ -339,6 +339,19 @@ export default function App(): React.JSX.Element {
     toastTimer.current = setTimeout(() => setToast(null), ms)
   }, [])
 
+  // What to do after an undo or a redo. A step that THREW is a fault and this app's rule is that a
+  // fault says so; an empty stack is not a fault and must stay silent. Both used to arrive as the
+  // same `false`, so a failed undo did nothing visible at all — Ctrl+Z simply had no effect, with
+  // a WARN in a log nobody had a reason to open. See StepResult in undo.ts.
+  const afterStep = useCallback(
+    (r: StepResult): void => {
+      if (r === 'ok') afterUndo()
+      else if (r === 'failed')
+        showToast(translate(lang, 'That could not be undone — see the error log.'), 5000, true)
+    },
+    [afterUndo, showToast, lang]
+  )
+
   // A fault must SAY so. Without this the app answers a failure with nothing at all — and the
   // cost of that is not hypothetical: a WebGL texture upload was failing on every polygon fill
   // image, the log named the exact cause in one line, and three rounds of guessing went by
@@ -500,7 +513,7 @@ export default function App(): React.JSX.Element {
           })
         case 'edit.undo':
         case 'edit.redo':
-          return void (cmd === 'edit.redo' ? redo() : undo()).then((did) => did && afterUndo())
+          return void (cmd === 'edit.redo' ? redo() : undo()).then(afterStep)
         case 'edit.prefs':
           return setView({ kind: 'preferences' })
         case 'view.maps':
@@ -516,7 +529,7 @@ export default function App(): React.JSX.Element {
       }
     })
   }, [
-    afterUndo,
+    afterStep,
     newWorld,
     openWorld,
     openRecent,
@@ -576,7 +589,7 @@ export default function App(): React.JSX.Element {
       } else if (e.ctrlKey && (key.toLowerCase() === 'z' || key.toLowerCase() === 'y') && !typing) {
         e.preventDefault()
         const isRedo = key.toLowerCase() === 'y' || e.shiftKey
-        ;(isRedo ? redo() : undo()).then((did) => did && afterUndo())
+        ;(isRedo ? redo() : undo()).then(afterStep)
       } else if (
         (e.key === 'Delete' || e.key === 'Backspace') &&
         !typing &&
@@ -601,7 +614,7 @@ export default function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [afterUndo, deleteSelected, togglePanels, openMaps])
+  }, [afterStep, deleteSelected, togglePanels, openMaps])
 
   // Sidebar file tree: articles are grouped under user-made folders (fields['folder']); a folder
   // id that no longer exists resolves to root (like map boards' resolveBoard).

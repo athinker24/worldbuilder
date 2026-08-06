@@ -4,6 +4,9 @@ import { Lang } from './api'
 // English is the canonical text used directly in JSX (t('Some Text')); this dictionary
 // only needs to hold the Turkish alternative. Missing keys fall back to the English text.
 const TR: Record<string, string> = {
+  'That could not be undone — see the error log.': 'Bu geri alınamadı — hata günlüğüne bakın.',
+  'Stopped here — the next step could not be applied.':
+    'Burada duruldu — sonraki adım uygulanamadı.',
   'New note tab': 'Yeni not sekmesi',
   // "Fields" named the storage; these are the user's own structured properties.
   Attributes: 'Özellikler',

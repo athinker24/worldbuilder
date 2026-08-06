@@ -67,12 +67,21 @@ export function pushUndo(entry: UndoEntry): void {
 // A failing step (e.g. an FK error restoring a feature onto a deleted map) must NOT corrupt
 // the stack: the entry is pushed back where it came from and the caller gets false. Otherwise
 // the entry was swallowed and the error vanished as an unhandled promise rejection.
+/**
+ * What a step did. Three values rather than a boolean, because the two falsy cases are opposites:
+ * Ctrl+Z with an empty stack is nothing happening and must stay silent, while a step that THREW is
+ * a fault, and this app's rule is that a fault says so. Both used to return `false`, so the only
+ * trace of a failed undo was a WARN in a log nobody had a reason to open — a quiet half-success,
+ * which is exactly what the comment above this function calls impossible to reconstruct later.
+ */
+export type StepResult = 'ok' | 'empty' | 'failed'
+
 async function run(
   entry: UndoEntry,
   step: 'undo' | 'redo',
   from: UndoEntry[],
   to: UndoEntry[]
-): Promise<boolean> {
+): Promise<StepResult> {
   try {
     await entry[step]()
   } catch (err) {
@@ -83,24 +92,24 @@ async function run(
     logEvent('WARN', `edit.${step}`, { ok: false, error: String(err).slice(0, 120) })
     from.push(entry)
     rebuild()
-    return false
+    return 'failed'
   }
   to.push(entry)
   logEvent('INFO', `edit.${step}`, { undo: undoStack.length, redo: redoStack.length })
   rebuild()
-  return true
+  return 'ok'
 }
 
-/** Undo the last operation; returns true when something was undone. */
-export async function undo(): Promise<boolean> {
+/** Undo the last operation. See StepResult for why this is not a boolean. */
+export async function undo(): Promise<StepResult> {
   const entry = undoStack.pop()
-  return entry ? run(entry, 'undo', undoStack, redoStack) : false
+  return entry ? run(entry, 'undo', undoStack, redoStack) : 'empty'
 }
 
-/** Redo the last undone operation; returns true when something was redone. */
-export async function redo(): Promise<boolean> {
+/** Redo the last undone operation. See StepResult for why this is not a boolean. */
+export async function redo(): Promise<StepResult> {
   const entry = redoStack.pop()
-  return entry ? run(entry, 'redo', redoStack, undoStack) : false
+  return entry ? run(entry, 'redo', redoStack, undoStack) : 'empty'
 }
 
 /**
@@ -115,7 +124,7 @@ export async function redo(): Promise<boolean> {
  * one that was asked for.
  */
 export async function goTo(target: number): Promise<number> {
-  while (undoStack.length > target) if (!(await undo())) break
-  while (undoStack.length < target && redoStack.length) if (!(await redo())) break
+  while (undoStack.length > target) if ((await undo()) !== 'ok') break
+  while (undoStack.length < target && redoStack.length) if ((await redo()) !== 'ok') break
   return undoStack.length
 }
