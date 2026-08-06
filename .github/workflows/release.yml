@@ -17,6 +17,13 @@ jobs:
       contents: write # needed to create the release and attach files
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The checkout action leaves a GitHub token in .git/config by default, and the very next
+          # step is `npm ci`, which runs the install scripts of every dependency on this runner.
+          # A compromised package could simply read it — and this job holds contents:write. The
+          # release step gets the token explicitly through its own env, so nothing here needs it
+          # persisted.
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -29,6 +36,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: node src/main/db.ts # database self-check (schema + CRUD + undo + security asserts)
+      - run: node check-api.mjs # the renderer's settings loaders against hostile values
 
       - run: npm run build:win
 

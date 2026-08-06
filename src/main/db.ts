@@ -264,6 +264,80 @@ export function backupIfNeeded(): void {
 // settings.worldFile is the Ctrl+S target in the WORKING COPY only — packWorld strips it, so a
 // shared file never carries the path it was saved to. See there.
 
+/**
+ * Image metadata that describes the PERSON rather than the picture, removed from what LEAVES.
+ *
+ * A photo carries more than pixels. EXIF holds GPS coordinates to a few metres, the camera's
+ * serial number and the exact second the shutter opened; XMP holds the author's name and an
+ * editing history; IPTC holds a creator and a copyright line. `importAsset` copies the file byte
+ * for byte and `packWorld` embeds it byte for byte, so any of that travelled inside every
+ * `.world` handed to anybody — the same shape as the author's disk path, and the same answer.
+ *
+ * Stripped on the way OUT, not on the way in. The user's own copy in `assets/` keeps whatever it
+ * came with, which is theirs; only the file they hand to someone else is cleaned. That also covers
+ * every image imported before this existed, at no extra cost, because packWorld already reads all
+ * of them.
+ *
+ * ICC (APP2) and Adobe (APP14) are KEPT: those describe the colour, and dropping them changes how
+ * the picture looks. Anything unexpected — a truncated file, a marker where none belongs — returns
+ * the original bytes untouched. A cleaner that can corrupt an image is worse than the metadata.
+ */
+const JPEG_DROP = new Set([0xe1, 0xed, 0xfe]) // APP1 (EXIF, XMP), APP13 (IPTC), COM
+const PNG_DROP = new Set(['tEXt', 'zTXt', 'iTXt', 'eXIf', 'tIME'])
+export function stripImageMetadata(buf: Buffer): Buffer {
+  try {
+    if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8) return stripJpeg(buf)
+    if (buf.length > 8 && buf.readUInt32BE(0) === 0x89504e47) return stripPng(buf)
+  } catch {
+    /* not the shape we thought: hand back exactly what came in */
+  }
+  return buf
+}
+
+function stripJpeg(buf: Buffer): Buffer {
+  const out: Buffer[] = [buf.subarray(0, 2)] // SOI
+  let i = 2
+  while (i + 1 < buf.length) {
+    // Encoders may pad between segments with 0xff; those are fill bytes, not markers.
+    while (i + 1 < buf.length && buf[i] === 0xff && buf[i + 1] === 0xff) i++
+    if (buf[i] !== 0xff) return buf // lost the marker chain — do not rewrite what we cannot read
+    const marker = buf[i + 1]
+    // Standalone markers: no length, no payload.
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) {
+      out.push(buf.subarray(i, i + 2))
+      i += 2
+      continue
+    }
+    if (marker === 0xda) {
+      out.push(buf.subarray(i)) // SOS: entropy-coded data to the end, copied verbatim
+      return Buffer.concat(out)
+    }
+    if (i + 3 >= buf.length) return buf
+    const len = buf.readUInt16BE(i + 2)
+    if (len < 2 || i + 2 + len > buf.length) return buf
+    if (!JPEG_DROP.has(marker)) out.push(buf.subarray(i, i + 2 + len))
+    i += 2 + len
+  }
+  return Buffer.concat(out)
+}
+
+function stripPng(buf: Buffer): Buffer {
+  const out: Buffer[] = [buf.subarray(0, 8)] // signature
+  let i = 8
+  while (i + 12 <= buf.length) {
+    const len = buf.readUInt32BE(i)
+    if (len > 0x7fffffff) return buf
+    const end = i + 12 + len // length + type + data + crc
+    if (end > buf.length) return buf
+    const type = buf.toString('latin1', i + 4, i + 8)
+    // Whole chunks are dropped, so no CRC has to be recomputed — every chunk kept is byte-identical.
+    if (!PNG_DROP.has(type)) out.push(buf.subarray(i, end))
+    i = end
+    if (type === 'IEND') break
+  }
+  return Buffer.concat(out)
+}
+
 /** Pack the working copy (db + the images in assets/) into a single .world file. */
 export function packWorld(targetPath: string): void {
   pruneUnusedAssets() // drop unused images before saving → lean .world and working copy
@@ -290,7 +364,8 @@ export function packWorld(targetPath: string): void {
     const ins = out.prepare(`INSERT OR REPLACE INTO assets (name, data) VALUES (?, ?)`)
     for (const name of readdirSync(assetsDir)) {
       const p = join(assetsDir, name)
-      if (statSync(p).isFile()) ins.run(name, readFileSync(p))
+      // stripImageMetadata: what travels must not carry the author. See there.
+      if (statSync(p).isFile()) ins.run(name, stripImageMetadata(readFileSync(p)))
     }
     // The path does NOT travel. It used to be written into the output, and `VACUUM INTO` had
     // already copied the working copy's own row on top of that — so a `.world` handed to someone
@@ -1892,6 +1967,75 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     0,
     'unpackWorld must VACUUM: a dropped assets table leaves the file at its old size'
   )
+  // What LEAVES must not carry the author. A photo's EXIF holds GPS to a few metres, the camera's
+  // serial and the exact second the shutter opened; XMP holds a name and an editing history. Both
+  // rode inside every .world handed to anybody, because importAsset and packWorld copy the file
+  // byte for byte. Stripped on the way OUT only — the user's own copy keeps what it came with.
+  //
+  // The fixtures are built by hand rather than checked in: a real photo in the repo would be
+  // someone's actual metadata, which is the thing being tested.
+  {
+    const jpeg = Buffer.concat([
+      Buffer.from([0xff, 0xd8]), // SOI
+      Buffer.from([0xff, 0xe0, 0x00, 0x09]), // APP0 JFIF — colour/format, must SURVIVE
+      Buffer.from('JFIF-OK', 'latin1'),
+      Buffer.from([0xff, 0xe1, 0x00, 0x1c]), // APP1 EXIF — must GO
+      Buffer.from('Exif\0\0GPS 41.0 28.9 CAM#77', 'latin1'),
+      Buffer.from([0xff, 0xfe, 0x00, 0x0f]), // COM — must GO
+      Buffer.from('by the author', 'latin1'),
+      Buffer.from([0xff, 0xda, 0x00, 0x02]), // SOS: everything after is copied verbatim
+      Buffer.from([0x11, 0x22, 0x33, 0xff, 0xd9])
+    ])
+    const chunk = (type: string, data: string): Buffer =>
+      Buffer.concat([
+        (() => {
+          const b = Buffer.alloc(4)
+          b.writeUInt32BE(data.length)
+          return b
+        })(),
+        Buffer.from(type, 'latin1'),
+        Buffer.from(data, 'latin1'),
+        Buffer.from([0, 0, 0, 0]) // crc — whole chunks are dropped, none is recomputed
+      ])
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk('IHDR', 'PIXELDATA'), // must SURVIVE
+      chunk('tEXt', 'Author\0the author'), // must GO
+      chunk('IEND', '')
+    ])
+    writeFileSync(join(dir, 'assets', 'photo.jpg'), jpeg)
+    writeFileSync(join(dir, 'assets', 'shot.png'), png)
+    // Referenced, or pruneUnusedAssets deletes them before the pack and the test proves nothing.
+    api.updateEntity(a.id, { content: 'assets/photo.jpg assets/shot.png' })
+    const stripped = join(dir, 'stripped.world')
+    packWorld(stripped)
+    const sd = new DatabaseSync(stripped, { readOnly: true })
+    const outJpeg = (
+      sd.prepare(`SELECT data FROM assets WHERE name = 'photo.jpg'`).get() as { data: Uint8Array }
+    ).data
+    const outPng = (
+      sd.prepare(`SELECT data FROM assets WHERE name = 'shot.png'`).get() as { data: Uint8Array }
+    ).data
+    sd.close()
+    const j = Buffer.from(outJpeg).toString('latin1')
+    assert.ok(!j.includes('GPS 41.0'), 'EXIF must not travel inside a shared .world')
+    assert.ok(!j.includes('by the author'), 'nor a JPEG comment')
+    assert.ok(j.includes('JFIF-OK'), 'but the colour/format segments must survive')
+    assert.ok(j.endsWith('\u0011\u0022\u0033\u00ff\u00d9'), 'and the image data must be untouched')
+    const g = Buffer.from(outPng).toString('latin1')
+    assert.ok(!g.includes('the author'), 'a PNG text chunk must not travel either')
+    assert.ok(g.includes('PIXELDATA'), 'and its real chunks must survive')
+    // Anything it cannot parse comes back byte-identical — a cleaner that corrupts an image is
+    // worse than the metadata it removes.
+    const junk = Buffer.from([0xff, 0xd8, 0x00, 0x01, 0x02])
+    assert.deepEqual([...stripImageMetadata(junk)], [...junk], 'an unreadable JPEG is left alone')
+    const notImage = Buffer.from('this is a text file', 'utf8')
+    assert.deepEqual([...stripImageMetadata(notImage)], [...notImage], 'and so is a non-image')
+    rmSync(join(dir, 'assets', 'photo.jpg'), { force: true })
+    rmSync(join(dir, 'assets', 'shot.png'), { force: true })
+    rmSync(stripped, { force: true })
+    api.updateEntity(a.id, { content: 'Test State content' })
+  }
   // Malicious .world: what the embedded image NAMES are allowed to be. A shared world is the one
   // way past the app's own rule for that folder — importAsset takes images only, and extraction
   // used to take anything and reduce it to a basename. Escape was closed; the extension and the
