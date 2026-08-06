@@ -183,6 +183,25 @@ const MAX_GLYPH_PX = 256
 const MAX_LABEL_CHARS = 120
 
 /**
+ * How many glyphs the whole SCENE may draw on the curved path before the rest fall back to
+ * straight text.
+ *
+ * MAX_LABEL_CHARS bounds one label; nothing bounded the sum, and the sum is where the leverage is.
+ * A curved label is one Text per glyph, so ten thousand label features of a hundred and twenty
+ * characters each is 1.2 million display objects built synchronously in `rebuild()` — out of a
+ * `.world` of two or three megabytes, and paid again on every reload rather than once on open.
+ * That is a larger amplification than the twenty thousand embedded images the file gate already
+ * refuses, from a smaller file.
+ *
+ * The answer is a budget rather than a refusal, because the labels are the user's work: past it a
+ * name is still drawn, in one Text instead of one per letter, and only its ARC is lost. Total
+ * objects then fall back to one per label, which is proportional to the file — the same deal
+ * every other feature gets. Twenty thousand is far past any hand-placed map: three hundred curved
+ * names of twenty characters is six thousand.
+ */
+const MAX_SCENE_GLYPHS = 20_000
+
+/**
  * Stop drawing a label once its glyphs are this many times the viewport height.
  *
  * Zooming deep into one region was heavy while everything else stayed smooth, and turning labels
@@ -478,8 +497,13 @@ export class LabelLayer {
     for (const s of styles) s.destroy()
     this.placed = []
     this.extent.clear()
+    let glyphs = 0
     for (const s of this.specs) {
-      const node = s.curve === 0 ? this.straight(s) : this.curved(s)
+      // Curved only while the scene budget lasts — see MAX_SCENE_GLYPHS. Deterministic for a given
+      // list, so a rebuild never disagrees with the one before it and nothing flickers.
+      const curve = s.curve !== 0 && glyphs + s.text.length <= MAX_SCENE_GLYPHS
+      if (curve) glyphs += s.text.length
+      const node = curve ? this.curved(s) : this.straight(s)
       if (!node) continue
       this.root.addChild(node.view)
       this.placed.push({ spec: s, res: this.resFor(s), ...node })
