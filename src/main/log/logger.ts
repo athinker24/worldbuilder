@@ -30,6 +30,34 @@ let context: () => Record<string, unknown> = () => ({})
 
 export const id = (): string => sessionId
 
+/**
+ * The home directory, replaced with `~` in EVERYTHING that reaches the file.
+ *
+ * It used to be applied to the stack alone, under a comment saying the stack is the one place a
+ * real path reaches this file. That was wrong about the most likely failure this app has: a Node
+ * filesystem error puts the path in the MESSAGE — `EBUSY: resource busy or locked, open
+ * '…\\Documents\\Worldbuilder\\world.db'` — and the message is the report's headline. The
+ * app's own startup warning is that exact error, and `edit.*` and `map.baseImage` forward an
+ * error string into an ordinary event line too.
+ *
+ * So it moved to the one door everything goes through, and the five `sink.write` calls became
+ * this `write`. A rule applied at four places out of five is a rule that has already failed.
+ * `~` keeps the file, the line and the column, which is all a diagnosis ever wanted from a path.
+ */
+// THREE forms, because one of them is made by this file itself. `kv` quotes any value holding
+// whitespace with JSON.stringify, which DOUBLES every backslash — so an fs error message went
+// into the line as C:\\Users\\… and a scrub looking for the raw path walked past it.
+// The forward-slash form is what a file:// URL in a stack carries. Escaped first: replacing the
+// raw path in an already-doubled string would find nothing anyway, but the order says which
+// case is the surprising one.
+const home = homedir()
+const homeForms = home ? [JSON.stringify(home).slice(1, -1), home, home.replaceAll('\\', '/')] : []
+const scrub = (t: string): string => homeForms.reduce((acc, form) => acc.replaceAll(form, '~'), t)
+const write = (text: string, now = false, at?: number): void => {
+  if (at === undefined) sink.write(scrub(text), now)
+  else sink.write(scrub(text), now, at)
+}
+
 export function init(dataDir: string, meta: Meta, ctx: () => Record<string, unknown>): void {
   context = ctx
   ring.clear()
@@ -41,7 +69,7 @@ export function init(dataDir: string, meta: Meta, ctx: () => Record<string, unkn
   sessionId = Math.random().toString(36).slice(2, 8)
   started = stamp()
   if (!sink.open(`${dataDir}/logs`, sessionId)) return
-  sink.write(
+  write(
     block('SESSION START', [
       ['Time', started],
       ['Session', sessionId],
@@ -107,7 +135,7 @@ export function event(
     // Written through immediately, and never coalesced: the moment a line is worth keeping is the
     // moment the process might not survive to flush it.
     settle()
-    sink.write(eventLine(level, scope, data, at), true, at.getTime())
+    write(eventLine(level, scope, data, at), true, at.getTime())
     return
   }
   hold(level, scope, data, at)
@@ -176,7 +204,7 @@ function settle(): void {
           // would just be a column of zeroes.
           ...(span > 0 ? { over: `${span}ms` } : {})
         }
-  sink.write(eventLine(p.level, p.scope, data, p.at), false, p.at.getTime())
+  write(eventLine(p.level, p.scope, data, p.at), false, p.at.getTime())
 }
 
 /**
@@ -277,7 +305,7 @@ export function error(rawWhere: string, err: unknown, extra: Record<string, unkn
     if (echo) {
       ring.remember(`error:${where}`)
       settle()
-      sink.write(eventLine('ERROR', 'error.echo', { where, of: lastWhere }), true, now)
+      write(eventLine('ERROR', 'error.echo', { where, of: lastWhere }), true, now)
       return
     }
     lastMsg = msg
@@ -302,17 +330,9 @@ export function error(rawWhere: string, err: unknown, extra: Record<string, unkn
     // `component` is the component STACK, which names the screen that broke — the most valuable
     // field a render crash has, and far too long to sit inside the context line.
     const { component, ...rest } = extra
-    // The stack is the one place a real PATH reaches this file. Every other field is a name on
-    // purpose (see the privacy note in log.ts), and a frame in a packaged build reads
-    // C:\Users\<whoever>\AppData\Local\Programs\... — so pasting a report into a message hands
-    // over the account name with it. `~` keeps the file, the line and the column, which is all a
-    // diagnosis ever wanted from the path.
-    const home = homedir()
-    const scrub = (l: string): string =>
-      home ? l.replaceAll(home, '~').replaceAll(home.replaceAll('\\', '/'), '~') : l
     ring.remember(`error:${where}`)
     settle() // a held line must not surface AFTER the error it came before
-    sink.write(
+    write(
       '\n' +
         block(`ERROR REPORT  ·  session ${sessionId}  ·  ${stamp()}`, [
           ['error', clip(headline, 500)],

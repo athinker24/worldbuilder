@@ -2448,6 +2448,15 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     homeErr.stack = `Error: stack with a home path
     at f (${fakeFrame}:1:1)`
     logError('main:uncaught', homeErr)
+    // The MESSAGE, not only the stack — and this is the shape that matters, because it is the
+    // error this app actually hits. Node puts the path in the message of every fs failure, the
+    // startup warning is an EBUSY on world.db, and the message is the report's headline. The
+    // scrub used to be applied to the stack alone, under a comment claiming the stack was the
+    // one place a path could reach the file; this assertion is what that comment was missing.
+    logError('main:uncaught', new Error(`EBUSY: resource busy, open '${join(homedir(), 'x.db')}'`))
+    // And an ordinary event line: `edit.*` and `map.baseImage` forward an error string into one,
+    // so the block is not the only way a path arrives.
+    logEvent('WARN', 'edit.undo', { ok: false, error: `ENOENT ${join(homedir(), 'y.png')}` })
     flushLog()
     const slogs = join(sdir, 'logs')
     const scrubbed = readFileSync(
@@ -2459,6 +2468,15 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     )
     assert.ok(!scrubbed.includes(homedir()), 'the home directory never reaches the file')
     assert.ok(scrubbed.includes(join('~', 'app')), 'and what replaces it still names the file')
+    assert.ok(scrubbed.includes(join('~', 'x.db')), 'an fs error message is scrubbed too')
+    assert.ok(scrubbed.includes('y.png'), 'and so is an ordinary event line, name intact')
+    // The form this file MAKES: kv quotes a value holding whitespace with JSON.stringify, which
+    // doubles every backslash — so the path went in as C:\\Users\\… and a scrub looking for the
+    // raw one walked past it. Both spellings have to be gone.
+    assert.ok(
+      !scrubbed.includes(JSON.stringify(homedir()).slice(1, -1)),
+      'nor the JSON-escaped home path that kv writes itself'
+    )
   }
 
   // --- what the packaged build promises ------------------------------------------------------
