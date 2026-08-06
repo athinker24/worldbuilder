@@ -207,12 +207,28 @@ export async function getHierConfig(): Promise<HierConfig> {
   const parsed = parseSetting(raw, { govs: [] })
   // Legacy shape: a [{tag, mode}] array → convert to the new shape
   if (Array.isArray(parsed)) {
-    const old = parsed as { tag: string; mode: string }[]
+    // `c.mode` on a null element throws, and this runs on a file someone else wrote — one bad
+    // entry would take the whole rank panel down rather than the entry with it.
+    const old = asArray<{ tag?: unknown; mode?: unknown }>(parsed)
     return {
-      govs: [{ name: 'Default', tags: old.filter((c) => c.mode === 'filtre').map((c) => c.tag) }]
+      govs: [
+        {
+          name: 'Default',
+          tags: old
+            .filter((c) => c && c.mode === 'filtre' && typeof c.tag === 'string')
+            .map((c) => c.tag as string)
+        }
+      ]
     }
   }
-  return { govs: (parsed as HierConfig).govs ?? [] }
+  // Coerced like every other loader rather than trusted: `govs` is mapped over to build the
+  // ladders and each gov's `tags` is mapped again, so both are size- and type-checked here.
+  return {
+    govs: asArray<{ name?: unknown; tags?: unknown }>((parsed as HierConfig).govs).map((g) => ({
+      name: asString(g?.name, ''),
+      tags: asArray<unknown>(g?.tags).filter((x): x is string => typeof x === 'string')
+    }))
+  }
 }
 
 export const saveHierConfig = (cfg: HierConfig): Promise<void> =>
@@ -421,7 +437,24 @@ const parseSetting = (raw: string | null | undefined, fallback: unknown): unknow
   }
 }
 
-const asArray = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : [])
+/**
+ * How many items a settings array may carry out of a `.world`.
+ *
+ * The coercion below proved the value was an ARRAY and stopped there, which is only half of what
+ * a shared file has to be held to: every one of these lists is rendered item by item somewhere —
+ * a tab per template, a row per folder, a swatch per recent colour, a chip per map-mode dimension
+ * on EVERY entry page, a band per era, a dot per event. A settings value is a plain JSON string
+ * in a table, so `templates` holding a million entries costs the file about ten megabytes and
+ * costs whoever opens it the app.
+ *
+ * This is gate 17's rule ("nothing unbounded may reach a per-item renderer") applied to the other
+ * place it was needed. The number is chosen against what a person builds: the largest of these
+ * lists in a real world runs to a few dozen, and anyone who reaches five thousand map-mode
+ * dimensions has stopped building a world.
+ */
+const MAX_SETTING_ITEMS = 5000
+const asArray = <T>(v: unknown): T[] =>
+  Array.isArray(v) ? (v.slice(0, MAX_SETTING_ITEMS) as T[]) : []
 const asObject = <T extends object>(v: unknown, fallback: T): T =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as T) : fallback
 const asNumber = (v: unknown, fallback: number): number =>

@@ -485,9 +485,8 @@ export function unpackWorld(sourcePath: string): void {
  * - CON/NUL/COM1… are devices on Windows whatever the extension: writing `nul.png` writes nowhere
  * - the length bound is per component, well under the 255 a filesystem accepts
  */
-// The control range is the point: a newline or a NUL inside a filename is exactly what this
-// refuses, so it has to be spelled out rather than left to a shorthand.
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex -- the control range is the point here: a newline
+// or a NUL inside a filename is what this refuses, so it has to be spelled out.
 const ASSET_NAME = /^[^\\/:*?"<>|\u0000-\u001f]+\.(png|jpe?g|webp|gif)$/i
 const WIN_DEVICE = /^(con|prn|aux|nul|com\d|lpt\d)\./i
 export function assetName(raw: unknown): string | null {
@@ -1839,14 +1838,8 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   // makes for the rest of the session, on a world that opened without a word.
   {
     for (const [label, sql] of [
-      [
-        'a CHECK that refuses every row',
-        `CREATE TABLE entities (id INTEGER PRIMARY KEY, type TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', fields TEXT NOT NULL DEFAULT '{}', created_at TEXT, updated_at TEXT, CHECK (0))`
-      ],
-      [
-        'a required column with no default',
-        `CREATE TABLE entities (id INTEGER PRIMARY KEY, type TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', fields TEXT NOT NULL DEFAULT '{}', created_at TEXT, updated_at TEXT, tribute TEXT NOT NULL)`
-      ]
+      ['a CHECK that refuses every row', `CREATE TABLE entities (id INTEGER PRIMARY KEY, type TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', fields TEXT NOT NULL DEFAULT '{}', created_at TEXT, updated_at TEXT, CHECK (0))`],
+      ['a required column with no default', `CREATE TABLE entities (id INTEGER PRIMARY KEY, type TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', fields TEXT NOT NULL DEFAULT '{}', created_at TEXT, updated_at TEXT, tribute TEXT NOT NULL)`]
     ] as [string, string][]) {
       const wedge = join(dir, 'wedge.world')
       rmSync(wedge, { force: true })
@@ -1854,12 +1847,8 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       const wd = new DatabaseSync(wedge)
       wd.exec(`DROP TABLE features; DROP TABLE links; DROP TABLE entities`)
       wd.exec(sql)
-      wd.exec(
-        `CREATE TABLE links (id INTEGER PRIMARY KEY, from_id INTEGER NOT NULL, to_id INTEGER NOT NULL, relation TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '')`
-      )
-      wd.exec(
-        `CREATE TABLE features (id INTEGER PRIMARY KEY, map_id INTEGER NOT NULL, entity_id INTEGER, geometry TEXT NOT NULL, style TEXT NOT NULL DEFAULT '{}')`
-      )
+      wd.exec(`CREATE TABLE links (id INTEGER PRIMARY KEY, from_id INTEGER NOT NULL, to_id INTEGER NOT NULL, relation TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '')`)
+      wd.exec(`CREATE TABLE features (id INTEGER PRIMARY KEY, map_id INTEGER NOT NULL, entity_id INTEGER, geometry TEXT NOT NULL, style TEXT NOT NULL DEFAULT '{}')`)
       wd.close()
       assert.throws(() => unpackWorld(wedge), /NOT_A_WORLD/, label)
     }
