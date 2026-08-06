@@ -49,7 +49,8 @@ A personal app that keeps a world's map, languages, peoples, states, religions, 
 - `npm run lint` — eslint (cached)
 - `npm run build:unpack` — packages the desktop app to `dist/win-unpacked/Worldbuilder.exe`; the only way to update the desktop build after code changes
 - `npm run build:win` — full release build: installer (`Worldbuilder-…-Setup.exe`) + portable zip
-- `node src/main/db.ts` — database self-check: runs and asserts schema setup + CRUD + undo + the security scenarios. There is no test framework; this single file stands in for one and must be run after any data-model change.
+- `node src/main/db.ts` — database self-check: runs and asserts schema setup + CRUD + undo + the security scenarios. There is no test framework; this file stands in for one on the MAIN side and must be run after any data-model change.
+- `node check-api.mjs` — the same idea for the renderer's `api.ts`, which db.ts cannot reach (different process, and it imports `window`). Stubs the IPC bridge and runs every settings loader against a list of hostile values, then the pure helpers. A loader must never throw and must never return a shape its caller will trip over. Run it after touching a loader or a coercion helper; it found `getHierConfig` throwing on the literal value `null` the first time it ran.
 
 On Windows, `dist/` files are locked while the packaged `Worldbuilder.exe` is running — close it before `build:unpack`.
 

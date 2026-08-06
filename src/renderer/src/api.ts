@@ -223,8 +223,15 @@ export async function getHierConfig(): Promise<HierConfig> {
   }
   // Coerced like every other loader rather than trusted: `govs` is mapped over to build the
   // ladders and each gov's `tags` is mapped again, so both are size- and type-checked here.
+  // asObject, not `parsed` directly. `parseSetting` falls back only when JSON.parse THROWS, so the
+  // literal value `null` comes through as null — and `null.govs` is a TypeError that takes the rank
+  // panel and Project Preferences down. `repairImportedJson` does not catch it either: it only
+  // examines settings values that start with `{` or `[`. This was the one loader in the file
+  // reading `parsed` without a coercion, and a hostile-value pass over every loader is what found
+  // it (check-api.mjs).
+  const obj = asObject<Partial<HierConfig>>(parsed, {})
   return {
-    govs: asArray<{ name?: unknown; tags?: unknown }>((parsed as HierConfig).govs).map((g) => ({
+    govs: asArray<{ name?: unknown; tags?: unknown }>(obj.govs).map((g) => ({
       name: asString(g?.name, ''),
       tags: asArray<unknown>(g?.tags).filter((x): x is string => typeof x === 'string')
     }))

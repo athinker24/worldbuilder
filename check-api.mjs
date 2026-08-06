@@ -1,0 +1,123 @@
+// Run every settings loader in api.ts against hostile values, with the IPC bridge stubbed.
+// A loader must never throw and must never hand back something its caller will trip over.
+const settings = new Map()
+globalThis.window = {
+  api: {
+    invoke: async (method, ...args) => {
+      if (method === 'getSetting') return settings.get(args[0]) ?? null
+      if (method === 'setSetting') return void settings.set(args[0], args[1])
+      return null
+    }
+  }
+}
+
+const A = await import('./src/renderer/src/api.ts')
+
+const HOSTILE = [
+  null,
+  '',
+  'hello', // not JSON at all, and the gate only checks values that LOOK like JSON
+  '{',
+  '[1,2,3]',
+  '{"a":1}',
+  'null',
+  'true',
+  '"a string"',
+  '[null,null,null]',
+  '[[[[[]]]]]',
+  '{"dims":"not-an-array","colors":7}',
+  '{"govs":"nope"}',
+  '{"govs":[null,{"name":5,"tags":"x"},{"tags":[1,null,"ok"]}]}',
+  '{"periods":[null],"events":[null],"min":"x","max":null,"year":{}}',
+  '{"list":"x","active":9}',
+  JSON.stringify(Array.from({ length: 50_000 }, (_, i) => 'x' + i)),
+  '{"__proto__":{"pwned":true}}',
+  '[{"__proto__":{"pwned":true}}]'
+]
+
+const LOADERS = [
+  [
+    'hierarchyConfig',
+    A.getHierConfig,
+    (r) => Array.isArray(r.govs) && r.govs.every((g) => Array.isArray(g.tags))
+  ],
+  ['mapModes', A.getMapModes, (r) => Array.isArray(r.dims) && typeof r.colors === 'object'],
+  ['templates', A.getTemplates, (r) => Array.isArray(r)],
+  ['entityFolders', A.getEntityFolders, (r) => Array.isArray(r)],
+  ['favorites', A.getFavorites, (r) => Array.isArray(r) && r.every((v) => typeof v === 'number')],
+  ['pinImages', A.getPinImages, (r) => Array.isArray(r)],
+  [
+    'timeline',
+    A.getTimeline,
+    (r) => Array.isArray(r.periods) && Number.isFinite(r.min) && Number.isFinite(r.year)
+  ],
+  ['recentColors', A.getRecentColors, (r) => Array.isArray(r)],
+  [
+    'mapBoards',
+    () => A.getMapBoards(1),
+    (r) => Array.isArray(r.list) && typeof r.active === 'string'
+  ]
+]
+
+let fails = 0
+for (const [key, load, ok] of LOADERS) {
+  for (const v of HOSTILE) {
+    settings.clear()
+    if (v !== null) settings.set(key, v)
+    // getRecentColors caches at module level; clear it the only way a caller can.
+    let out, err
+    try {
+      out = await load()
+    } catch (e) {
+      err = e
+    }
+    const short = v === null ? '(absent)' : v.length > 44 ? v.slice(0, 44) + '…' : v
+    if (err) {
+      console.log(`THREW  ${key.padEnd(15)} ${short}  → ${err.message}`)
+      fails++
+    } else if (!ok(out)) {
+      console.log(`SHAPE  ${key.padEnd(15)} ${short}  → ${JSON.stringify(out).slice(0, 90)}`)
+      fails++
+    }
+  }
+}
+
+// The pure helpers, with the kind of values a .world can carry.
+const pure = [
+  [
+    'getYearRecs garbage',
+    () => A.getYearRecs('{"parent":"[null,5,{\\"id\\":\\"x\\"},{\\"id\\":3}]"}', 'parent')
+  ],
+  ['getYearRecs non-json', () => A.getYearRecs('nope', 'parent')],
+  [
+    'parentAt on junk',
+    () =>
+      A.parentAt(
+        [
+          { from: NaN, id: 1 },
+          { from: null, id: 2 }
+        ],
+        5
+      )
+  ],
+  ['rootAtYear cycle', () => A.rootAtYear(1, 0, (id) => [{ from: null, id: id === 1 ? 2 : 1 }])],
+  ['ringArea empty', () => A.ringArea([])],
+  ['ringArea junk', () => A.ringArea([['a', 'b'], [1]])],
+  ['outlineColor junk', () => A.outlineColor('url(#x)')],
+  ['autoColor empty', () => A.autoColor('')],
+  ['assetUrl traversal', () => A.assetUrl('../../world.db')],
+  ['assetUrl backslash', () => A.assetUrl('assets\\..\\world.db')],
+  ['inYearRange junk', () => A.inYearRange(undefined, undefined, NaN)],
+  ['formatYear junk', () => A.formatYear(NaN, { before: 'BC', after: 'AD' })]
+]
+for (const [label, fn] of pure) {
+  try {
+    console.log(`ok     ${label.padEnd(24)} → ${JSON.stringify(fn())?.slice(0, 70)}`)
+  } catch (e) {
+    console.log(`THREW  ${label.padEnd(24)} → ${e.message}`)
+    fails++
+  }
+}
+
+console.log('\nObject.prototype.pwned =', {}.pwned)
+console.log(fails ? `${fails} PROBLEM(S)` : 'every loader total, no loader threw')
