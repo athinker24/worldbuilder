@@ -277,25 +277,42 @@ export function packWorld(targetPath: string): void {
   // invariant with one exception in it is not an invariant, and this is the cheaper end of proving
   // that.
   const out = openDb(tmp)
-  out.exec(`CREATE TABLE IF NOT EXISTS assets (name TEXT PRIMARY KEY, data BLOB NOT NULL)`)
-  const ins = out.prepare(`INSERT OR REPLACE INTO assets (name, data) VALUES (?, ?)`)
-  for (const name of readdirSync(assetsDir)) {
-    const p = join(assetsDir, name)
-    if (statSync(p).isFile()) ins.run(name, readFileSync(p))
+  // Everything from here to the close is inside a try, and the reason is the NEXT save rather than
+  // this one. A throw in the loop below — an image deleted between the readdir and the read, a
+  // disk that fills partway through — used to leave the temp file open AND on disk, and Windows
+  // will not delete a file something still holds. So `rmSync(tmp)` at the top of the next save
+  // threw too, and saving stayed broken until the app was restarted: one transient failure turned
+  // into a permanent one. Closing the handle and clearing the temp on the way out makes the
+  // failure cost exactly the save it happened on.
+  let packed = false
+  try {
+    out.exec(`CREATE TABLE IF NOT EXISTS assets (name TEXT PRIMARY KEY, data BLOB NOT NULL)`)
+    const ins = out.prepare(`INSERT OR REPLACE INTO assets (name, data) VALUES (?, ?)`)
+    for (const name of readdirSync(assetsDir)) {
+      const p = join(assetsDir, name)
+      if (statSync(p).isFile()) ins.run(name, readFileSync(p))
+    }
+    // The path does NOT travel. It used to be written into the output, and `VACUUM INTO` had
+    // already copied the working copy's own row on top of that — so a `.world` handed to someone
+    // carried `C:\Users\<the author>\Documents\…` inside it, to everyone they ever shared
+    // it with. The log has an entire gate about never letting the account name reach a file that
+    // gets pasted into a message; this is the same leak in the file the app EXISTS to share, and it
+    // had gone unlooked-at because every pass so far asked what a world could do to US.
+    //
+    // Nothing reads it. main tracks the Ctrl+S target in memory as `currentFile`, `unpackWorld`
+    // overwrites the row with the real source path on open, and the renderer's start screen asks
+    // `worldInfo()`. So the row is write-only, and deleting it from the OUTPUT costs nothing —
+    // deleting rather than skipping an insert, because the copy is what carries the old value.
+    out.prepare(`DELETE FROM settings WHERE key = 'worldFile'`).run()
+    packed = true
+  } finally {
+    // `finally`, not a catch: the close has to happen on every path, and a guarantee that reads as
+    // unconditional needs no test to be believed. (Which matters here, because the failure this
+    // defends against — a read that fails partway through the images — cannot be arranged in the
+    // self-check without racing the filesystem.)
+    out.close()
+    if (!packed) rmSync(tmp, { force: true })
   }
-  // The path does NOT travel. It used to be written into the output, and `VACUUM INTO` had
-  // already copied the working copy's own row on top of that — so a `.world` handed to someone
-  // carried `C:\Users\<the author>\Documents\…` inside it, to everyone they ever shared
-  // it with. The log has an entire gate about never letting the account name reach a file that
-  // gets pasted into a message; this is the same leak in the file the app EXISTS to share, and it
-  // had gone unlooked-at because every pass so far asked what a world could do to US.
-  //
-  // Nothing reads it. main tracks the Ctrl+S target in memory as `currentFile`, `unpackWorld`
-  // overwrites the row with the real source path on open, and the renderer's start screen asks
-  // `worldInfo()`. So the row is write-only, and deleting it from the OUTPUT costs nothing —
-  // deleting rather than skipping an insert, because the copy is what carries the old value.
-  out.prepare(`DELETE FROM settings WHERE key = 'worldFile'`).run()
-  out.close()
   renameSync(tmp, targetPath) // write to tmp then rename — a half-written file can never remain
 }
 
