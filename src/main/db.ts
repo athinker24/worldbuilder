@@ -428,17 +428,43 @@ export function unpackWorld(sourcePath: string): void {
   // ends with a live db and the world the user already had — never a half-replaced one.
   const rescue = dbFile + '.rescue'
   db.close()
-  copyFileSync(dbFile, rescue)
+  // Taking the rescue copy is itself a step that can fail — it is a full copy of the world, so a
+  // disk with no room is the obvious way — and the handle is already CLOSED by the line above. Left
+  // unguarded that threw out of here with no database open at all: every later query failed, the
+  // renderer answered with a toast per query, and only a restart fixed it. Same rule as everywhere
+  // else in this file: a failed operation still ends with a live db.
+  try {
+    copyFileSync(dbFile, rescue)
+  } catch (err) {
+    db = openDb(dbFile)
+    db.exec(SCHEMA)
+    throw err
+  }
   const putBack = (err: unknown): never => {
     try {
       db.close()
     } catch {
       /* already closed, or never opened — the copy below is what matters */
     }
-    copyFileSync(rescue, dbFile)
-    db = openDb(dbFile)
-    db.exec(SCHEMA)
-    rmSync(rescue, { force: true })
+    // Each step separately, because putBack runs when something has ALREADY gone wrong and the
+    // most likely reason — no disk space — is the same reason the copy back would fail. Its own
+    // failure must not replace the original error, and must not skip the reopen: the app being
+    // usable afterwards matters more than which world it is showing.
+    let restored = false
+    try {
+      copyFileSync(rescue, dbFile)
+      restored = true
+    } catch {
+      /* world.db is whatever the failed open left; the rescue stays on disk, and the next launch
+         moves it into backups/ under a dated name (see rescueLeftover) */
+    }
+    try {
+      db = openDb(dbFile)
+      db.exec(SCHEMA)
+      if (restored) rmSync(rescue, { force: true })
+    } catch {
+      /* nothing further to try; the throw below is the honest answer, and the rescue is kept */
+    }
     throw err
   }
   try {
@@ -2223,6 +2249,19 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.throws(() => unpackWorld(many), /WORLD_TOO_LARGE/, 'too many embedded images')
     assert.equal(readdirSync(join(dir, 'assets')).length, filesBefore, 'nothing written on refusal')
     assert.ok(api.getEntity(a.id), 'the open world must survive the refusal')
+  }
+  // An OPEN that fails before it has even begun must still leave a working database. unpackWorld
+  // closes the handle and then takes a full copy of the world as its rescue — a step that can fail
+  // on its own (no disk space is the obvious way) with the database already closed. Unguarded that
+  // left every later query throwing until a restart. A directory sitting where the rescue file
+  // wants to be reproduces the failure exactly, and needs no full disk to do it.
+  {
+    const rescuePath = join(dir, 'world.db.rescue')
+    mkdirSync(rescuePath, { recursive: true })
+    assert.throws(() => unpackWorld(dunya), /.*/, 'the rescue copy must fail here')
+    assert.ok(api.getEntity(a.id), 'a failed open must still leave a live database')
+    api.createEntity({ name: 'writable after a failed open' })
+    rmSync(rescuePath, { recursive: true, force: true })
   }
   // A reset that FAILS must still leave a working database. resetWorld closes the handle before
   // deleting the file, and on Windows the delete is what fails: SQLite opens without
