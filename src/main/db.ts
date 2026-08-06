@@ -341,6 +341,18 @@ function stripPng(buf: Buffer): Buffer {
 /** Pack the working copy (db + the images in assets/) into a single .world file. */
 export function packWorld(targetPath: string): void {
   pruneUnusedAssets() // drop unused images before saving → lean .world and working copy
+  // The path does NOT travel — and this has to happen BEFORE the rebuild below, which is the
+  // whole lesson. Deleting the row from the OUTPUT afterwards removed it from the table and left
+  // its BYTES sitting in the page: SQLite frees a cell by dropping it from the page index, not by
+  // erasing it, so `C:\Users\<the author>\…` was still readable in the shared file with a
+  // text editor. Measured on a real one. VACUUM INTO REBUILDS the database into the target, so
+  // anything removed before it is genuinely absent from the output, and anything written after it
+  // can leave residue — which is why the images are inserted (never deleted) and nothing else is.
+  //
+  // Deleting from the working copy costs nothing: nothing reads this row. main keeps the Ctrl+S
+  // target in memory as `currentFile`, `unpackWorld` writes the real source path back on open,
+  // and the start screen asks `worldInfo()`.
+  db.exec(`DELETE FROM settings WHERE key = 'worldFile'`)
   const tmp = targetPath + '.tmp'
   rmSync(tmp, { force: true })
   db.exec(`VACUUM INTO '${tmp.replaceAll("'", "''")}'`) // clean, atomic snapshot
@@ -367,18 +379,6 @@ export function packWorld(targetPath: string): void {
       // stripImageMetadata: what travels must not carry the author. See there.
       if (statSync(p).isFile()) ins.run(name, stripImageMetadata(readFileSync(p)))
     }
-    // The path does NOT travel. It used to be written into the output, and `VACUUM INTO` had
-    // already copied the working copy's own row on top of that — so a `.world` handed to someone
-    // carried `C:\Users\<the author>\Documents\…` inside it, to everyone they ever shared
-    // it with. The log has an entire gate about never letting the account name reach a file that
-    // gets pasted into a message; this is the same leak in the file the app EXISTS to share, and it
-    // had gone unlooked-at because every pass so far asked what a world could do to US.
-    //
-    // Nothing reads it. main tracks the Ctrl+S target in memory as `currentFile`, `unpackWorld`
-    // overwrites the row with the real source path on open, and the renderer's start screen asks
-    // `worldInfo()`. So the row is write-only, and deleting it from the OUTPUT costs nothing —
-    // deleting rather than skipping an insert, because the copy is what carries the old value.
-    out.prepare(`DELETE FROM settings WHERE key = 'worldFile'`).run()
     packed = true
   } finally {
     // `finally`, not a catch: the close has to happen on every path, and a guarantee that reads as
@@ -1938,6 +1938,10 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   // packWorld now prunes unused images → test.png must be referenced (or it would be deleted)
   api.updateEntity(a.id, { fields: JSON.stringify({ banner: 'assets/test.png' }) })
   const dunya = join(dir, 'test.world')
+  // saveWorld and unpackWorld both leave this row in the working copy before every pack, so the
+  // pack under test has to start from the same state or it proves nothing — the first version of
+  // the assertion below passed against the broken code precisely because this line was missing.
+  api.setSetting('worldFile', join(dir, 'AUTHORS-PRIVATE-PATH', 'test.world'))
   packWorld(dunya)
   assert.ok(existsSync(dunya))
   api.updateEntity(a.id, { name: 'Changed After Packing' })
@@ -1946,16 +1950,16 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.equal((api.getEntity(a.id) as { name: string }).name, 'Test State') // the state at pack time
   assert.deepEqual([...readFileSync(join(dir, 'assets', 'test.png'))], [1, 2, 3]) // the image came back out
   assert.equal(api.getSetting('worldFile'), dunya) // set by the OPEN, from the real path
-  // …and absent from the FILE. Not a detail: the value packWorld used to write was an absolute
-  // path with the author's account name in it, inside the one artifact this app exists to hand
-  // to other people. Read from the packed file directly, because that is what travels.
-  {
-    const packed = new DatabaseSync(dunya, { readOnly: true })
-    const row = packed.prepare(`SELECT value FROM settings WHERE key = 'worldFile'`).get() as
-      { value: string } | undefined
-    packed.close()
-    assert.equal(row, undefined, 'a shared .world must not carry the path it was saved to')
-  }
+  // …and absent from the FILE — the BYTES, not the row. The first version of this asserted that
+  // `SELECT value FROM settings WHERE key = 'worldFile'` came back empty, and it passed while the
+  // path was still plainly readable in the packed file with a text editor: SQLite frees a cell by
+  // dropping it from the page index, not by erasing it, so deleting the row from the OUTPUT left
+  // its bytes behind. Found on one of the real worlds on this machine, not here. The row is a
+  // proxy; the file is the thing that gets handed to somebody, so the file is what is checked.
+  assert.ok(
+    !readFileSync(dunya).includes('AUTHORS-PRIVATE-PATH'),
+    'a shared .world must not carry the path it was saved to, in any form'
+  )
   assert.ok(
     !db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assets'`).get()
   )
