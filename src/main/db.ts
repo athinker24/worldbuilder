@@ -2682,7 +2682,10 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       // the navigation guards, and binding them per-window is how that happens by omission.
       "app.on('web-contents-created'",
       "wc.on('will-navigate'",
-      'wc.setWindowOpenHandler'
+      'wc.setWindowOpenHandler',
+      // The only outbound request the app would make: Electron's spellchecker fetches its
+      // dictionaries from Google's CDN, below the page and outside the CSP.
+      'spellcheck: false'
     ])
       assert.ok(main.includes(line), `main must keep ${line}`)
     // shell.openExternal takes whatever it is given — file:, and on Windows anything the shell

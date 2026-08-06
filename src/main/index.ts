@@ -787,7 +787,17 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: true
+      sandbox: true,
+      // OFF, and it is the only outbound request this app would ever make. Electron's spellchecker
+      // is hunspell with dictionaries FETCHED from Google's CDN the first time a language is used
+      // — a network call the CSP does not govern (it happens below the page), that nobody asked
+      // for, in an app whose whole pitch is that it is local. An alpha tester watching their
+      // firewall would be right to ask.
+      //
+      // It also has nothing to offer here. This world runs on two invented languages and a few
+      // hundred invented names; a spellchecker would underline nearly every proper noun in the
+      // app. If it is ever wanted, it belongs behind a preference that says what it downloads.
+      spellcheck: false
     }
   })
   mainWindow = win
