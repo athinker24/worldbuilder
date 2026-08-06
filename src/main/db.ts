@@ -1967,6 +1967,28 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     0,
     'unpackWorld must VACUUM: a dropped assets table leaves the file at its old size'
   )
+  // DELETED CONTENT MUST NOT TRAVEL. A SQLite delete frees the page, it does not erase the bytes —
+  // so a plain file copy of world.db would hand whoever you shared it with every entry you ever
+  // wrote and removed, readable with a text editor. packWorld uses VACUUM INTO, which REBUILDS the
+  // database into the target rather than copying it, and free pages are not rebuilt. That is a
+  // strong claim to leave resting on a comment, so it is measured: write something distinctive,
+  // delete it, pack, and search the packed FILE for it.
+  {
+    const secret = 'DELETED-SECRET-' + 'zqxwv'
+    const gone = api.createEntity({ name: 'To be deleted' }) as { id: number }
+    api.updateEntity(gone.id, { content: secret + ' something private I removed' })
+    api.deleteEntity(gone.id)
+    const shared = join(dir, 'no-ghosts.world')
+    packWorld(shared)
+    assert.ok(
+      !readFileSync(shared).includes(secret),
+      'deleted content must not survive inside a shared .world'
+    )
+    // …and the same file still has what was NOT deleted, or the check above would pass on an
+    // empty file.
+    assert.ok(readFileSync(shared).includes('Test State'), 'while the world itself is still there')
+    rmSync(shared, { force: true })
+  }
   // What LEAVES must not carry the author. A photo's EXIF holds GPS to a few metres, the camera's
   // serial and the exact second the shutter opened; XMP holds a name and an editing history. Both
   // rode inside every .world handed to anybody, because importAsset and packWorld copy the file
