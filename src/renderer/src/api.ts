@@ -90,6 +90,28 @@ export interface HierConfig {
 export const assetUrl = (relPath: string): string =>
   'world://data/' + relPath.split('/').map(encodeURIComponent).join('/')
 
+/**
+ * Fire-and-forget, meaning BOTH ways a call can fail.
+ *
+ * The three logging methods carried that promise in a comment and `.catch(() => {})` in the code,
+ * which covers a REJECTED promise and nothing else. `inv` reaches into `window.api.invoke`, and
+ * when the bridge is missing that throws SYNCHRONOUSLY, straight past the catch — and the bridge is
+ * missing exactly when the preload threw, which it does on purpose if context isolation is ever
+ * lost (preload/index.ts). Seen live: loading the renderer without a preload, every error the app
+ * reported produced a second error from the REPORTER, and the global handler that caught that one
+ * called the reporter again. Bounded only by the five-second dedup in main.tsx.
+ *
+ * Reporting a fault must never be able to become one. There is nowhere to report that there is
+ * nowhere to report.
+ */
+const quiet = (run: () => Promise<unknown>): void => {
+  try {
+    void run().catch(() => {})
+  } catch {
+    /* no bridge */
+  }
+}
+
 export const api = {
   listEntities: (search = '') => inv<EntityRow[]>('listEntities', search),
   getEntity: (id: number) => inv<Entity | null>('getEntity', id),
@@ -114,16 +136,16 @@ export const api = {
   ) => inv<void>('restoreEntities', rows, links, features),
   entityFeatureIds: (entityId: number) => inv<number[]>('entityFeatureIds', entityId),
   // Error reporting. Deliberately fire-and-forget: a failure to report must never turn into a
-  // second failure on top of the first.
+  // second failure on top of the first. Through `quiet`, because `.catch()` alone was not that —
+  // see below.
   logError: (where: string, message: string, stack: string, ctx: Record<string, unknown>) =>
-    inv<void>('logRendererError', where, message, stack, ctx).catch(() => {}),
+    quiet(() => inv<void>('logRendererError', where, message, stack, ctx)),
   // Session events, batched by log.ts. Fire-and-forget for the same reason as logError: failing to
   // write a log line must never become a second failure on top of whatever it was describing.
   logEvents: (
     batch: { level: string; scope: string; data?: Record<string, unknown>; at: number }[]
-  ) => inv<void>('logEvents', batch).catch(() => {}),
-  logSessionInfo: (info: Record<string, unknown>) =>
-    inv<void>('logSessionInfo', info).catch(() => {}),
+  ) => quiet(() => inv<void>('logEvents', batch)),
+  logSessionInfo: (info: Record<string, unknown>) => quiet(() => inv<void>('logSessionInfo', info)),
   openLogFolder: () => inv<void>('openLogFolder'),
   entityPlacements: () =>
     inv<{ entity_id: number; map_id: number; board: string | null }[]>('entityPlacements'),
