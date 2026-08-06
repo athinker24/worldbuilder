@@ -51,7 +51,13 @@ export const id = (): string => sessionId
 // raw path in an already-doubled string would find nothing anyway, but the order says which
 // case is the surprising one.
 const home = homedir()
-const homeForms = home ? [JSON.stringify(home).slice(1, -1), home, home.replaceAll('\\', '/')] : []
+// The length guard is not paranoia about the value, it is about what replaceAll would DO with a
+// short one: a homedir of `/` on a container or a bare root account would turn every separator
+// in the file into a tilde. Nothing real is under four characters.
+const homeForms =
+  home && home.length >= 4
+    ? [JSON.stringify(home).slice(1, -1), home, home.replaceAll('\\', '/')]
+    : []
 const scrub = (t: string): string => homeForms.reduce((acc, form) => acc.replaceAll(form, '~'), t)
 const write = (text: string, now = false, at?: number): void => {
   if (at === undefined) sink.write(scrub(text), now)
