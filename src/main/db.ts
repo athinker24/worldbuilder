@@ -261,7 +261,8 @@ export function backupIfNeeded(): void {
 // --- The .world file format (like Wonderdraft's own file): EVERYTHING in one file ---
 // Format = a SQLite copy with the same schema + an extra `assets` table (images embedded as BLOBs).
 // The working copy (world.db + assets/) is untouched by this — Save packs, Open unpacks.
-// settings.worldFile carries the file's own path (the Ctrl+S target; updated with the real path on open).
+// settings.worldFile is the Ctrl+S target in the WORKING COPY only — packWorld strips it, so a
+// shared file never carries the path it was saved to. See there.
 
 /** Pack the working copy (db + the images in assets/) into a single .world file. */
 export function packWorld(targetPath: string): void {
@@ -282,11 +283,18 @@ export function packWorld(targetPath: string): void {
     const p = join(assetsDir, name)
     if (statSync(p).isFile()) ins.run(name, readFileSync(p))
   }
-  out
-    .prepare(
-      `INSERT INTO settings (key, value) VALUES ('worldFile', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-    )
-    .run(targetPath)
+  // The path does NOT travel. It used to be written into the output, and `VACUUM INTO` had
+  // already copied the working copy's own row on top of that — so a `.world` handed to someone
+  // carried `C:\Users\<the author>\Documents\…` inside it, to everyone they ever shared
+  // it with. The log has an entire gate about never letting the account name reach a file that
+  // gets pasted into a message; this is the same leak in the file the app EXISTS to share, and it
+  // had gone unlooked-at because every pass so far asked what a world could do to US.
+  //
+  // Nothing reads it. main tracks the Ctrl+S target in memory as `currentFile`, `unpackWorld`
+  // overwrites the row with the real source path on open, and the renderer's start screen asks
+  // `worldInfo()`. So the row is write-only, and deleting it from the OUTPUT costs nothing —
+  // deleting rather than skipping an insert, because the copy is what carries the old value.
+  out.prepare(`DELETE FROM settings WHERE key = 'worldFile'`).run()
   out.close()
   renameSync(tmp, targetPath) // write to tmp then rename — a half-written file can never remain
 }
@@ -1802,7 +1810,17 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   unpackWorld(dunya)
   assert.equal((api.getEntity(a.id) as { name: string }).name, 'Test State') // the state at pack time
   assert.deepEqual([...readFileSync(join(dir, 'assets', 'test.png'))], [1, 2, 3]) // the image came back out
-  assert.equal(api.getSetting('worldFile'), dunya)
+  assert.equal(api.getSetting('worldFile'), dunya) // set by the OPEN, from the real path
+  // …and absent from the FILE. Not a detail: the value packWorld used to write was an absolute
+  // path with the author's account name in it, inside the one artifact this app exists to hand
+  // to other people. Read from the packed file directly, because that is what travels.
+  {
+    const packed = new DatabaseSync(dunya, { readOnly: true })
+    const row = packed.prepare(`SELECT value FROM settings WHERE key = 'worldFile'`).get() as
+      { value: string } | undefined
+    packed.close()
+    assert.equal(row, undefined, 'a shared .world must not carry the path it was saved to')
+  }
   assert.ok(
     !db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assets'`).get()
   )
