@@ -839,9 +839,26 @@ export function hasContent(): boolean {
  *  The caller must snapshot with packWorld first — no backup is taken here. */
 export function resetWorld(): void {
   db.close()
-  rmSync(dbFile, { force: true })
-  db = openDb(dbFile)
-  db.exec(SCHEMA)
+  // The handle is CLOSED for the length of this, which is why the failure has to be caught. On
+  // Windows the delete is the step that fails — SQLite opens without share-delete, so anything
+  // else holding world.db (an antivirus mid-scan, OneDrive, an indexer) makes rmSync throw EBUSY —
+  // and unguarded that left the app with a closed database and no way back: every later query
+  // threw, the renderer answered with a toast per query, and only a restart fixed it. The same
+  // rule unpackWorld's rescue path already follows: a failed operation must still end with a live
+  // db. The caller still sees the throw and reports it.
+  try {
+    rmSync(dbFile, { force: true })
+    db = openDb(dbFile)
+    db.exec(SCHEMA)
+  } catch (err) {
+    try {
+      db = openDb(dbFile)
+      db.exec(SCHEMA)
+    } catch {
+      /* the file cannot be opened at all; the throw below is the only honest answer left */
+    }
+    throw err
+  }
   for (const name of readdirSync(assetsDir)) {
     const p = join(assetsDir, name)
     if (statSync(p).isFile()) rmSync(p)
@@ -2189,6 +2206,34 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.throws(() => unpackWorld(many), /WORLD_TOO_LARGE/, 'too many embedded images')
     assert.equal(readdirSync(join(dir, 'assets')).length, filesBefore, 'nothing written on refusal')
     assert.ok(api.getEntity(a.id), 'the open world must survive the refusal')
+  }
+  // A reset that FAILS must still leave a working database. resetWorld closes the handle before
+  // deleting the file, and on Windows the delete is what fails: SQLite opens without
+  // share-delete, so anything else holding world.db — an antivirus mid-scan, OneDrive, the search
+  // indexer — makes rmSync throw. Unguarded that left the app with a closed db and no way back:
+  // every later query threw, and only a restart fixed it. A second connection reproduces the lock
+  // exactly, which is the only reason this can be asserted at all.
+  {
+    const holder = new DatabaseSync(join(dir, 'world.db'))
+    holder.prepare(`SELECT 1`).get() // make sure the handle is really open
+    let threw = false
+    try {
+      resetWorld()
+    } catch {
+      threw = true
+    }
+    holder.close()
+    if (threw) {
+      // The point of the whole block: the world is still there and still answers.
+      assert.ok(api.getEntity(a.id), 'a failed reset must leave a live database')
+      api.createEntity({ name: 'still writable' })
+    }
+    // If the platform allowed the delete there was nothing to guard; say so rather than pretend
+    // the case was covered.
+    else
+      console.log(
+        '  (note: this platform allowed the delete — the locked-reset case was not exercised)'
+      )
   }
   // Blank launch: content is detected; after reset both db and assets are empty
   assert.ok(hasContent())
