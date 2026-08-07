@@ -51,6 +51,11 @@ jobs:
           git diff --exit-code --ignore-cr-at-eol -- THIRD-PARTY-NOTICES.txt \
             || { echo "::error::THIRD-PARTY-NOTICES.txt is stale — run: node gen-notices.mjs"; exit 1; }
 
+      # --publish never is inside the script (package.json), not here, so a local build on a tagged
+      # commit behaves the same way. Without it electron-builder sees the git tag, decides on its
+      # own to publish, and fails asking for GH_TOKEN — which this job deliberately does not put in
+      # the environment. The upload is the step below, where the token is scoped to the one command
+      # that needs it. Building and publishing are separate on purpose; the tag is not consent.
       - run: npm run build:win
 
       # Upload via GitHub's OWN 'gh' tool (preinstalled on the runner). Avoiding a third-party
