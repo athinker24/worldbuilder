@@ -1,0 +1,115 @@
+WORLDBUILDER - PRIVACY POLICY
+================================================================================
+
+Last updated: 7 August 2026
+
+
+THE SHORT VERSION
+--------------------------------------------------------------------------------
+
+Worldbuilder collects nothing, sends nothing and makes no network requests. It
+has no accounts, no telemetry, no analytics, no crash reporting and no update
+check. It works with the internet switched off, and behaves identically either
+way.
+
+There is no server to hold your data, because there is no server.
+
+
+WHERE YOUR DATA LIVES
+--------------------------------------------------------------------------------
+
+Everything stays on your own computer, in folders you can open yourself:
+
+  Documents\Worldbuilder\
+      world.db      the world you currently have open
+      assets\       images you have imported
+      backups\      dated copies, kept 30 days / 60 files
+      logs\         session logs, kept 30 days / 200 files
+      notes\        only if you use Export Notes
+
+  AppData\Roaming\worldbuilding\
+      prefs.json    language, theme, panel widths
+      recent.json   the list on the start screen
+
+  Wherever you saved them
+      .world files  your worlds, wherever you chose to put them
+
+You may read, copy or delete any of it at any time. Uninstalling the application
+deliberately leaves it alone - your work is not the installer's to remove.
+
+
+WHAT THE LOG FILE CONTAINS
+--------------------------------------------------------------------------------
+
+The application writes a session log to help diagnose faults, and it is designed
+on the assumption that you might one day paste it into a message to somebody.
+
+  It records:    what the app did and how long it took - a map opened, a drawing
+                 created, an error and where it happened. Names of files, never
+                 their paths.
+
+  It never records: the contents of your world, the text you write, or where you
+                 point the mouse.
+
+  Your user name: replaced with "~" everywhere it could appear, including inside
+                 error messages, which is where operating systems tend to put the
+                 full path to a file.
+
+Nothing sends the log anywhere. It is a file on your disk, and it goes to another
+person only if you send it yourself.
+
+
+WHEN YOU SHARE A .world FILE
+--------------------------------------------------------------------------------
+
+A .world file is a document, and sharing one is like sharing any document: it
+contains what you put in it. Two things that would otherwise travel with it
+without your knowing are removed when the file is written:
+
+  - the path the file was saved to, which would otherwise carry your user name
+    and your folder layout to everyone who opened it
+
+  - metadata inside embedded images - EXIF, XMP and IPTC. A photograph taken on a
+    phone can carry GPS coordinates accurate to a few metres, the camera's serial
+    number and the moment the shutter opened; an edited image can carry the
+    editor's name. All of it is stripped. Colour profiles are kept, because they
+    describe how the picture looks.
+
+  Your own copies in the assets folder are left exactly as they were. The
+  stripping happens on the way out, to the shared file, not to your originals.
+
+Deleted content does not travel either: the shared file is rebuilt rather than
+copied, so entries you wrote and removed are genuinely absent from it.
+
+Note that files in the "backups" folder are faithful copies made for recovery,
+and none of the above applies to them. They are meant to stay on your machine.
+The file to hand to somebody is the .world you saved.
+
+
+SPELL CHECKING
+--------------------------------------------------------------------------------
+
+The spell checker is switched off. This is worth stating because it is the one
+part of the underlying framework that would have made a network request:
+dictionaries are downloaded from a third-party server the first time a language
+is used. It is disabled, so that request never happens.
+
+
+CHILDREN
+--------------------------------------------------------------------------------
+
+The application collects no personal data from anyone, of any age.
+
+
+CHANGES
+--------------------------------------------------------------------------------
+
+If a future version ever does anything described above differently - and any form
+of network access would count - this document will say so, and the change will be
+in the release notes rather than only here.
+
+
+CONTACT
+--------------------------------------------------------------------------------
+
+  henryoferzincan

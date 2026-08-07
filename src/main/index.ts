@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, protocol, net, Menu, session } from 'electron'
-import { basename, join } from 'path'
+import { basename, dirname, join } from 'path'
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { writeFile } from 'fs/promises'
 import { execFile } from 'child_process'
@@ -320,6 +320,30 @@ function noteUiState(scope: string, data: Record<string, unknown> | undefined): 
   if (v != null) ui[key] = String(v).slice(0, 40)
 }
 
+/**
+ * Help ▸ the three legal documents. They are `extraFiles`, so they sit BESIDE the exe rather than
+ * inside the asar — which is the point: the portable ZIP has no installer to show a terms page, so
+ * for that half of the users this menu and the file in the folder are the only copy there is.
+ *
+ * The name is a literal from the caller and never crosses IPC; nothing here takes a path from the
+ * renderer. In development the files are at the repo root, which is what getAppPath returns before
+ * packaging — packaged it would be the asar itself, so the two cases differ.
+ */
+function openLegal(name: 'TERMS.txt' | 'PRIVACY.txt' | 'THIRD-PARTY-NOTICES.txt'): void {
+  const file = is.dev ? join(app.getAppPath(), name) : join(dirname(app.getPath('exe')), name)
+  if (!existsSync(file)) {
+    // Worth saying rather than doing nothing: an empty click on a legal document reads as the app
+    // hiding it, and the realistic cause is a portable copy where only the exe was moved.
+    dialog.showMessageBoxSync({
+      type: 'warning',
+      message: `${name} was not found next to the application.`,
+      detail: 'It is part of the download. If this is a portable copy, move the whole folder.'
+    })
+    return
+  }
+  void shell.openPath(file)
+}
+
 /** Help > Open Error Log, and the same call behind Preferences ▸ Open Log Folder.
  *  Reveals THIS session's file selected rather than opening a folder of 200 sorted by name — the
  *  file a user is being asked for is the run they are in, and picking it out of the list is the
@@ -439,6 +463,9 @@ const MENU_TR: Record<string, string> = {
   'Project Preferences': 'Proje Tercihleri',
   'Keyboard Shortcuts': 'Klavye Kısayolları',
   'Open Error Log': 'Hata Kaydını Aç',
+  'Terms of Use': 'Kullanım Şartları',
+  'Privacy Policy': 'Gizlilik Politikası',
+  'Third-Party Notices': 'Üçüncü Taraf Bildirimleri',
   'No log could be written.': 'Kayıt dosyası yazılamadı.',
   'Check that the Worldbuilder folder in Documents can be written to.':
     'Belgeler içindeki Worldbuilder klasörünün yazılabilir olduğunu kontrol edin.'
@@ -547,6 +574,10 @@ function buildMenu(): void {
             accelerator: 'F1',
             click: () => send('help.shortcuts')
           },
+          { type: 'separator' },
+          { label: ml('Terms of Use'), click: () => openLegal('TERMS.txt') },
+          { label: ml('Privacy Policy'), click: () => openLegal('PRIVACY.txt') },
+          { label: ml('Third-Party Notices'), click: () => openLegal('THIRD-PARTY-NOTICES.txt') },
           { type: 'separator' },
           { label: ml('Open Error Log'), click: openLogs }
         ]
