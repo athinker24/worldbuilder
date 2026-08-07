@@ -34,13 +34,13 @@ export default function History({ onApplied }: Props): React.JSX.Element {
 
   const jump = async (target: number): Promise<void> => {
     if (target === applied) return
-    // goTo stops at the first step that fails and returns how far it actually got — the stacks stay
-    // intact, but the world is NOT where the click asked for. Without saying so the panel just
-    // seemed to ignore the click, or to move part of the way for no stated reason.
-    const reached = await goTo(target)
+    // goTo stops at the first step that FAILS; the stacks stay intact, but the world is not where
+    // the click asked for. Without saying so the panel just seemed to ignore the click. It reports
+    // the reason rather than the distance, because falling short is also what happens when the
+    // stacks change underneath an ordinary jump — that is not a fault and must not raise a dialog.
+    const { failed } = await goTo(target)
     onApplied()
-    if (reached !== target)
-      void alertDialog(t('Stopped here — the next step could not be applied.'))
+    if (failed) void alertDialog(t('Stopped here — the next step could not be applied.'))
   }
 
   return (

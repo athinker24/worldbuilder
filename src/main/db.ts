@@ -284,18 +284,34 @@ export function backupIfNeeded(): void {
  */
 const JPEG_DROP = new Set([0xe1, 0xed, 0xfe]) // APP1 (EXIF, XMP), APP13 (IPTC), COM
 const PNG_DROP = new Set(['tEXt', 'zTXt', 'iTXt', 'eXIf', 'tIME'])
+const WEBP_DROP = new Set(['EXIF', 'XMP ']) // the two RIFF chunks that describe the photographer
 export function stripImageMetadata(buf: Buffer): Buffer {
   try {
     if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8) return stripJpeg(buf)
     if (buf.length > 8 && buf.readUInt32BE(0) === 0x89504e47) return stripPng(buf)
+    // RIFF....WEBP — the four bytes between are the file size, so the check is split.
+    if (
+      buf.length > 12 &&
+      buf.toString('latin1', 0, 4) === 'RIFF' &&
+      buf.toString('latin1', 8, 12) === 'WEBP'
+    )
+      return stripWebp(buf)
+    if (buf.length > 6 && buf.toString('latin1', 0, 3) === 'GIF') return stripGif(buf)
   } catch {
     /* not the shape we thought: hand back exactly what came in */
   }
   return buf
 }
 
+/** Rebuild only if something was actually removed. Every stripper ends here: the common case is a
+ *  picture with no metadata at all, and Buffer.concat on it would allocate a second copy of the
+ *  whole image on every save — this app's base maps run to a hundred megabytes. */
+const rebuilt = (buf: Buffer, out: Buffer[], dropped: boolean): Buffer =>
+  dropped ? Buffer.concat(out) : buf
+
 function stripJpeg(buf: Buffer): Buffer {
   const out: Buffer[] = [buf.subarray(0, 2)] // SOI
+  let dropped = false
   let i = 2
   while (i + 1 < buf.length) {
     // Encoders may pad between segments with 0xff; those are fill bytes, not markers.
@@ -308,24 +324,30 @@ function stripJpeg(buf: Buffer): Buffer {
       i += 2
       continue
     }
-    if (marker === 0xda) {
-      out.push(buf.subarray(i)) // SOS: entropy-coded data to the end, copied verbatim
-      return Buffer.concat(out)
+    // SOS starts the entropy-coded data and EOI ends the image; in both cases the rest of the file
+    // is not a segment chain any more. EOI used to fall through to the length read below, so on a
+    // file with an EOI before its first SOS the walk desynchronised into image data — and if the
+    // bytes it landed on happened to look like an APP1 marker it deleted a span of the PICTURE and
+    // still returned it as successfully stripped. Copy the remainder and stop.
+    if (marker === 0xda || marker === 0xd9) {
+      out.push(buf.subarray(i))
+      return rebuilt(buf, out, dropped)
     }
     if (i + 3 >= buf.length) return buf
     const len = buf.readUInt16BE(i + 2)
     if (len < 2 || i + 2 + len > buf.length) return buf
-    if (!JPEG_DROP.has(marker)) out.push(buf.subarray(i, i + 2 + len))
+    if (JPEG_DROP.has(marker)) dropped = true
+    else out.push(buf.subarray(i, i + 2 + len))
     i += 2 + len
   }
-  // Ran out of bytes without ever reaching SOS. That is not a JPEG this function followed to the
-  // end, so it hands back the original rather than a version it has quietly shortened — see the
-  // note on stripPng's tail for why that distinction is the whole rule.
+  // Ran out of bytes without ever reaching SOS or EOI. That is not a JPEG this function followed
+  // to the end, so it hands back the original rather than a version it has quietly shortened.
   return buf
 }
 
 function stripPng(buf: Buffer): Buffer {
   const out: Buffer[] = [buf.subarray(0, 8)] // signature
+  let dropped = false
   let i = 8
   while (i + 12 <= buf.length) {
     const len = buf.readUInt32BE(i)
@@ -334,7 +356,8 @@ function stripPng(buf: Buffer): Buffer {
     if (end > buf.length) return buf
     const type = buf.toString('latin1', i + 4, i + 8)
     // Whole chunks are dropped, so no CRC has to be recomputed — every chunk kept is byte-identical.
-    if (!PNG_DROP.has(type)) out.push(buf.subarray(i, end))
+    if (PNG_DROP.has(type)) dropped = true
+    else out.push(buf.subarray(i, end))
     i = end
     if (type === 'IEND') {
       // Some tools append data after IEND. It is not a chunk and we do not know what it is, so it
@@ -342,10 +365,105 @@ function stripPng(buf: Buffer): Buffer {
       // file, which would let the metadata ride along in exactly the files that are already
       // unusual. Removing metadata is the job; shortening an image is not.
       if (i < buf.length) out.push(buf.subarray(i))
-      return Buffer.concat(out)
+      return rebuilt(buf, out, dropped)
     }
   }
   return buf
+}
+
+/**
+ * WebP, which is where this matters most now: a phone photo saved or converted to .webp keeps its
+ * EXIF, and `importAsset` has always accepted the extension — so the format most likely to carry
+ * GPS was the one format with no stripper.
+ *
+ * RIFF is a flat chunk list: 'RIFF', a 32-bit size, 'WEBP', then fourcc + size + payload, each
+ * payload padded to an even length. Dropping a chunk means the container size in the header no
+ * longer matches, so it is rewritten — the ONE place any stripper here edits a byte rather than
+ * omitting one, and it is four bytes of arithmetic on a length we just recomputed.
+ */
+function stripWebp(buf: Buffer): Buffer {
+  const body: Buffer[] = [buf.subarray(8, 12)] // 'WEBP'
+  let dropped = false
+  let i = 12
+  while (i + 8 <= buf.length) {
+    const size = buf.readUInt32LE(i + 4)
+    if (size > 0x7fffffff) return buf
+    const end = i + 8 + size + (size % 2) // odd payloads carry a pad byte
+    if (end > buf.length) return buf
+    if (WEBP_DROP.has(buf.toString('latin1', i, i + 4))) dropped = true
+    else body.push(buf.subarray(i, end))
+    i = end
+  }
+  // The walk has to land exactly on the end, or this is not a chunk list we followed.
+  if (i !== buf.length || !dropped) return buf
+  const rest = Buffer.concat(body)
+  const head = Buffer.alloc(8)
+  head.write('RIFF', 0, 'latin1')
+  head.writeUInt32LE(rest.length, 4)
+  return Buffer.concat([head, rest])
+}
+
+/**
+ * GIF. The comment extension is the metadata block — generator strings, and occasionally whatever
+ * someone typed. Application extensions are KEPT except XMP: NETSCAPE2.0 is what makes an animated
+ * GIF loop, and dropping it would change how the picture plays.
+ *
+ * Walking a GIF means walking its whole block structure, because a comment can sit between frames:
+ * header, logical screen descriptor, an optional global colour table, then blocks until the
+ * trailer. Anything unexpected returns the original.
+ */
+function stripGif(buf: Buffer): Buffer {
+  const sub = (at: number): number => {
+    // Sub-block chain: one length byte, that many bytes, repeated, ended by a zero length.
+    let j = at
+    while (j < buf.length) {
+      const n = buf[j]
+      if (n === 0) return j + 1
+      j += 1 + n
+    }
+    return -1
+  }
+  if (buf.length < 13) return buf
+  const flags = buf[10]
+  // Global colour table: 3 bytes per entry, 2^(N+1) entries, present only when the top flag is set.
+  let i = 13 + (flags & 0x80 ? 3 * (1 << ((flags & 0x07) + 1)) : 0)
+  const out: Buffer[] = []
+  let keptFrom = 0
+  let dropped = false
+  while (i < buf.length) {
+    const b = buf[i]
+    if (b === 0x3b) {
+      // trailer
+      out.push(buf.subarray(keptFrom))
+      return rebuilt(buf, out, dropped)
+    }
+    let next: number
+    let drop = false
+    if (b === 0x21) {
+      // extension: label, then either a fixed block or a sub-block chain
+      const label = buf[i + 1]
+      if (label === 0xfe) drop = true // comment
+      if (label === 0xff) {
+        // application extension — only XMP is metadata; NETSCAPE2.0 drives looping and stays
+        if (buf.toString('latin1', i + 3, i + 11) === 'XMP Data') drop = true
+        next = sub(i + 3 + buf[i + 2])
+      } else next = label === 0xfe ? sub(i + 2) : sub(i + 3 + buf[i + 2])
+    } else if (b === 0x2c) {
+      // image descriptor: 10 bytes, an optional local colour table, LZW min code size, sub-blocks
+      if (i + 10 > buf.length) return buf
+      const lf = buf[i + 9]
+      const after = i + 10 + (lf & 0x80 ? 3 * (1 << ((lf & 0x07) + 1)) : 0)
+      next = sub(after + 1)
+    } else return buf // not a block boundary we understand
+    if (next < 0 || next > buf.length) return buf
+    if (drop) {
+      out.push(buf.subarray(keptFrom, i))
+      keptFrom = next
+      dropped = true
+    }
+    i = next
+  }
+  return buf // ran out before the trailer
 }
 
 /** Pack the working copy (db + the images in assets/) into a single .world file. */
@@ -552,8 +670,16 @@ export function unpackWorld(sourcePath: string): void {
   try {
     copyFileSync(dbFile, rescue)
   } catch (err) {
-    db = openDb(dbFile)
-    db.exec(SCHEMA)
+    // The reopen is guarded for the same reason putBack's is: this runs when something has already
+    // gone wrong, and the likeliest cause — a full disk, a lock on world.db — is the same reason
+    // the open would fail. Unguarded, its error REPLACED the copy's and still left the handle
+    // closed, which is the state this whole block exists to prevent.
+    try {
+      db = openDb(dbFile)
+      db.exec(SCHEMA)
+    } catch {
+      /* nothing further to try; the original failure below is the honest answer */
+    }
     throw err
   }
   const putBack = (err: unknown): never => {
@@ -687,12 +813,14 @@ export function unpackWorld(sourcePath: string): void {
  */
 // The control range is the point: a newline or a NUL inside a filename is exactly what this
 // refuses, so it has to be spelled out rather than left to a shorthand.
+/** Longest name assets/ accepts. importAsset clips to it when it disambiguates — see there. */
+const MAX_ASSET_NAME = 200
 // eslint-disable-next-line no-control-regex
 const ASSET_NAME = /^[^\\/:*?"<>|\u0000-\u001f]+\.(png|jpe?g|webp|gif)$/i
 const WIN_DEVICE = /^(con|prn|aux|nul|com\d|lpt\d)\./i
 export function assetName(raw: unknown): string | null {
   return typeof raw === 'string' &&
-    raw.length <= 200 &&
+    raw.length <= MAX_ASSET_NAME &&
     ASSET_NAME.test(raw) &&
     !WIN_DEVICE.test(raw)
     ? raw
@@ -731,12 +859,19 @@ function probeWritable(): void {
   } catch {
     throw new Error(NOT_A_WORLD)
   } finally {
-    // Never let the undo of the probe mask the probe: if the rollback itself fails there is
-    // nothing to undo, because the only way here is an insert that did not happen.
+    // Two statements, not one exec. As one, a failure after the ROLLBACK skipped the RELEASE and
+    // left the connection inside a savepoint — and unpackWorld reaches a VACUUM a few lines later,
+    // which SQLite refuses inside a transaction. A perfectly good world would have been reported
+    // as unopenable. Each is attempted on its own and neither may mask the probe's own verdict.
     try {
-      db.exec(`ROLLBACK TO probe; RELEASE probe`)
+      db.exec(`ROLLBACK TO probe`)
     } catch {
       /* nothing was written */
+    }
+    try {
+      db.exec(`RELEASE probe`)
+    } catch {
+      /* the savepoint is already gone */
     }
   }
 }
@@ -1095,7 +1230,13 @@ export function importAsset(srcPath: string): string {
   let name = assetName(basename(srcPath))
   if (!name) throw new Error('Images only')
   if (existsSync(join(assetsDir, name))) {
-    name = `${basename(name, extname(name))}-${Date.now()}${extname(name)}`
+    // The stem is CLIPPED so the result still passes assetName. Appending thirteen digits to a
+    // name already at the limit produced a name this app writes and then refuses on open: the
+    // image was extracted nowhere and the banner came up blank, counted only as assets.refused.
+    const ext = extname(name)
+    const tag = `-${Date.now()}`
+    const stem = basename(name, ext).slice(0, MAX_ASSET_NAME - tag.length - ext.length)
+    name = `${stem}${tag}${ext}`
   }
   copyFileSync(srcPath, join(assetsDir, name))
   return `assets/${name}`
@@ -2054,9 +2195,34 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       Buffer.from('IEND', 'latin1'),
       Buffer.from([0, 0, 0, 0])
     ])
+    const baseWebp = (() => {
+      const body = Buffer.concat([
+        Buffer.from('WEBP', 'latin1'),
+        Buffer.from('VP8L', 'latin1'),
+        Buffer.from([6, 0, 0, 0]),
+        Buffer.from('PIXELS', 'latin1'),
+        Buffer.from('EXIF', 'latin1'),
+        Buffer.from([6, 0, 0, 0]),
+        Buffer.from('SECRET', 'latin1')
+      ])
+      const head = Buffer.alloc(8)
+      head.write('RIFF', 0, 'latin1')
+      head.writeUInt32LE(body.length, 4)
+      return Buffer.concat([head, body])
+    })()
+    const baseGif = Buffer.concat([
+      Buffer.from('GIF89a', 'latin1'),
+      Buffer.from([1, 0, 1, 0, 0, 0, 0]),
+      Buffer.from([0x21, 0xfe, 6]),
+      Buffer.from('SECRET', 'latin1'),
+      Buffer.from([0]),
+      Buffer.from([0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0]),
+      Buffer.from([2, 2, 0x44, 0x41, 0]),
+      Buffer.from([0x3b])
+    ])
     let changed = 0
     for (let i = 0; i < 4000; i++) {
-      const src = i % 2 ? baseJpeg : basePng
+      const src = [baseJpeg, basePng, baseWebp, baseGif][i % 4]
       const b = Buffer.from(src)
       // One to three byte-level mutations: truncation, a flipped byte, a bogus length.
       const muts = 1 + rnd(3)
@@ -2067,8 +2233,8 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       if (out.length !== buf.length) {
         changed++
         assert.deepEqual(
-          [...out.subarray(0, 2)],
-          [...buf.subarray(0, 2)],
+          [...out.subarray(0, 3)],
+          [...buf.subarray(0, 3)],
           'a rewritten image keeps its signature'
         )
         assert.ok(
@@ -2079,6 +2245,85 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
         assert.deepEqual([...out], [...buf], 'unchanged length must mean unchanged bytes')
       }
     }
+    // An EOI before the first SOS. The image ends there, so everything after it is not a segment
+    // chain — but the standalone-marker range stopped at 0xD8, so 0xD9 fell through to the length
+    // read and the walk desynchronised into whatever followed. This fixture is built so that the
+    // bytes after EOI LOOK like an APP1 segment: read that way they are deleted, and a span of the
+    // file disappears while the function reports success. Nothing here is metadata, so the honest
+    // answer is the original buffer, byte for byte.
+    {
+      const afterEoi = Buffer.concat([
+        Buffer.from([0xff, 0xd8]), // SOI
+        Buffer.from([0xff, 0xe0, 0x00, 0x09]),
+        Buffer.from('JFIF-OK', 'latin1'), // APP0
+        Buffer.from([0xff, 0xd9]), // EOI — the image ends here
+        Buffer.from([0x00, 0x04, 0x61, 0x62]), // read as EOI's "length" by the broken walk
+        Buffer.from([0xff, 0xe1, 0x00, 0x08]),
+        Buffer.from('PIXELS', 'latin1'), // and this then looks like APP1, and was deleted
+        Buffer.from([0xff, 0xda, 0x00, 0x02]),
+        Buffer.from([0x11, 0x22, 0xff, 0xd9])
+      ])
+      assert.ok(
+        stripImageMetadata(afterEoi) === afterEoi,
+        'nothing after an EOI may be parsed as a segment, let alone dropped'
+      )
+    }
+
+    // WEBP AND GIF. importAsset has always accepted both, and neither had a stripper — so the
+    // format most likely to carry GPS today (a phone photo saved as .webp) was the one the
+    // guarantee did not cover. RIFF is a flat chunk list; the container size has to be rewritten
+    // when a chunk goes, which is the only byte any stripper here edits rather than omits.
+    {
+      const riff = (chunks: Buffer[]): Buffer => {
+        const body = Buffer.concat([Buffer.from('WEBP', 'latin1'), ...chunks])
+        const head = Buffer.alloc(8)
+        head.write('RIFF', 0, 'latin1')
+        head.writeUInt32LE(body.length, 4)
+        return Buffer.concat([head, body])
+      }
+      const chunk = (fourcc: string, data: string): Buffer => {
+        const size = Buffer.alloc(8)
+        size.write(fourcc, 0, 'latin1')
+        size.writeUInt32LE(data.length, 4)
+        const pad = data.length % 2 ? Buffer.from([0]) : Buffer.alloc(0)
+        return Buffer.concat([size, Buffer.from(data, 'latin1'), pad])
+      }
+      const webp = riff([chunk('VP8L', 'PIXELS'), chunk('EXIF', 'GPS 41.0 CAM#77')])
+      const outW = stripImageMetadata(webp)
+      assert.ok(!outW.includes('GPS 41.0'), 'a WEBP must not carry EXIF into a shared world')
+      assert.ok(outW.includes('PIXELS'), 'and its picture data must survive')
+      assert.equal(outW.toString('latin1', 0, 4), 'RIFF', 'still a RIFF file')
+      assert.equal(
+        outW.readUInt32LE(4),
+        outW.length - 8,
+        'and the container size must match what is left, or no decoder will read it'
+      )
+      // Nothing to remove: the bytes must come back untouched, not merely equal.
+      const plain = riff([chunk('VP8L', 'PIXELS')])
+      assert.ok(stripImageMetadata(plain) === plain, 'a clean WEBP is not even copied')
+
+      // GIF: the comment extension goes; the NETSCAPE application extension is what makes an
+      // animation loop and must NOT, which is why only XMP is dropped from that block type.
+      const gif = Buffer.concat([
+        Buffer.from('GIF89a', 'latin1'),
+        Buffer.from([1, 0, 1, 0, 0, 0, 0]), // screen descriptor, no global colour table
+        Buffer.from([0x21, 0xfe, 13]),
+        Buffer.from('by the author', 'latin1'),
+        Buffer.from([0]), // comment extension — must GO
+        Buffer.from([0x21, 0xff, 11]),
+        Buffer.from('NETSCAPE2.0', 'latin1'),
+        Buffer.from([3, 1, 0, 0, 0]), // application extension — must SURVIVE
+        Buffer.from([0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0]),
+        Buffer.from([2, 2, 0x44, 0x41, 0]), // lzw min code size + one sub-block + terminator
+        Buffer.from([0x3b]) // trailer
+      ])
+      const outG = stripImageMetadata(gif)
+      assert.ok(!outG.includes('by the author'), 'a GIF comment must not travel')
+      assert.ok(outG.includes('NETSCAPE2.0'), 'but the looping block must stay')
+      assert.equal(outG[outG.length - 1], 0x3b, 'and the file must still end at its trailer')
+      assert.ok(stripImageMetadata(outG) === outG, 'a second pass finds nothing left to remove')
+    }
+
     // A JPEG that runs out before SOS has no image data in it at all, so it is not a file this
     // function followed to the end and it comes back whole. Directed for the same reason as the
     // case below: the mutator rarely lands on one, and a guard no test reaches is not a guard.
@@ -2246,6 +2491,22 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     assert.equal(assetName('Türkiye.JPG'), 'Türkiye.JPG') // non-ASCII, any case
     assert.equal(assetName(7), null) // SQLite is dynamically typed; the FILE's schema is not ours
     assert.equal(assetName('x'.repeat(300) + '.png'), null)
+    // The dedup path used to append thirteen digits to a name already at the limit, minting a name
+    // this app writes and then REFUSES on its own next open — the image simply missing, counted as
+    // assets.refused. Two imports of the same very long name is the whole reproduction.
+    {
+      const longName = 'y'.repeat(195) + '.png'
+      const src = join(dir, longName)
+      writeFileSync(src, Buffer.from([1]))
+      const first = importAsset(src)
+      const second = importAsset(src)
+      assert.notEqual(first, second, 'the second import must be disambiguated')
+      for (const rel of [first, second])
+        assert.ok(assetName(basename(rel)), `importAsset minted a name it would refuse: ${rel}`)
+      rmSync(join(dir, 'assets', basename(first)), { force: true })
+      rmSync(join(dir, 'assets', basename(second)), { force: true })
+      rmSync(src, { force: true })
+    }
   }
   // A world from a LATER version of this app. dropForeignTables deletes anything that is not one
   // of our five tables, with its rows and without a word — right for a smuggled table, catastrophic

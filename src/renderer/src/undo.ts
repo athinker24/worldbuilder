@@ -123,8 +123,21 @@ export async function redo(): Promise<StepResult> {
  * back, so the stacks are intact and the app is at a real point in its own history, just not the
  * one that was asked for.
  */
-export async function goTo(target: number): Promise<number> {
-  while (undoStack.length > target) if ((await undo()) !== 'ok') break
-  while (undoStack.length < target && redoStack.length) if ((await redo()) !== 'ok') break
-  return undoStack.length
+export async function goTo(target: number): Promise<{ at: number; failed: boolean }> {
+  // WHY it stopped, not just where. The caller used to infer failure from `at !== target`, and
+  // that is wrong in one reachable case: every step here is awaited, and a `pushUndo` landing
+  // during one of those awaits clears redoStack outright — so the redo loop ends short with
+  // nothing having failed, and the panel showed "the next step could not be applied" over an
+  // ordinary interleaving. Only a step that actually threw sets the flag.
+  while (undoStack.length > target) {
+    const r = await undo()
+    if (r === 'failed') return { at: undoStack.length, failed: true }
+    if (r === 'empty') break
+  }
+  while (undoStack.length < target && redoStack.length) {
+    const r = await redo()
+    if (r === 'failed') return { at: undoStack.length, failed: true }
+    if (r === 'empty') break
+  }
+  return { at: undoStack.length, failed: false }
 }
