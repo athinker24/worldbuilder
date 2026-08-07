@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import '@geoman-io/leaflet-geoman-free'
 import 'leaflet/dist/leaflet.css'
@@ -940,6 +940,60 @@ export default function MapView({
   useEffect(() => {
     activeRef.current = active
   }, [active])
+
+  /**
+   * Sizing the view to the base image: the initial zoom, the pan limits and the zoom floor. Split
+   * out of the base-image effect because it can no longer be done once.
+   *
+   * App mounts this component as soon as a world has a map, BEFORE anything is pressed, so that
+   * pressing Maps is a `display` flip rather than a load. Inside `display:none` the host is 0x0 —
+   * and every number here comes from the viewport, so `getBoundsZoom` would be asked to fit the
+   * world into no pixels at all. It answers -Infinity, which then becomes the map's minZoom and
+   * locks it. So a call at no size does NOTHING and leaves `fittedRef` false; the effect below
+   * runs it again the first time the map is actually shown.
+   */
+  const fitBoundsRef = useRef<L.LatLngBoundsLiteral | null>(null)
+  const fittedRef = useRef(false)
+  const applyFit = useCallback((): void => {
+    const map = mapRef.current
+    const bounds = fitBoundsRef.current
+    const host = divRef.current
+    if (!map || !bounds || !host?.clientWidth || !host.clientHeight) return
+    // The host may have gone from 0x0 to full size a moment ago; Leaflet still believes the old
+    // one until told, and everything below reads its size.
+    map.invalidateSize({ animate: false, pan: false })
+    map.fitBounds(bounds, { animate: false }) // same reason as focusFeature — no animated zoom here
+    const fit = map.getBoundsZoom(bounds)
+    setFitZoom(fit)
+    mapFitZoom = fit // read by the LOD fade (module scope)
+    // Prevent escaping into ugly grey space beyond the image: pan bounded, no zooming out past fit
+    map.options.maxBoundsViscosity = 1
+    // A full image's width of slack on every side. The old half was measurably tight: a drag
+    // asking for 828 px only got 153 before hitting the wall. Grey space beyond the edge is the
+    // price, and roaming room is worth more than never seeing any.
+    map.setMaxBounds(L.latLngBounds(bounds).pad(1))
+    // Exactly `fit`, not `fit - 1`, and the floor matters more than it looks.
+    //
+    // Leaflet's _rebound does two different things. While the view is SMALLER than the bounds it
+    // clamps, which is the intent here. Once the view is LARGER it re-centres instead — so every
+    // pan step gets yanked back to the middle, and dragging turns into a fight: the map shakes,
+    // slips out from under the cursor and refuses to go where it is pushed.
+    //
+    // Allowing one level below fit put the map exactly on that boundary. At fit - 1 the view
+    // covers twice the image, and pad(0.5) makes the bounds twice the image too, so the two
+    // sides of the comparison were equal and which branch ran came down to rounding noise.
+    // Holding the floor at fit keeps the view inside the bounds at every reachable zoom, so only
+    // the clamping branch can run. It also makes this line agree with the comment above it.
+    map.setMinZoom(fit)
+    fittedRef.current = true
+  }, [])
+
+  // The first time the map is actually on screen, size it — see applyFit. Reading the host's size
+  // in an effect forces the pending layout, so by here the reveal has really happened and the
+  // measurement is the true one rather than the 0x0 it was mounted at.
+  useEffect(() => {
+    if (active && !fittedRef.current) applyFit()
+  }, [active, applyFit])
   const [allEntities, setAllEntities] = useState<EntityRow[]>([])
   // Person entities cannot be bound to the map (see EntityPage — they exist for family/dynasty fields)
   const personFolders = personFolderIds(folders) // people cannot be bound to the map
@@ -4336,7 +4390,7 @@ export default function MapView({
     baseImg.current = null
     shapeLayer.current?.setBase(null, 0, 0, 0, 0)
     if (worldMap?.image_path && worldMap.width && worldMap.height) {
-      const bounds: L.LatLngBoundsExpression = [
+      const bounds: L.LatLngBoundsLiteral = [
         [0, 0],
         [worldMap.height, worldMap.width]
       ]
@@ -4415,30 +4469,12 @@ export default function MapView({
         .catch((err) =>
           logEvent('WARN', 'map.baseImage', { error: String(err?.message ?? err).slice(0, 80) })
         )
-      map.fitBounds(bounds, { animate: false }) // same reason as focusFeature — no animated zoom here
-      const fit = map.getBoundsZoom(bounds)
-      setFitZoom(fit)
-      mapFitZoom = fit // read by the LOD fade (module scope)
-      // Prevent escaping into ugly grey space beyond the image: pan bounded, no zooming out past fit
-      map.options.maxBoundsViscosity = 1
-      // A full image's width of slack on every side. The old half was measurably tight: a drag
-      // asking for 828 px only got 153 before hitting the wall. Grey space beyond the edge is the
-      // price, and roaming room is worth more than never seeing any.
-      map.setMaxBounds(L.latLngBounds(bounds).pad(1))
-      // Exactly `fit`, not `fit - 1`, and the floor matters more than it looks.
-      //
-      // Leaflet's _rebound does two different things. While the view is SMALLER than the bounds it
-      // clamps, which is the intent here. Once the view is LARGER it re-centres instead — so every
-      // pan step gets yanked back to the middle, and dragging turns into a fight: the map shakes,
-      // slips out from under the cursor and refuses to go where it is pushed.
-      //
-      // Allowing one level below fit put the map exactly on that boundary. At fit - 1 the view
-      // covers twice the image, and pad(0.5) makes the bounds twice the image too, so the two
-      // sides of the comparison were equal and which branch ran came down to rounding noise.
-      // Holding the floor at fit keeps the view inside the bounds at every reachable zoom, so only
-      // the clamping branch can run. It also makes this line agree with the comment above it.
-      map.setMinZoom(map.getBoundsZoom(bounds))
-    } else drawShapes() // no image: clear whatever the last map left on the canvas
+      fitBoundsRef.current = bounds
+      applyFit()
+    } else {
+      fitBoundsRef.current = null
+      drawShapes() // no image: clear whatever the last map left on the canvas
+    }
     return () => {
       dropped = true
     }

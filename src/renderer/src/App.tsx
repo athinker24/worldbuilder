@@ -108,6 +108,43 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     if (view.kind === 'map') setMapId(view.id)
   }, [view])
+  /**
+   * Mount the map as soon as a world has one, WITHOUT going to it.
+   *
+   * Returning to the map from an article has always been instant, and the reason is the line
+   * above plus the `display:none` wrapper further down: once `mapId` is set the map view stays
+   * mounted behind whatever else is on screen. The first visit was the only slow one, because
+   * that is when Leaflet, the drawings, the WebGL layers and a 4096x4096 png all arrive at once —
+   * about 600 ms of it, watched. Setting `mapId` here makes the first visit the same kind of
+   * event as every later one: the work happens while the world is opening and pressing Maps is a
+   * `display` flip.
+   *
+   * `setMapId`, deliberately NOT `openMap`. This must not navigate, write `lastMapId`, or put a
+   * `map.changed` line in the log — nobody has opened anything yet. The target is chosen by the
+   * same rule `openMaps` uses, so the map that mounts is the map that Maps would show.
+   *
+   * ONCE, and the guard on `mapId` is what makes it once: `maps` is a fresh array after every
+   * refresh(), and without it this would re-read the setting on every edit.
+   */
+  useEffect(() => {
+    if (mapId !== null || !maps.length) return
+    let off = false
+    void (async () => {
+      const last = Number(await api.getSetting('lastMapId'))
+      const target = maps.find((m) => m.id === last) ?? maps[0]
+      if (off) return
+      // Its own event, and not optional. `map.changed` is what tells a reader which map an error
+      // happened on, and openMap only writes that line when the id actually CHANGES — which, now
+      // that the id is set here, is no longer true of the first visit. Without this the first map
+      // of a session would never be named in the log at all. It is not `map.changed` because
+      // nobody navigated: this is the map arriving, not the user going to it.
+      logEvent('INFO', 'map.mounted', { map: target.name || target.id })
+      setMapId(target.id)
+    })()
+    return () => {
+      off = true
+    }
+  }, [maps, mapId])
   useEffect(() => {
     mapIdRef.current = mapId
   }, [mapId])
