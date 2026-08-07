@@ -1674,6 +1674,13 @@ export default function MapView({
   const setTool = (t: Tool): void => {
     if (toolRef.current !== t) activateTool(t)
   }
+  // A stable door into activateTool for the handlers registered once per map — pm:create is bound
+  // inside the init effect and would otherwise hold the first render's closure forever. Same
+  // useLatest pattern as exportLatest and wheelAdjustRef.
+  const activateLatest = useRef(activateTool)
+  useEffect(() => {
+    activateLatest.current = activateTool
+  })
   // Escape leaves the active tool. Needed because Edit/Move are reached from the context menu and
   // no longer have a toolbar button to press again — without this they would be one-way doors.
   // The conquest/measure/nav Escape handlers run first (they own their own sessions), so this one
@@ -2694,6 +2701,16 @@ export default function MapView({
         layer.on('pm:dragend', (e) => saveGeometry(e, false))
         layer.on('contextmenu', (e: L.LeafletMouseEvent) => {
           e.originalEvent.preventDefault()
+          // While a shape is being drawn, right-click belongs to the drawing — it takes back the
+          // last vertex, and the map-level handler does that. Leaflet fires this on the layer AND
+          // on the map, so without standing down here a right-click over an existing polygon both
+          // undid a vertex and opened this menu on top of it. That is the other half of the same
+          // bug: whether the undo appeared to work depended on what happened to be under the
+          // cursor, and a world is mostly covered in polygons.
+          if (toolRef.current === 'polygon' || toolRef.current === 'line') {
+            const d = drawInst(toolRef.current === 'line' ? 'Line' : 'Polygon')
+            if (d?.enabled?.()) return
+          }
           const items: MenuItem[] = []
           if (f.entity_id)
             items.push({
@@ -4120,22 +4137,31 @@ export default function MapView({
     // Right-click on empty space → tool menu (over a feature the layer handler takes over)
     map.on('contextmenu', (e: L.LeafletMouseEvent) => {
       const el = e.originalEvent.target as HTMLElement
-      // Over a feature the layer handler takes over; over a VERTEX HANDLE geoman removes the
-      // vertex (its removeVertexOn default) — the menu must not steal either.
-      if (el.classList?.contains('leaflet-interactive') || el.closest?.('.leaflet-marker-icon'))
-        return
-      e.originalEvent.preventDefault()
       // WHILE DRAWING it takes back the last vertex instead of opening the menu — the thing you
       // want the instant you misplace a point, and the button every drawing tool has.
       //
       // It keeps the old escape too, without a special case: geoman's own _removeLastVertex
       // disables the session once the last vertex is gone, so right-clicking your way back out of
       // a shape leaves the tool exactly as right-click always did.
+      //
+      // THIS RUNS FIRST, and the order is the whole fix rather than a tidy-up. It used to sit
+      // below the "over a feature, let the layer handle it" guard, and while you are drawing that
+      // guard is true most of the time: geoman's rubber-band line follows the cursor and the edges
+      // already placed lie exactly where you are clicking, and every one of them carries
+      // `leaflet-interactive`. So the undo landed or did not depending on whether that pixel
+      // happened to have a line under it — which is why it took two or three tries and read as
+      // random. Nothing else wants a right-click during a draw session, so nothing else gets one.
       const drawing = drawInst(toolRef.current === 'line' ? 'Line' : 'Polygon')
       if ((toolRef.current === 'polygon' || toolRef.current === 'line') && drawing?.enabled?.()) {
+        e.originalEvent.preventDefault()
         drawing._removeLastVertex?.()
         return
       }
+      // Over a feature the layer handler takes over; over a VERTEX HANDLE geoman removes the
+      // vertex (its removeVertexOn default) — the menu must not steal either.
+      if (el.classList?.contains('leaflet-interactive') || el.closest?.('.leaflet-marker-icon'))
+        return
+      e.originalEvent.preventDefault()
       setMenu({
         x: e.originalEvent.clientX,
         y: e.originalEvent.clientY,
@@ -4281,9 +4307,19 @@ export default function MapView({
           onChanged()
         }
       })
-      // The tool stays armed (continueDrawing, at map setup): you rarely place exactly one pin.
-      // Escape ends it. Nothing is logged here any more because nothing changes here — the tool
-      // change now happens where every other one does, in activateTool.
+      // A SHAPE ends its tool; a PIN or a LABEL does not. Both halves are deliberate. You rarely
+      // place exactly one pin or one name, so those stay armed on `continueDrawing` (set at map
+      // setup) and Escape ends them. A polygon or a path is a piece of work with a definite end —
+      // you close the ring and you are done with it — and leaving the tool armed there meant the
+      // next click anywhere started a shape nobody asked for.
+      //
+      // Through activateTool, not by clearing toolRef here: geoman has ALREADY re-armed itself by
+      // this point (that is what continueDrawing does), so the draw session has to be disabled as
+      // well as the state cleared, and the toolbar button, the `tool.changed` line and
+      // syncEditMode all hang off that one door. Handed the current tool it toggles off, which is
+      // exactly what Escape does — this just makes finishing the shape do it too.
+      if (toolRef.current === 'polygon' || toolRef.current === 'line')
+        activateLatest.current(toolRef.current)
       await reloadFeatures('draw')
       if (ent) onChanged() // the new article must appear in the sidebar tree at once
     })
