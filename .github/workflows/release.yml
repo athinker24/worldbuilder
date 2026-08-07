@@ -39,6 +39,18 @@ jobs:
       - run: node check-api.mjs # the renderer's settings loaders against hostile values
       - run: node check-corrupt.mjs # 600 damaged .world files; the app must survive every one
 
+      # The notices file is generated, and a stale one is the failure this whole gate exists to
+      # prevent from shipping: adding a dependency and forgetting to regenerate breaks nothing,
+      # builds fine, and puts out a release whose licence notices are simply incomplete. Regenerate
+      # and require no change. --ignore-cr-at-eol because the runner checks out with CRLF here (see
+      # .gitattributes) while the blob is stored LF.
+      - name: Third-party notices are up to date
+        shell: bash
+        run: |
+          node gen-notices.mjs
+          git diff --exit-code --ignore-cr-at-eol -- THIRD-PARTY-NOTICES.txt \
+            || { echo "::error::THIRD-PARTY-NOTICES.txt is stale — run: node gen-notices.mjs"; exit 1; }
+
       - run: npm run build:win
 
       # Upload via GitHub's OWN 'gh' tool (preinstalled on the runner). Avoiding a third-party
