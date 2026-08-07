@@ -988,10 +988,20 @@ export default function MapView({
     fittedRef.current = true
   }, [])
 
-  // The first time the map is actually on screen, size it — see applyFit. Reading the host's size
-  // in an effect forces the pending layout, so by here the reveal has really happened and the
-  // measurement is the true one rather than the 0x0 it was mounted at.
-  useEffect(() => {
+  /**
+   * The first time the map is actually on screen, size it — see applyFit.
+   *
+   * A LAYOUT effect, for the same reason the inspector's invalidateSize above is one, and getting
+   * this wrong is visible rather than theoretical. The map is built at `setView([500, 500], 0)`:
+   * in CRS.Simple y grows upward, so on a 4096 image that is the bottom-left corner at 1:1 pixels,
+   * about two and a half zoom levels closer than the fit. A passive effect runs AFTER the paint,
+   * so the browser put that corner on screen for a frame and the fit arrived afterwards — the map
+   * appeared zoomed into its bottom-left and then jumped out to the real view. A layout effect
+   * runs after the DOM change and before the paint, so the first frame anyone sees is the fitted
+   * one. Reading the host's size here also forces the pending layout, which is what makes the
+   * measurement the true one rather than the 0x0 it was mounted at.
+   */
+  useLayoutEffect(() => {
     if (active && !fittedRef.current) applyFit()
   }, [active, applyFit])
   const [allEntities, setAllEntities] = useState<EntityRow[]>([])
