@@ -1917,7 +1917,9 @@ export default function MapView({
     // here covers all of them. `count` because a multi-select delete is ONE undoable action.
     if (rows.length)
       logEvent('INFO', 'feature.deleted', { count: rows.length, ids: fids.join(',') })
-    for (const fid of fids) await api.deleteFeature(fid)
+    // One transaction: a multi-select delete is ONE action, and a loop that stopped part-way left
+    // some drawings gone with no undo record at all (the record is pushed below, after this).
+    await api.deleteFeatures(fids)
     if (rows.length) {
       // A deleted-then-recreated row gets a NEW id → identity lives in a mutable ref (the undo pattern)
       const refs = rows.map((r) => ({ id: r.id, row: r }))
@@ -1936,9 +1938,9 @@ export default function MapView({
         label: fids.length > 1 ? 'Delete {n} drawings' : 'Delete drawing',
         params: { n: fids.length },
         undo: recreate,
-        redo: async () => {
-          for (const r of refs) await api.deleteFeature(r.id)
-        }
+        // The ids come back different from `recreate`, so this cannot be a single batch call
+        // built ahead of time — it reads the refs at the moment it runs.
+        redo: async () => api.deleteFeatures(refs.map((r) => r.id))
       })
     }
     clearSel()
@@ -2594,30 +2596,28 @@ export default function MapView({
         const commitGeometry = async (
           updates: { id: number; old: string; next: string }[]
         ): Promise<void> => {
+          // ONE transaction, and the undo entry only after it has committed.
+          //
+          // Both halves were wrong together. The writes were a loop of independent calls, so a
+          // weld that failed on the third of five left the first two applied — the two sides of
+          // the same border disagreeing, which is the one thing the weld exists to prevent. And
+          // `pushUndo` ran BEFORE them, so a failure left a step in the history that had not
+          // happened: Ctrl+Z then rewrote rows nothing had touched.
+          const write = (which: 'old' | 'next') => async (): Promise<void> => {
+            await api.updateFeatures(
+              updates.map((u) => ({ id: u.id, patch: { geometry: u[which] } }))
+            )
+            // Only after the batch has landed — see featGeom. All of them or none of them now,
+            // so this can move as a set instead of per write.
+            for (const u of updates) featGeom.current.set(u.id, u[which])
+          }
+          await write('next')()
           pushUndo({
             label: updates.length > 1 ? 'Move {n} borders' : 'Move a border',
             params: { n: updates.length },
-            // Each step moves the record of what is in the database with it. A reload re-seeds it
-            // anyway, but undo/redo do not wait for one — and the next edit snapshots from here.
-            undo: async () => {
-              for (const u of updates) {
-                await api.updateFeature(u.id, { geometry: u.old })
-                featGeom.current.set(u.id, u.old)
-              }
-            },
-            redo: async () => {
-              for (const u of updates) {
-                await api.updateFeature(u.id, { geometry: u.next })
-                featGeom.current.set(u.id, u.next)
-              }
-            }
+            undo: write('old'),
+            redo: write('next')
           })
-          for (const u of updates) {
-            await api.updateFeature(u.id, { geometry: u.next })
-            // Per write, not after the loop: a throw partway leaves the ones that DID land
-            // recorded as landed, which is what the next snapshot has to believe.
-            featGeom.current.set(u.id, u.next)
-          }
           if (updates.length > 1) {
             await reloadFeatures('weld') // redraw the welded neighbours (recreates every label too)
           } else {
@@ -3758,17 +3758,18 @@ export default function MapView({
       f['parent'] = JSON.stringify(recs)
       updates.push({ id: eid, old: e.fields, next: JSON.stringify(f) })
     }
+    // One transaction, and the undo entry after it — the same two corrections commitGeometry
+    // needed. A conquest that stopped part-way used to leave some realms taken and some not,
+    // under a single history step claiming all of them.
+    const write = (which: 'old' | 'next') => (): Promise<void> =>
+      api.updateEntities(updates.map((u) => ({ id: u.id, patch: { fields: u[which] } })))
+    await write('next')()
     pushUndo({
       label: 'Conquest in {year}',
       params: { year },
-      undo: async () => {
-        for (const u of updates) await api.updateEntity(u.id, { fields: u.old })
-      },
-      redo: async () => {
-        for (const u of updates) await api.updateEntity(u.id, { fields: u.next })
-      }
+      undo: write('old'),
+      redo: write('next')
     })
-    for (const u of updates) await api.updateEntity(u.id, { fields: u.next })
     onChanged()
     await reloadFeatures('conquest')
   }

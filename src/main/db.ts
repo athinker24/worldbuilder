@@ -966,6 +966,93 @@ function probeWritable(): void {
   }
 }
 
+/**
+ * WHAT THE APP ACCEPTS IN A JSON COLUMN — one definition, used by both gates.
+ *
+ * These four were closures inside `repairImportedJson`, which was right while the entry gate was
+ * the only place that asked the question. It is not any more: `updateFeature` writes the same
+ * columns from the renderer and used to check nothing at all, so the app could put a row into its
+ * own working copy that its own open would then reset (see assertFeaturePatch). Two copies of a
+ * rule this exact would drift on the first change to either, so there is one copy and both callers
+ * use it.
+ *
+ * They are pure — a string in, a boolean out, no database, no state — which is what makes lifting
+ * them out mechanical rather than a redesign.
+ *
+ * Nesting depth, counted by scanning rather than parsing. Whether a deeply nested value parses at
+ * all depends on how much STACK is left, so the gate and the consumer can disagree:
+ * `{"a":{"a":…}}` 10000 deep parses fine here in main and then throws RangeError in the renderer,
+ * underneath React's own call stack. Measured with a 208 KB file — it opened cleanly and left the
+ * map and the entity page unable to render. Parsing to find out is therefore the wrong test; the
+ * depth has to be bounded before anyone parses.
+ *
+ * 64 is far above anything this app writes: notes are an array of flat objects (3), the parent
+ * history is an array of pairs (2), a GeoJSON polygon is 4. Quote-aware, because a brace inside a
+ * string is not nesting; backslash skips the next character so an escaped quote does not end the
+ * string early.
+ */
+const MAX_JSON_DEPTH = 64
+function depthOk(v: string): boolean {
+  let depth = 0
+  let inStr = false
+  for (let i = 0; i < v.length; i++) {
+    const c = v[i]
+    if (inStr) {
+      if (c === '\\') i++
+      else if (c === '"') inStr = false
+    } else if (c === '"') inStr = true
+    else if (c === '{' || c === '[') {
+      if (++depth > MAX_JSON_DEPTH) return false
+    } else if (c === '}' || c === ']') depth--
+  }
+  return true
+}
+function isPlainObject(v: string): boolean {
+  if (!depthOk(v)) return false
+  try {
+    const p: unknown = JSON.parse(v)
+    return typeof p === 'object' && p !== null && !Array.isArray(p)
+  } catch {
+    return false
+  }
+}
+function isArray(v: string): boolean {
+  if (!depthOk(v)) return false
+  try {
+    return Array.isArray(JSON.parse(v))
+  } catch {
+    return false
+  }
+}
+/** The geometry types the app draws. A `.world` may name no other. */
+const GEOM_TYPES = new Set([
+  'Point',
+  'LineString',
+  'Polygon',
+  'MultiPoint',
+  'MultiLineString',
+  'MultiPolygon'
+])
+/**
+ * `isPlainObject` is not enough for the geometry column, and it is the only one where that is
+ * true. `{"type":"Polygon","coordinates":"x"}` is a perfectly good object, and it is what Leaflet
+ * is handed: L.geoJSON walks `coordinates` and throws inside the reload, which is the same dead
+ * map the syntax check exists to prevent, one step further in. So the shape is checked too,
+ * shallowly: a known type and an array of coordinates.
+ *
+ * Nothing deeper, and that is a decision rather than an omission. The numbers themselves are
+ * tolerated everywhere downstream (a NaN draws nothing; it does not throw), and a gate that walked
+ * every ring of every polygon on open would cost more than it saves. It also has to stay this
+ * shallow for the WRITE path to be able to share it: undo writes back the string the file came
+ * with, so a rule stricter here than at the open would make Ctrl+Z fail on a world that opened
+ * cleanly.
+ */
+function isGeometry(v: string): boolean {
+  if (!isPlainObject(v)) return false
+  const g = JSON.parse(v) as { type?: unknown; coordinates?: unknown }
+  return typeof g.type === 'string' && GEOM_TYPES.has(g.type) && Array.isArray(g.coordinates)
+}
+
 /** Reset malformed JSON columns in an imported .world to defaults; returns rows repaired.
  *  Deliberately in ONE place: the renderer JSON.parses these columns in 20+ spots and a
  *  single bad row would take down that whole view (the map never opens, the entity page
@@ -973,51 +1060,6 @@ function probeWritable(): void {
  *  the gate where it enters the app. Rows are NEVER deleted — only the bad column is reset. */
 function repairImportedJson(): number {
   let fixed = 0
-  // Nesting depth, counted by scanning rather than parsing.
-  //
-  // Whether a deeply nested value parses at all depends on how much STACK is left, so the gate
-  // and the consumer can disagree: `{"a":{"a":…}}` 10000 deep parses fine here in main and then
-  // throws RangeError in the renderer, underneath React's own call stack. Measured with a 208 KB
-  // file — it opened cleanly and left the map and the entity page unable to render. Parsing to
-  // find out is therefore the wrong test; the depth has to be bounded before anyone parses.
-  //
-  // 64 is far above anything this app writes: notes are an array of flat objects (3), the parent
-  // history is an array of pairs (2), a GeoJSON polygon is 4. Quote-aware, because a brace inside
-  // a string is not nesting; backslash skips the next character so an escaped quote does not end
-  // the string early.
-  const MAX_JSON_DEPTH = 64
-  const depthOk = (v: string): boolean => {
-    let depth = 0
-    let inStr = false
-    for (let i = 0; i < v.length; i++) {
-      const c = v[i]
-      if (inStr) {
-        if (c === '\\') i++
-        else if (c === '"') inStr = false
-      } else if (c === '"') inStr = true
-      else if (c === '{' || c === '[') {
-        if (++depth > MAX_JSON_DEPTH) return false
-      } else if (c === '}' || c === ']') depth--
-    }
-    return true
-  }
-  const isPlainObject = (v: string): boolean => {
-    if (!depthOk(v)) return false
-    try {
-      const p: unknown = JSON.parse(v)
-      return typeof p === 'object' && p !== null && !Array.isArray(p)
-    } catch {
-      return false
-    }
-  }
-  const isArray = (v: string): boolean => {
-    if (!depthOk(v)) return false
-    try {
-      return Array.isArray(JSON.parse(v))
-    } catch {
-      return false
-    }
-  }
   // Counted per column, not just totalled: this is the one place in the app that DISCARDS a user's
   // data without asking, and "3 rows repaired" does not tell them what they lost. `geometry=3` says
   // three drawings are now dots at the origin; `fields=9` says nine articles lost their metadata.
@@ -1063,29 +1105,8 @@ function repairImportedJson(): number {
   // shared world took out the whole map render and the Atlas, which is exactly what this
   // function exists to prevent. Reset to a degenerate Point rather than deleting the row: the
   // rule here is that rows are never dropped, and a stray pin at the origin is visible and
-  // fixable, whereas a deleted drawing is silently gone.
-  //
-  // isPlainObject is not enough for this column, and it is the only one where that is true.
-  // `{"type":"Polygon","coordinates":"x"}` is a perfectly good object, and it is what Leaflet is
-  // handed: L.geoJSON walks `coordinates` and throws inside the reload, which is the same dead
-  // map the syntax check was added to prevent — one step further in. So the shape is checked too,
-  // shallowly: a known type and an array of coordinates. Nothing deeper, because the numbers
-  // themselves are already tolerated everywhere downstream (a NaN draws nothing; it does not
-  // throw), and a gate that walked every ring of every polygon on open would cost more than it
-  // saves.
-  const GEOM_TYPES = new Set([
-    'Point',
-    'LineString',
-    'Polygon',
-    'MultiPoint',
-    'MultiLineString',
-    'MultiPolygon'
-  ])
-  const isGeometry = (v: string): boolean => {
-    if (!isPlainObject(v)) return false
-    const g = JSON.parse(v) as { type?: unknown; coordinates?: unknown }
-    return typeof g.type === 'string' && GEOM_TYPES.has(g.type) && Array.isArray(g.coordinates)
-  }
+  // fixable, whereas a deleted drawing is silently gone. `isGeometry` (module level, shared with
+  // the write path) is what "malformed" means for this column — see there.
   repair(
     'geometry',
     db.prepare(`SELECT id, geometry AS v FROM features`).all() as { id: number; v: string }[],
@@ -1288,6 +1309,70 @@ function pruneUnusedAssets(): number {
   return removed
 }
 
+/**
+ * Run several writes as ONE. Either all of them are in the database or none is.
+ *
+ * Nothing in this file used a transaction before, and the shape that needed one is everywhere: a
+ * user action that touches several rows was a loop of independent statements, so a constraint
+ * error or a full disk part-way through left half of it applied. A weld writes a border and its
+ * neighbour; failing between them leaves the two sides of the same line disagreeing, which is the
+ * exact thing the weld exists to prevent. A conquest re-parents five realms and stops at three.
+ *
+ * BEGIN IMMEDIATE rather than a plain BEGIN: it takes the write lock up front instead of on the
+ * first write, so a busy database fails here — before any of the statements have run — rather than
+ * half way through.
+ *
+ * The rollback is guarded and its own failure is swallowed on purpose. It runs when something has
+ * already gone wrong, and the caller's error is the one worth reporting; measured behaviour is that
+ * the connection is usable afterwards either way. `isTransaction` is the nesting guard — SQLite has
+ * no nested BEGIN, and a second one would throw and roll the OUTER work back.
+ */
+function tx<T>(fn: () => T): T {
+  if (db.isTransaction) return fn() // already inside one; the outermost owns the boundary
+  db.exec(`BEGIN IMMEDIATE`)
+  try {
+    const out = fn()
+    db.exec(`COMMIT`)
+    return out
+  } catch (err) {
+    try {
+      db.exec(`ROLLBACK`)
+    } catch {
+      /* nothing was committed; the caller's error below is the honest one */
+    }
+    throw err
+  }
+}
+
+/**
+ * The gate on the WRITE side, and it asks exactly what the open asks.
+ *
+ * `patchSql` allow-lists the COLUMNS, which is what stops a renderer moving a drawing to another
+ * map. It says nothing about the VALUES, and nothing else did either — so `updateFeature` accepted
+ * `not json at all`, an empty string, a number, `{"type":"Evil","coordinates":"x"}`. The app could
+ * put a row into its own working copy that its own `repairImportedJson` would reset on the next
+ * open, and `packWorld` would hand that row to whoever the world was shared with.
+ *
+ * Deliberately the SAME predicates as the entry gate rather than stricter ones. Undo writes back
+ * the string the file arrived with, so anything narrower here would make Ctrl+Z fail on a world
+ * that opened cleanly — the guarantee is "never write what the open would reject", not "write only
+ * what a fresh drawing would produce".
+ *
+ * `style` gets `isPlainObject` and no more, because that is the whole contract its consumers have:
+ * every one of them does `JSON.parse(f.style || '{}')` and reads fields defensively.
+ */
+function assertFeaturePatch(patch: Record<string, unknown>): void {
+  if ('geometry' in patch) {
+    const g = patch.geometry
+    if (typeof g !== 'string' || !isGeometry(g))
+      throw new Error('BAD_GEOMETRY: not a geometry this app can draw')
+  }
+  if ('style' in patch) {
+    const s = patch.style
+    if (typeof s !== 'string' || !isPlainObject(s)) throw new Error('BAD_STYLE: not a JSON object')
+  }
+}
+
 // Builds a dynamic SET clause from allow-listed columns only.
 function patchSql(
   table: string,
@@ -1448,6 +1533,27 @@ export const api = {
     if (was !== undefined && was !== patch.name)
       logEvent('INFO', 'entity.renamed', { entity: id, from: was, to: patch.name })
   },
+  /** Several entities in ONE transaction. Conquest is the caller: it re-parents every picked
+   *  realm, and stopping half way used to leave some conquered and some not under a single undo
+   *  entry that claimed all of them. `fields` is validated the same way the open validates it. */
+  updateEntities(list: { id: number; patch: Record<string, unknown> }[]): void {
+    for (const u of list)
+      if ('fields' in u.patch) {
+        const f = u.patch.fields
+        if (typeof f !== 'string' || !isPlainObject(f))
+          throw new Error('BAD_FIELDS: not a JSON object')
+      }
+    tx(() => {
+      for (const u of list) {
+        const p = patchSql('entities', ['name', 'content', 'fields'], u.patch)
+        if (p)
+          db.prepare(`${p.sql}, updated_at = datetime('now') WHERE id = ?`).run(
+            ...(p.vals as never[]),
+            u.id
+          )
+      }
+    })
+  },
   deleteEntity(id: number): void {
     // Read before the delete or the name is gone with it — and the name is the whole point.
     const row = db.prepare(`SELECT name FROM entities WHERE id = ?`).get(id) as { name: string }
@@ -1466,18 +1572,22 @@ export const api = {
     links: { from_id: number; to_id: number; relation: string; notes: string }[],
     featureIds: number[]
   ): void {
-    db.prepare(
-      `INSERT INTO entities (id, name, content, fields, created_at) VALUES (?, ?, ?, ?, ?)`
-    ).run(row.id, row.name, row.content, row.fields, row.created_at)
-    for (const l of links)
-      db.prepare(`INSERT INTO links (from_id, to_id, relation, notes) VALUES (?, ?, ?, ?)`).run(
-        l.from_id,
-        l.to_id,
-        l.relation,
-        l.notes
-      )
-    for (const fid of featureIds)
-      db.prepare(`UPDATE features SET entity_id = ? WHERE id = ?`).run(row.id, fid)
+    // One transaction: the row, its links and its map bindings are one undo step, so a failure
+    // between them must not leave an article back with half its connections.
+    tx(() => {
+      db.prepare(
+        `INSERT INTO entities (id, name, content, fields, created_at) VALUES (?, ?, ?, ?, ?)`
+      ).run(row.id, row.name, row.content, row.fields, row.created_at)
+      for (const l of links)
+        db.prepare(`INSERT INTO links (from_id, to_id, relation, notes) VALUES (?, ?, ?, ?)`).run(
+          l.from_id,
+          l.to_id,
+          l.relation,
+          l.notes
+        )
+      for (const fid of featureIds)
+        db.prepare(`UPDATE features SET entity_id = ? WHERE id = ?`).run(row.id, fid)
+    })
     // Without this an undone deletion leaves `entity.deleted` as the last word on the article, and
     // a log that says something was destroyed when it was not is worse than one that says nothing.
     logEvent('INFO', 'entity.restored', { entity: row.id, name: row.name })
@@ -1495,19 +1605,21 @@ export const api = {
     links: { from_id: number; to_id: number; relation: string; notes: string }[],
     features: { entity_id: number; feature_id: number }[]
   ): void {
-    for (const row of rows)
-      db.prepare(
-        `INSERT INTO entities (id, name, content, fields, created_at) VALUES (?, ?, ?, ?, ?)`
-      ).run(row.id, row.name, row.content, row.fields, row.created_at)
-    for (const l of links)
-      db.prepare(`INSERT INTO links (from_id, to_id, relation, notes) VALUES (?, ?, ?, ?)`).run(
-        l.from_id,
-        l.to_id,
-        l.relation,
-        l.notes
-      )
-    for (const f of features)
-      db.prepare(`UPDATE features SET entity_id = ? WHERE id = ?`).run(f.entity_id, f.feature_id)
+    tx(() => {
+      for (const row of rows)
+        db.prepare(
+          `INSERT INTO entities (id, name, content, fields, created_at) VALUES (?, ?, ?, ?, ?)`
+        ).run(row.id, row.name, row.content, row.fields, row.created_at)
+      for (const l of links)
+        db.prepare(`INSERT INTO links (from_id, to_id, relation, notes) VALUES (?, ?, ?, ?)`).run(
+          l.from_id,
+          l.to_id,
+          l.relation,
+          l.notes
+        )
+      for (const f of features)
+        db.prepare(`UPDATE features SET entity_id = ? WHERE id = ?`).run(f.entity_id, f.feature_id)
+    })
     // A count, not one line per article: a multi-delete undo is ONE action by the user.
     logEvent('INFO', 'entity.restored', { count: rows.length })
   },
@@ -1679,15 +1791,17 @@ export const api = {
     }[],
     childIds: number[]
   ): void {
-    db.prepare(
-      `INSERT INTO maps (id, name, parent_map_id, image_path, width, height, layers) VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(map.id, map.name, map.parent_map_id, map.image_path, map.width, map.height, map.layers)
-    for (const f of features)
+    tx(() => {
       db.prepare(
-        `INSERT INTO features (id, map_id, entity_id, geometry, style) VALUES (?, ?, ?, ?, ?)`
-      ).run(f.id, f.map_id, f.entity_id, f.geometry, f.style)
-    for (const cid of childIds)
-      db.prepare(`UPDATE maps SET parent_map_id = ? WHERE id = ?`).run(map.id, cid)
+        `INSERT INTO maps (id, name, parent_map_id, image_path, width, height, layers) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(map.id, map.name, map.parent_map_id, map.image_path, map.width, map.height, map.layers)
+      for (const f of features)
+        db.prepare(
+          `INSERT INTO features (id, map_id, entity_id, geometry, style) VALUES (?, ?, ?, ?, ?)`
+        ).run(f.id, f.map_id, f.entity_id, f.geometry, f.style)
+      for (const cid of childIds)
+        db.prepare(`UPDATE maps SET parent_map_id = ? WHERE id = ?`).run(map.id, cid)
+    })
   },
 
   // --- map features ---
@@ -1697,17 +1811,50 @@ export const api = {
     geometry: string
     style?: string
   }): unknown {
+    assertFeaturePatch({ geometry: f.geometry, ...(f.style !== undefined && { style: f.style }) })
     const r = db
       .prepare(`INSERT INTO features (map_id, entity_id, geometry, style) VALUES (?, ?, ?, ?)`)
       .run(f.map_id, f.entity_id ?? null, f.geometry, f.style ?? '{}')
     return { id: Number(r.lastInsertRowid) }
   },
   updateFeature(id: number, patch: Record<string, unknown>): void {
+    assertFeaturePatch(patch) // the values, where patchSql covers only the columns — see there
     const p = patchSql('features', ['entity_id', 'geometry', 'style'], patch)
     if (p) db.prepare(`${p.sql} WHERE id = ?`).run(...(p.vals as never[]), id)
   },
+  /**
+   * Several features in ONE transaction — a weld, a paste, anything where one user action moves
+   * more than one drawing.
+   *
+   * It replaced a loop of `updateFeature` calls in the renderer, which was not atomic and not
+   * even close: a constraint error on the third of five left the first two applied, and the undo
+   * entry that had already been pushed claimed all five had moved. So Ctrl+Z rewrote rows that
+   * never changed.
+   *
+   * EVERY patch is validated BEFORE the transaction opens. A rejected batch then costs nothing —
+   * no BEGIN, no rollback, no half-second of held write lock — and the caller gets the same error
+   * it would have got from a single write.
+   */
+  updateFeatures(list: { id: number; patch: Record<string, unknown> }[]): void {
+    for (const u of list) assertFeaturePatch(u.patch)
+    tx(() => {
+      for (const u of list) {
+        const p = patchSql('features', ['entity_id', 'geometry', 'style'], u.patch)
+        if (p) db.prepare(`${p.sql} WHERE id = ?`).run(...(p.vals as never[]), u.id)
+      }
+    })
+  },
   deleteFeature(id: number): void {
     db.prepare(`DELETE FROM features WHERE id = ?`).run(id)
+  },
+  /** A multi-select delete is ONE action; it must not be able to half-happen. The undo record is
+   *  pushed by the caller after this returns, so a failure here leaves nothing to undo — which is
+   *  the honest state, and the one the loop it replaced could not produce. */
+  deleteFeatures(ids: number[]): void {
+    tx(() => {
+      const st = db.prepare(`DELETE FROM features WHERE id = ?`)
+      for (const id of ids) st.run(id)
+    })
   },
 
   // --- settings ---
@@ -2021,9 +2168,181 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.deepEqual(api.entityPlacements(), [{ entity_id: a.id, map_id: m.id, board: null }])
   api.updateFeature(feat.id, { style: JSON.stringify({ board: 'b1' }) })
   assert.equal(api.entityPlacements()[0].board, 'b1') // board read out of the style JSON
-  api.updateFeature(feat.id, { style: 'not json' })
+  // A malformed style must not throw here — but it can no longer be PLANTED through the api,
+  // which is the E-01 gate doing its job, so it goes in the way it really arises: written into
+  // the file by somebody else. `entityPlacements`' own try/catch is belt and braces for the same
+  // reason it always was.
+  assert.throws(
+    () => api.updateFeature(feat.id, { style: 'not json' }),
+    /BAD_STYLE/,
+    'updateFeature must refuse a style the open would reset'
+  )
+  db.prepare(`UPDATE features SET style = 'not json' WHERE id = ?`).run(feat.id)
   assert.equal(api.entityPlacements()[0].board, null) // malformed style must not throw
   api.updateFeature(feat.id, { style: '{}' }) // restore: later checks share this fixture
+
+  // --- E-01: the write gate asks what the open asks ------------------------------------------
+  //
+  // `patchSql` allow-lists the COLUMNS and always did; nothing checked the VALUES. So the app
+  // could put a row into its own working copy that its own `repairImportedJson` would reset on the
+  // next open — and `packWorld` would hand that row to whoever the world was shared with.
+  //
+  // The predicates here are the SAME ones the open uses (isGeometry / isPlainObject, module
+  // level). Deliberately not stricter: undo writes back the string the file arrived with, so a
+  // narrower rule here would make Ctrl+Z fail on a world that opened cleanly.
+  {
+    const good = '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}'
+    const rejects: [string, unknown][] = [
+      ['not json at all', 'not json at all'],
+      ['empty string', ''],
+      ['a number, not a string', 12345],
+      ['an object, not a string', { type: 'Point', coordinates: [0, 0] }],
+      ['an unknown type', '{"type":"Evil","coordinates":[]}'],
+      ['coordinates not an array', '{"type":"Polygon","coordinates":"x"}'],
+      ['no coordinates at all', '{"type":"Point"}'],
+      ['an array, not an object', '[{"type":"Point","coordinates":[0,0]}]'],
+      ['nested past MAX_JSON_DEPTH', '{"a":'.repeat(70) + '1' + '}'.repeat(70)]
+    ]
+    for (const [what, g] of rejects) {
+      assert.throws(
+        () => api.updateFeature(feat.id, { geometry: g }),
+        /BAD_GEOMETRY/,
+        `updateFeature must refuse geometry: ${what}`
+      )
+      assert.throws(
+        () => api.createFeature({ map_id: m.id, geometry: g as string }),
+        /BAD_GEOMETRY/,
+        `createFeature must refuse geometry: ${what}`
+      )
+    }
+    // …and the refusals leave nothing behind
+    assert.equal(
+      (api.getMap(m.id) as { features: { id: number; geometry: string }[] }).features.length,
+      1,
+      'a refused createFeature must not have inserted a row'
+    )
+    // Valid geometry still goes through, including the shapes a hostile file may legitimately
+    // carry — the gate is about SHAPE, not about how a drawing was made.
+    for (const g of [
+      good,
+      '{"type":"Point","coordinates":[0,0]}',
+      '{"type":"MultiPolygon","coordinates":[]}', // empty is a shape, and the open accepts it
+      '{"type":"LineString","coordinates":[[1e999,0],[1,1]]}' // non-finite: the OPEN accepts it too
+    ]) {
+      api.updateFeature(feat.id, { geometry: g })
+      assert.equal(
+        (api.getMap(m.id) as { features: { geometry: string }[] }).features[0].geometry,
+        g,
+        'valid geometry must still be written'
+      )
+    }
+    api.updateFeature(feat.id, { geometry: good })
+    // The column allow-list is untouched: map_id was never patchable and still is not.
+    api.updateFeature(feat.id, { map_id: 9999, geometry: good } as Record<string, unknown>)
+    assert.equal(
+      (api.getMap(m.id) as { features: { map_id: number }[] }).features[0].map_id,
+      m.id,
+      'patchSql still drops a column that is not on its allow-list'
+    )
+  }
+
+  // --- E-04: several rows, one transaction, and the undo entry only after it lands ------------
+  {
+    const g = (n: number): string => `{"type":"Point","coordinates":[${n},${n}]}`
+    const f2 = api.createFeature({ map_id: m.id, geometry: g(2) }) as { id: number }
+    const f3 = api.createFeature({ map_id: m.id, geometry: g(3) }) as { id: number }
+    const geomOf = (fid: number): string =>
+      (api.getMap(m.id) as { features: { id: number; geometry: string }[] }).features.find(
+        (x) => x.id === fid
+      )!.geometry
+    const before = [feat.id, f2.id, f3.id].map(geomOf)
+
+    // The middle one is invalid. The validation runs before BEGIN so no transaction is opened at
+    // all — but that is a design preference, not a testable one: moving the check inside `tx`
+    // produces the SAME observable outcome, because the rollback is correct either way. Checked
+    // by breaking it, which is why this is written down rather than asserted; what IS asserted
+    // below is the outcome, which has teeth against a missing transaction and a missing rollback.
+    assert.throws(
+      () =>
+        api.updateFeatures([
+          { id: feat.id, patch: { geometry: g(90) } },
+          { id: f2.id, patch: { geometry: 'not json' } },
+          { id: f3.id, patch: { geometry: g(92) } }
+        ]),
+      /BAD_GEOMETRY/,
+      'a batch with one bad patch is refused'
+    )
+    assert.deepEqual(
+      [feat.id, f2.id, f3.id].map(geomOf),
+      before,
+      'and NOTHING in it was written — not even the rows before the bad one'
+    )
+    assert.ok(!db.isTransaction, 'a refused batch leaves no transaction open')
+
+    // And the same for a failure the validation cannot see: a foreign key only SQLite knows about,
+    // which throws in the middle of the transaction and must roll the first write back.
+    assert.throws(
+      () =>
+        api.updateFeatures([
+          { id: feat.id, patch: { geometry: g(90) } },
+          { id: f2.id, patch: { entity_id: 424242 } }, // no such entity
+          { id: f3.id, patch: { geometry: g(92) } }
+        ]),
+      /FOREIGN KEY/,
+      'a batch that fails inside the transaction still throws'
+    )
+    assert.deepEqual(
+      [feat.id, f2.id, f3.id].map(geomOf),
+      before,
+      'and it rolled back: the write BEFORE the failing one is gone too'
+    )
+    assert.ok(!db.isTransaction, 'the rollback left no transaction open')
+    // The connection is still usable — a rollback must not wedge it for the rest of the session.
+    api.updateFeatures([{ id: feat.id, patch: { geometry: g(7) } }])
+    assert.equal(geomOf(feat.id), g(7), 'the connection works after a rollback')
+
+    // A batch that succeeds writes every row.
+    api.updateFeatures([
+      { id: feat.id, patch: { geometry: g(11) } },
+      { id: f2.id, patch: { geometry: g(12) } },
+      { id: f3.id, patch: { geometry: g(13) } }
+    ])
+    assert.deepEqual([feat.id, f2.id, f3.id].map(geomOf), [g(11), g(12), g(13)])
+
+    // updateEntities: the conquest path, same contract.
+    const e2 = api.createEntity({ name: 'Second' }) as { id: number }
+    assert.throws(
+      () =>
+        api.updateEntities([
+          { id: a.id, patch: { fields: JSON.stringify({ mark: 'A' }) } },
+          { id: e2.id, patch: { fields: 'not json' } }
+        ]),
+      /BAD_FIELDS/,
+      'updateEntities validates fields the way the open does'
+    )
+    assert.ok(
+      !((api.getEntity(a.id) as { fields: string }).fields ?? '').includes('mark'),
+      'and wrote nothing'
+    )
+    api.updateEntities([
+      { id: a.id, patch: { fields: JSON.stringify({ mark: 'A' }) } },
+      { id: e2.id, patch: { fields: JSON.stringify({ mark: 'B' }) } }
+    ])
+    assert.ok((api.getEntity(a.id) as { fields: string }).fields.includes('"A"'))
+    assert.ok((api.getEntity(e2.id) as { fields: string }).fields.includes('"B"'))
+
+    // deleteFeatures: one action, one transaction.
+    api.deleteFeatures([f2.id, f3.id])
+    assert.equal(
+      (api.getMap(m.id) as { features: unknown[] }).features.length,
+      1,
+      'deleteFeatures removes the whole set'
+    )
+    api.deleteEntity(e2.id)
+    api.updateEntity(a.id, { fields: '{}' }) // restore: later checks share this fixture
+    api.updateFeature(feat.id, { geometry: '{"type":"Point","coordinates":[1,2]}' })
+  }
+
   // exportNotes mirrors the SIDEBAR FOLDER TREE: a sits in the nested folder Realms/States and is
   // on the World map → notes/World/Realms/States/Test State/…; b is in no folder and on no map →
   // notes/(no map)/(no folder)/…

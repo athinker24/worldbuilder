@@ -119,6 +119,11 @@ export const api = {
   createEntity: (e: { name: string; content?: string }) => inv<{ id: number }>('createEntity', e),
   updateEntity: (id: number, patch: Partial<Pick<Entity, 'name' | 'content' | 'fields'>>) =>
     inv<void>('updateEntity', id, patch),
+  // The entity counterpart of updateFeatures: conquest re-parents every picked realm and that is
+  // one action, so it is one transaction.
+  updateEntities: (
+    list: { id: number; patch: Partial<Pick<Entity, 'name' | 'content' | 'fields'>> }[]
+  ) => inv<void>('updateEntities', list),
   deleteEntity: (id: number) => inv<void>('deleteEntity', id),
   hierarchy: () => inv<Hierarchy>('hierarchy'),
   // Full-text search: content/field hits (name matches excluded), with a context snippet
@@ -190,7 +195,14 @@ export const api = {
     inv<{ id: number }>('createFeature', f),
   updateFeature: (id: number, patch: Partial<Pick<Feature, 'entity_id' | 'geometry' | 'style'>>) =>
     inv<void>('updateFeature', id, patch),
+  // One user action that moves several drawings is ONE transaction in main — a weld writing a
+  // border and its neighbour must not be able to half-happen. Use this instead of a loop of
+  // updateFeature calls whenever the writes belong to a single undo step.
+  updateFeatures: (
+    list: { id: number; patch: Partial<Pick<Feature, 'entity_id' | 'geometry' | 'style'>> }[]
+  ) => inv<void>('updateFeatures', list),
   deleteFeature: (id: number) => inv<void>('deleteFeature', id),
+  deleteFeatures: (ids: number[]) => inv<void>('deleteFeatures', ids),
 
   getSetting: (key: string) => inv<string | null>('getSetting', key),
   setSetting: (key: string, value: string) => inv<void>('setSetting', key, value),
