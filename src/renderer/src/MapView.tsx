@@ -853,6 +853,24 @@ export default function MapView({
   // handler bodies exactly as they were — closures over the feature row and all — is deliberate:
   // routing changed, none of the conquest, navigation or selection logic did.
   const featRings = useRef(new Map<number, number[][][]>())
+  /**
+   * The geometry each feature currently has IN THE DATABASE — what an undo of the next edit
+   * has to return to.
+   *
+   * It cannot come from the feature row the handlers close over. A single-feature edit
+   * deliberately does not reload (see commitGeometry), so `f.geometry` still holds whatever the
+   * last reload read: edit twice without a reload between and the second edit records the state
+   * from BEFORE the first, so one Ctrl+Z jumps back two steps and the step between them is gone.
+   *
+   * The weld partners never had this problem because they capture their own `oldGeom` from the
+   * live layer at `pm:markerdragstart`; this is the same idea for the primary feature, kept as a
+   * ref rather than by mutating `f.geometry` — that row object is shared with `worldMapRef`,
+   * which copy/paste and forkFeature read, and writing through it would change what they see.
+   *
+   * Seeded on every reload, advanced after every successful commit, and moved with undo/redo so
+   * the window before the reload lands is right too.
+   */
+  const featGeom = useRef(new Map<number, string>())
   const featClick = useRef(new Map<number, (ev: L.LeafletMouseEvent) => void>())
   const shapeLayer = useRef<ShapeLayer | null>(null)
   // What the shape layer is currently drawing — the hit test searches this, so it has to be the
@@ -2151,6 +2169,7 @@ export default function MapView({
     featArrow.current.clear()
     renderStyle.current.clear()
     featRings.current.clear()
+    featGeom.current.clear()
     featClick.current.clear()
     parentHist.current.clear()
     rungTargets.current.clear()
@@ -2226,6 +2245,9 @@ export default function MapView({
     for (const f of wm.features) {
       const isPolygon = f.geometry.includes('"Polygon"')
       const isLine = f.geometry.includes('"LineString"')
+      // Before the mode filter below: what is in the database is a fact about the feature, not
+      // about whether this view happens to draw it.
+      featGeom.current.set(f.id, f.geometry)
       if (derived && (f.entity_id === null || !derived.base.has(f.entity_id) || !isPolygon))
         continue
       const style = JSON.parse(f.style || '{}') as FeatureStyle
@@ -2550,7 +2572,9 @@ export default function MapView({
           const updates = [
             {
               id: f.id,
-              old: f.geometry,
+              // featGeom, NOT f.geometry — see the ref. A single-feature edit does not reload, so
+              // the row this closure holds still describes the state before the PREVIOUS edit.
+              old: featGeom.current.get(f.id) ?? f.geometry,
               next: JSON.stringify((e.layer as L.Polygon).toGeoJSON().geometry)
             }
           ]
@@ -2573,14 +2597,27 @@ export default function MapView({
           pushUndo({
             label: updates.length > 1 ? 'Move {n} borders' : 'Move a border',
             params: { n: updates.length },
+            // Each step moves the record of what is in the database with it. A reload re-seeds it
+            // anyway, but undo/redo do not wait for one — and the next edit snapshots from here.
             undo: async () => {
-              for (const u of updates) await api.updateFeature(u.id, { geometry: u.old })
+              for (const u of updates) {
+                await api.updateFeature(u.id, { geometry: u.old })
+                featGeom.current.set(u.id, u.old)
+              }
             },
             redo: async () => {
-              for (const u of updates) await api.updateFeature(u.id, { geometry: u.next })
+              for (const u of updates) {
+                await api.updateFeature(u.id, { geometry: u.next })
+                featGeom.current.set(u.id, u.next)
+              }
             }
           })
-          for (const u of updates) await api.updateFeature(u.id, { geometry: u.next })
+          for (const u of updates) {
+            await api.updateFeature(u.id, { geometry: u.next })
+            // Per write, not after the loop: a throw partway leaves the ones that DID land
+            // recorded as landed, which is what the next snapshot has to believe.
+            featGeom.current.set(u.id, u.next)
+          }
           if (updates.length > 1) {
             await reloadFeatures('weld') // redraw the welded neighbours (recreates every label too)
           } else {
@@ -2613,7 +2650,41 @@ export default function MapView({
           const updates = snapshotUpdates(e, weld)
           geomSaveChain.current = geomSaveChain.current
             .then(() => commitGeometry(updates))
-            .catch((err) => console.error('geometry save failed:', err))
+            .catch((err) => {
+              // The catch itself is load-bearing: without it one rejection poisons the chain and
+              // every later save is dropped. What it must NOT be is silent. It used to end at
+              // console.error, which in a packaged build is nowhere — the Leaflet layer is already
+              // sitting at its new position, the database still holds the old one, and nothing on
+              // screen says so until the next reload quietly puts the shape back.
+              //
+              // App's global rejection listener cannot help here: this catch consumes the
+              // rejection, which is exactly why it has to report for itself.
+              //
+              // logCrash, not logEvent: the renderer's Level deliberately has no ERROR — an error
+              // is not a batched event here, it ships the queue first and gets the block with the
+              // last fifty things the app did, which is what makes "my drag did not save"
+              // answerable at all.
+              //
+              // Ids and a count, never the geometry: the log is meant to be pasted into a message
+              // and a ring is thousands of numbers. The message is clipped because it can carry
+              // text from the file (a constraint error names columns and values).
+              const msg = String(err instanceof Error ? err.message : err).slice(0, 120)
+              logCrash('edit.geometry', msg, err instanceof Error ? (err.stack ?? '') : '', {
+                feature: f.id,
+                features: updates.length
+              })
+              // Fire and forget, DELIBERATELY not awaited: alertDialog resolves when the user
+              // clicks OK, and awaiting it here would hold the save chain open for as long as the
+              // dialog is up — the next edit would queue behind a modal. Guarded for the reason
+              // gate 38 exists: reporting a fault must never be able to become one.
+              try {
+                void alertDialog(
+                  t('That change to the drawing could not be saved. See the error log.')
+                ).catch(() => {})
+              } catch {
+                /* no dialog host — the log line above is still written */
+              }
+            })
         }
         // Live weld: starting a vertex drag with Ctrl held finds the neighbours' co-located
         // vertices and moves them along for the whole drag (a single magnet-point feel).

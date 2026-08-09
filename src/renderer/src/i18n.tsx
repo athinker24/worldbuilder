@@ -5,6 +5,8 @@ import { Lang } from './api'
 // only needs to hold the Turkish alternative. Missing keys fall back to the English text.
 const TR: Record<string, string> = {
   'That could not be undone — see the error log.': 'Bu geri alınamadı — hata günlüğüne bakın.',
+  'That change to the drawing could not be saved. See the error log.':
+    'Çizimdeki bu değişiklik kaydedilemedi. Hata günlüğüne bakın.',
   'Stopped here — the next step could not be applied.':
     'Burada duruldu — sonraki adım uygulanamadı.',
   'New note tab': 'Yeni not sekmesi',

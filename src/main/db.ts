@@ -129,6 +129,13 @@ export function initDb(dir: string): void {
  * files is the one they want is not a decision to make on their behalf at launch.
  */
 function rescueLeftover(): void {
+  // The image staging folders are the same class of leftover and need none of the care below:
+  // `.incoming` holds a copy of pictures still inside the .world, and `.prev` only ever exists
+  // between two renames. A run that died mid-open leaves them behind, and unpackWorld clears them
+  // on its way in anyway — this is so a crash does not leave the folder sitting there until the
+  // next open, taking up the space of a world's images for nothing.
+  rmSync(assetsDir + STAGING_SUFFIX, { recursive: true, force: true })
+  rmSync(assetsDir + REPLACED_SUFFIX, { recursive: true, force: true })
   const rescue = dbFile + '.rescue'
   if (!existsSync(rescue)) return
   try {
@@ -653,6 +660,26 @@ function dropForeignTables(): void {
     if (!OUR_TABLES.has(r.name)) db.exec(`DROP TABLE "${r.name.replaceAll('"', '""')}"`)
 }
 
+/**
+ * Where a `.world`'s images are unpacked BEFORE they are allowed near `assets/`, and where the
+ * originals they replace are kept until the open has committed.
+ *
+ * `world.db` has had a rescue copy since the beginning; `assets/` never did, and the images were
+ * written straight into it. So a file that extracted its pictures and then threw — a malformed
+ * column, a bad settings value, anything the repairs reject — was rolled back for the database
+ * and not for the folder: the user got their world back with someone else's pictures in it,
+ * under a message telling them the open had failed. Nothing recovered that, because the backups
+ * hold `world.db` alone.
+ *
+ * Two folders rather than one because the swap has to be reversible in both directions: the
+ * incoming images land in `.incoming`, and the only originals that can be lost are the ones a
+ * staged name overwrites, so those move to `.prev` first and come back if a later step fails.
+ * Siblings of `assets/`, not children — `pruneUnusedAssets` reads that folder, and `world://`
+ * confinement is a prefix test against it (see resolveAssetPath), so neither may see these.
+ */
+const STAGING_SUFFIX = '.incoming'
+const REPLACED_SUFFIX = '.prev'
+
 /** Open a .world file OVER the working copy (the current working copy is overwritten —
  *  the caller must confirm/back up first). Embedded images are extracted into assets/. */
 export function unpackWorld(sourcePath: string): void {
@@ -682,7 +709,58 @@ export function unpackWorld(sourcePath: string): void {
     }
     throw err
   }
+  const staging = assetsDir + STAGING_SUFFIX
+  const replaced = assetsDir + REPLACED_SUFFIX
+  // Names moved out of assets/ (or newly placed into it) by commitAssets, newest last, so a
+  // failure part-way through the swap can be walked back exactly.
+  const swapped: { name: string; hadPrev: boolean }[] = []
+  const clearStaging = (): void => {
+    rmSync(staging, { recursive: true, force: true })
+    rmSync(replaced, { recursive: true, force: true })
+  }
+  clearStaging() // a previous run that died mid-open leaves these; they are not ours to keep
+  /**
+   * Move the staged images into `assets/` — the one destructive step for that folder, and the
+   * last thing the open does that a failure would have to undo.
+   *
+   * Per file rather than swapping the directory, because a name already in `assets/` that the
+   * new world REFERENCES but does not carry has always survived an open, and `pruneUnusedAssets`
+   * is what decides afterwards whether it stays. Renaming the whole folder would quietly change
+   * that; moving file by file leaves both behaviours exactly as they were.
+   */
+  const commitAssets = (): void => {
+    if (!existsSync(staging)) return
+    // The folder is listed ONCE rather than asking existsSync per file: at the MAX_ASSETS cap that
+    // is ten thousand extra metadata calls against a directory of ten thousand entries, and NTFS
+    // charges for both. Measured over the whole swap: 300 images (a large real world) 173 ms.
+    const already = new Set(readdirSync(assetsDir))
+    for (const name of readdirSync(staging)) {
+      const target = join(assetsDir, name)
+      const hadPrev = already.has(name)
+      if (hadPrev) {
+        mkdirSync(replaced, { recursive: true })
+        renameSync(target, join(replaced, name))
+      }
+      renameSync(join(staging, name), target)
+      swapped.push({ name, hadPrev })
+    }
+  }
+  /** Undo commitAssets as far as it got. Best effort per file: one that will not move back must
+   *  not stop the rest from being restored. */
+  const restoreAssets = (): void => {
+    for (const s of swapped.reverse()) {
+      try {
+        if (s.hadPrev) renameSync(join(replaced, s.name), join(assetsDir, s.name))
+        else rmSync(join(assetsDir, s.name), { force: true })
+      } catch {
+        /* this one image stays as the file left it; the others still go back */
+      }
+    }
+    swapped.length = 0
+  }
   const putBack = (err: unknown): never => {
+    restoreAssets() // BEFORE the database, so a throw below cannot skip the images
+    clearStaging()
     try {
       db.close()
     } catch {
@@ -737,6 +815,9 @@ export function unpackWorld(sourcePath: string): void {
         b: number
       }
       if (tally.n > MAX_ASSETS || tally.b > MAX_ASSET_BYTES) throw new Error(WORLD_TOO_LARGE)
+      // Once, not per row: `recursive: true` still stats the whole path every call, and this loop
+      // runs up to MAX_ASSETS times.
+      mkdirSync(staging, { recursive: true })
       let refused = 0
       for (const row of db.prepare(`SELECT name, data FROM assets`).all() as {
         name: unknown
@@ -757,7 +838,9 @@ export function unpackWorld(sourcePath: string): void {
           refused++
           continue
         }
-        writeFileSync(join(assetsDir, name), row.data as Uint8Array)
+        // Into STAGING, never straight into assets/ — see STAGING_SUFFIX. Until the open commits,
+        // the pictures the user already had are untouched.
+        writeFileSync(join(staging, name), row.data as Uint8Array)
       }
       // WARN and counted: the images are the one part of a world that can go missing without the
       // world looking any different on open, so "three pictures are blank" needs a line saying
@@ -775,17 +858,24 @@ export function unpackWorld(sourcePath: string): void {
     dropForeignTables() // assets is consumed by here, so anything left over is not ours
     repairImportedJson() // reset malformed JSON columns to defaults (rationale below)
     migrateLegacyKeys() // so old .world files (with Turkish keys) still open
+    api.setSetting('worldFile', sourcePath)
+    // The images go in LAST, once nothing else can reject the file, and pruning follows them.
+    // Both used to sit after the rescue was dropped, which is the same hole in two places: the
+    // upsert needs the settings table to have the primary key our schema declares (a file writes
+    // its own schema), and the prune walks a folder the filesystem can refuse. Either one throwing
+    // left the user with the new world in place, no rescue, and "could not be opened".
+    commitAssets()
+    pruneUnusedAssets() // drop images the opened world does not use (leftovers from the previous one)
   } catch (err) {
     putBack(err)
   }
   // Only now is the old world unrecoverable, and that is the point: everything above — the schema
-  // exec, the extraction, the foreign tables, the repairs — is the part where a hostile or simply
-  // broken file can still throw. Dropping the rescue after the first three lines meant a failure
-  // in any of the rest left the user with the new file in place, unrepaired, and the message
-  // "that world file could not be opened".
+  // exec, the extraction, the foreign tables, the repairs, the settings write, the image swap —
+  // is the part where a hostile or simply broken file can still throw. Dropping the rescue after
+  // the first three lines meant a failure in any of the rest left the user with the new file in
+  // place, unrepaired, and the message "that world file could not be opened".
+  clearStaging()
   rmSync(rescue, { force: true })
-  api.setSetting('worldFile', sourcePath)
-  pruneUnusedAssets() // drop images the opened world does not use (leftovers from the previous one)
 }
 
 /**
@@ -2715,6 +2805,111 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       !existsSync(join(dir, 'world.db.rescue')),
       'and the open completes rather than leaving the rescue copy behind'
     )
+
+    // THE RECOVERY BOUNDARY COVERS assets/ AS WELL AS world.db.
+    //
+    // `world.db` has had a rescue copy since the beginning. The images never did — they were
+    // written straight into assets/ — so a file that extracted its pictures and then threw was
+    // rolled back for the database and not for the folder: the user was told the open had failed
+    // and got their world back with someone else's pictures inside it. Nothing recovered that,
+    // because every backup holds world.db alone.
+    //
+    // The failure is arranged with a `settings` table carrying no PRIMARY KEY. That is the LAST
+    // thing to throw rather than an early one, and it is not contrived: `CREATE TABLE IF NOT
+    // EXISTS` is a no-op against a table that already exists, so a file writes its own schema, and
+    // the upsert in setSetting needs the key our schema declares. probeWritable does not catch it —
+    // it inserts, and a plain INSERT works fine without the key. So this reproduces the exact
+    // shape of the hole: a file that passes every gate and throws on the last line of the open.
+    {
+      const mine = join(dir, 'assets', 'logo.png')
+      writeFileSync(mine, Buffer.from('THE USERS OWN PICTURE'))
+      // Something the hostile file provably does NOT carry: `late` is a copy of `dunya`, which was
+      // packed long before this line, so without a marker of its own the "we rolled back to the
+      // world they had" assertion could pass on two identical worlds and prove nothing.
+      api.createEntity({ name: 'ONLY IN THE USERS WORKING COPY' })
+      api.setSetting('probe.before', 'the world the user already had')
+      const before = (api.listEntities() as { name: string }[]).map((e) => e.name).join('|')
+      assert.ok(
+        before.includes('ONLY IN THE USERS WORKING COPY'),
+        'fixture: the marker is in place'
+      )
+
+      const late = join(dir, 'late-failure.world')
+      copyFileSync(dunya, late)
+      const lf = new DatabaseSync(late)
+      lf.exec(`DROP TABLE IF EXISTS assets`)
+      lf.exec(`CREATE TABLE assets (name TEXT PRIMARY KEY, data BLOB NOT NULL)`)
+      lf.prepare(`INSERT INTO assets (name, data) VALUES (?, ?)`).run(
+        'logo.png', // the SAME name, which is the whole point
+        Buffer.from('ATTACKER PAYLOAD')
+      )
+      // settings, minus the PRIMARY KEY: setSetting's upsert is the first thing to fail, and it
+      // now runs inside the boundary rather than after the rescue was dropped.
+      lf.exec(`ALTER TABLE settings RENAME TO settings_old`)
+      lf.exec(`CREATE TABLE settings (key TEXT, value TEXT NOT NULL)`)
+      lf.exec(`INSERT INTO settings (key, value) SELECT key, value FROM settings_old`)
+      lf.exec(`DROP TABLE settings_old`)
+      lf.close()
+
+      assert.throws(
+        () => unpackWorld(late),
+        /.+/,
+        'a world that throws after extraction is refused'
+      )
+      assert.equal(
+        readFileSync(mine, 'utf8'),
+        'THE USERS OWN PICTURE',
+        "a refused open must leave the user's images exactly as they were"
+      )
+      assert.equal(
+        (api.listEntities() as { name: string }[]).map((e) => e.name).join('|'),
+        before,
+        'and the database it rolled back to is still the one they had'
+      )
+      assert.equal(api.getSetting('probe.before'), 'the world the user already had')
+      assert.ok(
+        !existsSync(join(dir, 'assets' + STAGING_SUFFIX)) &&
+          !existsSync(join(dir, 'assets' + REPLACED_SUFFIX)),
+        'and neither staging folder is left behind'
+      )
+      assert.ok(
+        !existsSync(join(dir, 'world.db.rescue')),
+        'the rescue copy is consumed, not left on disk'
+      )
+
+      // The same path when it SUCCEEDS: the images do land, over the old ones, and nothing extra
+      // survives. Without this the assertion above would pass on an unpack that never extracts.
+      const fine = join(dir, 'late-ok.world')
+      copyFileSync(dunya, fine)
+      const fo = new DatabaseSync(fine)
+      fo.exec(`DROP TABLE IF EXISTS assets`)
+      fo.exec(`CREATE TABLE assets (name TEXT PRIMARY KEY, data BLOB NOT NULL)`)
+      fo.prepare(`INSERT INTO assets (name, data) VALUES (?, ?)`).run(
+        'logo.png',
+        Buffer.from('THE NEW WORLDS PICTURE')
+      )
+      // Referenced, or pruneUnusedAssets removes it at the end of the open — correctly, and the
+      // assertion would then be testing the pruner rather than the swap.
+      fo.exec(`UPDATE maps SET image_path = 'assets/logo.png'`)
+      fo.close()
+      unpackWorld(fine)
+      assert.equal(
+        readFileSync(mine, 'utf8'),
+        'THE NEW WORLDS PICTURE',
+        'a successful open does replace the image'
+      )
+      assert.ok(
+        !existsSync(join(dir, 'assets' + STAGING_SUFFIX)) &&
+          !existsSync(join(dir, 'assets' + REPLACED_SUFFIX)),
+        'and leaves no staging or rollback residue behind it'
+      )
+      assert.ok(!existsSync(join(dir, 'world.db.rescue')), 'nor a rescue copy')
+      assert.equal(
+        api.getSetting('worldFile'),
+        fine,
+        'worldFile is written inside the boundary now, and still written'
+      )
+    }
 
     const looped = join(dir, 'looped.world')
     copyFileSync(dunya, looped)
