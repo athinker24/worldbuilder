@@ -382,8 +382,12 @@ export default function EntityPage({
         }
       ])
     }
-    const { id: newId } = await api.createEntity({ name: n })
-    await api.updateEntity(newId, { fields: JSON.stringify({ folder: pf }) })
+    // One write, not two: createEntity has always taken `fields`, so the folder goes in at
+    // creation and there is no window where the person exists outside their folder.
+    const { id: newId } = await api.createEntity({
+      name: n,
+      fields: JSON.stringify({ folder: pf })
+    })
     setAllEntities(await api.listEntities())
     onChanged()
     return newId

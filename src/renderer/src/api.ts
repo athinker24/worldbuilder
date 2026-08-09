@@ -116,7 +116,8 @@ export const api = {
   listEntities: (search = '') => inv<EntityRow[]>('listEntities', search),
   getEntity: (id: number) => inv<Entity | null>('getEntity', id),
   findEntityByName: (name: string) => inv<EntityRow | null>('findEntityByName', name),
-  createEntity: (e: { name: string; content?: string }) => inv<{ id: number }>('createEntity', e),
+  createEntity: (e: { name: string; content?: string; fields?: string }) =>
+    inv<{ id: number }>('createEntity', e),
   updateEntity: (id: number, patch: Partial<Pick<Entity, 'name' | 'content' | 'fields'>>) =>
     inv<void>('updateEntity', id, patch),
   // The entity counterpart of updateFeatures: conquest re-parents every picked realm and that is
@@ -125,6 +126,7 @@ export const api = {
     list: { id: number; patch: Partial<Pick<Entity, 'name' | 'content' | 'fields'>> }[]
   ) => inv<void>('updateEntities', list),
   deleteEntity: (id: number) => inv<void>('deleteEntity', id),
+  deleteEntities: (ids: number[]) => inv<void>('deleteEntities', ids),
   hierarchy: () => inv<Hierarchy>('hierarchy'),
   // Full-text search: content/field hits (name matches excluded), with a context snippet
   searchContent: (q: string) =>
@@ -203,6 +205,39 @@ export const api = {
   ) => inv<void>('updateFeatures', list),
   deleteFeature: (id: number) => inv<void>('deleteFeature', id),
   deleteFeatures: (ids: number[]) => inv<void>('deleteFeatures', ids),
+  createFeatures: (
+    list: { map_id: number; entity_id?: number; geometry: string; style?: string }[]
+  ) => inv<number[]>('createFeatures', list),
+  // Whole user actions that span two tables. They exist because the entity's id is an input to
+  // the feature, so the writes cannot be a batch — see the note above them in db.ts.
+  createDrawing: (d: {
+    map_id: number
+    geometry: string
+    style?: string
+    entityName?: string
+    entity_id?: number
+  }) => inv<{ featureId: number; entityId?: number }>('createDrawing', d),
+  deleteDrawing: (featureId: number, entityId?: number) =>
+    inv<void>('deleteDrawing', featureId, entityId),
+  createFeatureFork: (id: number, newStyle: string, closedStyle: string) =>
+    inv<{ id: number }>('createFeatureFork', id, newStyle, closedStyle),
+  deleteFeatureFork: (copyId: number, sourceId: number, sourceStyle: string) =>
+    inv<void>('deleteFeatureFork', copyId, sourceId, sourceStyle),
+  updateFeatureLink: (
+    featureId: number,
+    entityId: number | null,
+    style: string,
+    prevEntityId: number | null
+  ) =>
+    inv<{
+      dropped: {
+        id: number
+        name: string
+        content: string
+        fields: string
+        created_at: string
+      } | null
+    }>('updateFeatureLink', featureId, entityId, style, prevEntityId),
 
   getSetting: (key: string) => inv<string | null>('getSetting', key),
   setSetting: (key: string, value: string) => inv<void>('setSetting', key, value),

@@ -865,7 +865,7 @@ export default function MapView({
    * The weld partners never had this problem because they capture their own `oldGeom` from the
    * live layer at `pm:markerdragstart`; this is the same idea for the primary feature, kept as a
    * ref rather than by mutating `f.geometry` — that row object is shared with `worldMapRef`,
-   * which copy/paste and forkFeature read, and writing through it would change what they see.
+   * which copy/paste and createFeatureFork read, and writing through it would change what they see.
    *
    * Seeded on every reload, advanced after every successful commit, and moved with undo/redo so
    * the window before the reload lands is right too.
@@ -1989,29 +1989,27 @@ export default function MapView({
     const dx = cur ? cur.lng - (minX + maxX) / 2 : 8
     const dy = cur ? cur.lat - (minY + maxY) / 2 : -8
     const active = boardsRef.current.list.length ? boardsRef.current.active : undefined
-    const make = async (): Promise<number[]> => {
-      const out: number[] = []
-      for (const it of items) {
-        const g = JSON.parse(it.geometry)
-        const style = { ...(JSON.parse(it.style || '{}') as FeatureStyle) }
-        if (active) style.board = active
-        const { id: nid } = await api.createFeature({
-          map_id: id,
-          entity_id: it.entity_id ?? undefined,
-          geometry: JSON.stringify({ ...g, coordinates: shiftCoords(g.coordinates, dx, dy) }),
-          style: JSON.stringify(style)
+    // One paste is one action, so one transaction: a loop of creates could leave half a
+    // clipboard on the map under an undo entry claiming all of it.
+    const make = (): Promise<number[]> =>
+      api.createFeatures(
+        items.map((it) => {
+          const g = JSON.parse(it.geometry)
+          const style = { ...(JSON.parse(it.style || '{}') as FeatureStyle) }
+          if (active) style.board = active
+          return {
+            map_id: id,
+            entity_id: it.entity_id ?? undefined,
+            geometry: JSON.stringify({ ...g, coordinates: shiftCoords(g.coordinates, dx, dy) }),
+            style: JSON.stringify(style)
+          }
         })
-        out.push(nid)
-      }
-      return out
-    }
+      )
     const ref = { ids: await make() }
     pushUndo({
       label: 'Paste {n} drawings',
       params: { n: ref.ids.length },
-      undo: async () => {
-        for (const nid of ref.ids) await api.deleteFeature(nid)
-      },
+      undo: async () => api.deleteFeatures(ref.ids),
       redo: async () => {
         ref.ids = await make()
       }
@@ -2030,7 +2028,7 @@ export default function MapView({
 
   // Border evolution: fork the feature into a copy starting at the slider year and close the
   // old one at year-1. The user then nudges only the changed vertices — no redrawing from scratch.
-  const forkFeature = async (f: Feature): Promise<void> => {
+  const createFeatureFork = async (f: Feature): Promise<void> => {
     const year = yearRef.current
     const oldStyle = JSON.parse(f.style || '{}') as FeatureStyle
     if (year - 1 < (oldStyle.from ?? -Infinity) || year > (oldStyle.to ?? Infinity)) {
@@ -2041,26 +2039,16 @@ export default function MapView({
     }
     const newStyle = JSON.stringify({ ...oldStyle, from: year })
     const closedStyle = JSON.stringify({ ...oldStyle, to: year - 1 })
-    const createCopy = (): Promise<{ id: number }> =>
-      api.createFeature({
-        map_id: id,
-        entity_id: f.entity_id ?? undefined,
-        geometry: f.geometry,
-        style: newStyle
-      })
-    const created = await createCopy()
-    await api.updateFeature(f.id, { style: closedStyle })
+    // ONE transaction. A copy with no closed original is two borders claiming the same land in
+    // the same year, which is the state this feature exists to avoid — so the two writes are one.
+    const created = await api.createFeatureFork(f.id, newStyle, closedStyle)
     const ref = { id: created.id }
     pushUndo({
       label: 'Change border from {year}',
       params: { year },
-      undo: async () => {
-        await api.deleteFeature(ref.id)
-        await api.updateFeature(f.id, { style: f.style })
-      },
+      undo: async () => api.deleteFeatureFork(ref.id, f.id, f.style),
       redo: async () => {
-        ref.id = (await createCopy()).id
-        await api.updateFeature(f.id, { style: closedStyle })
+        ref.id = (await api.createFeatureFork(f.id, newStyle, closedStyle)).id
       }
     })
     await reloadFeatures('fork')
@@ -2811,7 +2799,7 @@ export default function MapView({
           items.push({
             icon: 'clock',
             label: t('Change border from this year'),
-            onClick: () => forkFeature(f)
+            onClick: () => createFeatureFork(f)
           })
           items.push({
             icon: 'calendar',
@@ -4341,13 +4329,17 @@ export default function MapView({
       // A target set in the tool popover wins: the drawing joins that article and NOTHING is
       // created — which is also what makes undo right, since `ref.eid` stays undefined and the
       // article the user picked is not deleted when the drawing is.
-      const ent = into ?? (entName ? await api.createEntity({ name: entName }) : null)
-      const created = await api.createFeature({
+      // ONE transaction: a drawing IS an article, so this is two inserts into two tables, and
+      // failing between them left an entity with no drawing — an empty row in the sidebar the
+      // user never made and could not explain.
+      const made = await api.createDrawing({
         map_id: id,
         geometry,
         style,
-        ...(ent ? { entity_id: ent.id } : {})
+        ...(into ? { entity_id: into.id } : entName ? { entityName: entName } : {})
       })
+      const ent = into ?? (made.entityId !== undefined ? { id: made.entityId } : null)
+      const created = { id: made.featureId }
       // What was drawn, in the app's own words rather than geoman's. Three sessions in a row this
       // was the missing line: a feature count going 16 → 17 says something appeared, not what.
       logEvent('INFO', `${featureKind(shape, isLabelDraw)}.created`, {
@@ -4362,20 +4354,21 @@ export default function MapView({
         // English word into a Turkish sentence ("polygon çizildi").
         label: `Draw a ${featureKind(shape, isLabelDraw)}`,
         undo: async () => {
-          await api.deleteFeature(ref.id)
-          if (ref.eid !== undefined) await api.deleteEntity(ref.eid)
+          await api.deleteDrawing(ref.id, ref.eid)
           onChanged()
         },
         redo: async () => {
-          if (entName) ref.eid = (await api.createEntity({ name: entName })).id
-          ref.id = (
-            await api.createFeature({
-              map_id: id,
-              geometry,
-              style,
-              ...(ref.eid !== undefined ? { entity_id: ref.eid } : {})
-            })
-          ).id
+          // `entName` set means THIS draw invented the article, so redo has to invent it again
+          // (the row is gone, and its id with it); otherwise the drawing rejoins the one it was
+          // linked to. Both are one transaction.
+          const again = await api.createDrawing({
+            map_id: id,
+            geometry,
+            style,
+            ...(entName ? { entityName: entName } : into ? { entity_id: into.id } : {})
+          })
+          ref.id = again.featureId
+          ref.eid = again.entityId
           onChanged()
         }
       })
@@ -4663,24 +4656,24 @@ export default function MapView({
       pushUndo({
         label: selIds.length > 1 ? 'Restyle {n} drawings' : 'Restyle a drawing',
         params: { n: selIds.length },
-        undo: async () => {
-          for (const it of ref.items) await api.updateFeature(it.fid, { style: it.orig })
-        },
-        redo: async () => {
-          for (const it of ref.items) await api.updateFeature(it.fid, { style: it.latest })
-        }
+        // Restyling a selection is one action, so both directions go through the batch.
+        undo: async () =>
+          api.updateFeatures(ref.items.map((it) => ({ id: it.fid, patch: { style: it.orig } }))),
+        redo: async () =>
+          api.updateFeatures(ref.items.map((it) => ({ id: it.fid, patch: { style: it.latest } })))
       })
     }
     const items = styleEditRef.current.items
-    // Parallel: each feature's write is independent — dragging a slider with many selected
-    // used to stack serial IPC round trips (20 selected = 20 sequential trips per tick).
-    await Promise.all(
+    // ONE round trip and ONE transaction. This was Promise.all over per-feature calls, which
+    // fixed the round-trip count but not the atomicity: a slider drag with twenty selected could
+    // leave some restyled and some not, under a single undo entry claiming all of them.
+    await api.updateFeatures(
       items.map((it) => {
         it.latest = JSON.stringify({
           ...(JSON.parse(it.latest || it.orig) as FeatureStyle),
           ...patch
         })
-        return api.updateFeature(it.fid, { style: it.latest })
+        return { id: it.fid, patch: { style: it.latest } }
       })
     )
     setSelected({ ...selected, style: items[0].latest }) // items[0] = the primary (selIds order)
@@ -4849,46 +4842,6 @@ export default function MapView({
     }
   }
 
-  /**
-   * An article left with no drawings and nothing written in it, after its only drawing moved to
-   * another article. Those are the ones this app creates by itself — every drawing is born with a
-   * "New region" — so cleaning them up is undoing our own bookkeeping, not deleting the user's work.
-   *
-   * Hence the test: no features left anywhere (not just this map), no body, no links, no fields.
-   * Anything written keeps the article, whatever became of its drawing.
-   */
-  const dropIfOrphan = async (entityId: number): Promise<void> => {
-    const [featIds, ent] = await Promise.all([
-      api.entityFeatureIds(entityId),
-      api.getEntity(entityId)
-    ])
-    if (!ent || featIds.length) return
-    const fields = JSON.parse(ent.fields || '{}') as Record<string, unknown>
-    const written =
-      ent.content.trim() !== '' ||
-      ent.outLinks.length > 0 ||
-      ent.inLinks.length > 0 ||
-      Object.values(fields).some((v) => String(v ?? '').trim() !== '')
-    if (written) return
-    const row = {
-      id: ent.id,
-      name: ent.name,
-      content: ent.content,
-      fields: ent.fields,
-      created_at: ent.created_at
-    }
-    await api.deleteEntity(entityId)
-    // Undoable even though it is automatic: silent deletion with no way back is not something to
-    // do on the user's behalf, however empty the row. No links or features to restore — that is
-    // precisely what qualified it.
-    pushUndo({
-      label: 'Remove the emptied entry',
-      params: { name: ent.name },
-      undo: () => api.restoreEntity(row, [], []).then(onChanged),
-      redo: () => api.deleteEntity(entityId).then(onChanged)
-    })
-  }
-
   const linkEntity = async (entityId: number): Promise<void> => {
     const feat = selected!
     const prev = feat.entity_id
@@ -4899,10 +4852,24 @@ export default function MapView({
       kind === 'line' ? 'line' : kind === 'polygon' ? 'polygon' : 'point'
     )
     const style = JSON.stringify({ ...(JSON.parse(feat.style || '{}') as FeatureStyle), ...look })
-    await api.updateFeature(feat.id, { entity_id: entityId, style })
-    // The article this drawing came from is usually one the app invented at draw time; with the
-    // drawing gone it is an empty row nobody asked for.
-    if (prev !== null) await dropIfOrphan(prev)
+    // ONE transaction AND one history step. The rebind and the cleanup of the article the drawing
+    // left are the same action, and they used to be two writes with TWO pushUndo calls — so a
+    // single Ctrl+Z put the drawing back and left the article deleted. The orphan test moved into
+    // main with the write: it is three reads and a decision, and doing it there makes this one
+    // round trip as well as one transaction.
+    const { dropped } = await api.updateFeatureLink(feat.id, entityId, style, prev)
+    pushUndo({
+      label: dropped ? 'Link the drawing and remove the emptied entry' : 'Link the drawing',
+      undo: async () => {
+        if (dropped) await api.restoreEntity(dropped, [], [])
+        await api.updateFeature(feat.id, { entity_id: prev, style: feat.style })
+        onChanged()
+      },
+      redo: async () => {
+        await api.updateFeatureLink(feat.id, entityId, style, prev)
+        onChanged()
+      }
+    })
     setLinkName('')
     onChanged()
     await reloadFeatures('link')

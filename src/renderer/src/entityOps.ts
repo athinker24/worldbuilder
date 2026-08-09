@@ -79,10 +79,10 @@ export async function deleteEntitiesWithUndo(ids: number[]): Promise<boolean> {
     label: 'Delete {n} entries',
     params: { n: rows.length },
     undo: () => api.restoreEntities(rows, links, features),
-    redo: async () => {
-      for (const id of ids) await api.deleteEntity(id)
-    }
+    redo: async () => api.deleteEntities(ids)
   })
-  for (const id of ids) await api.deleteEntity(id)
+  // One transaction: deleting a selection is one action, and the undo record below claims all
+  // of them — a loop that stopped part-way made that claim false.
+  await api.deleteEntities(ids)
   return true
 }

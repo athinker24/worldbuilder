@@ -1560,6 +1560,19 @@ export const api = {
     db.prepare(`DELETE FROM entities WHERE id = ?`).run(id)
     logEvent('INFO', 'entity.deleted', { entity: id, name: row?.name })
   },
+  /** Deleting a selection of articles is ONE action (the sidebar's multi-select). A loop left
+   *  some deleted and some not when the FK cascade hit something unexpected part-way. */
+  deleteEntities(ids: number[]): void {
+    tx(() => {
+      const read = db.prepare(`SELECT name FROM entities WHERE id = ?`)
+      const del = db.prepare(`DELETE FROM entities WHERE id = ?`)
+      for (const id of ids) {
+        const row = read.get(id) as { name: string } | undefined
+        del.run(id)
+        logEvent('INFO', 'entity.deleted', { entity: id, name: row?.name })
+      }
+    })
+  },
   // Bring a deleted entity back under the same id, with its links and map-feature bindings (for Ctrl+Z)
   restoreEntity(
     row: {
@@ -1854,6 +1867,176 @@ export const api = {
     tx(() => {
       const st = db.prepare(`DELETE FROM features WHERE id = ?`)
       for (const id of ids) st.run(id)
+    })
+  },
+  /** The create counterpart, for a paste or a duplicate: several drawings appear at once and that
+   *  is one action. Ids come back in the order they were given, which is what the undo record
+   *  needs to delete exactly what it made. */
+  createFeatures(
+    list: { map_id: number; entity_id?: number; geometry: string; style?: string }[]
+  ): number[] {
+    for (const f of list)
+      assertFeaturePatch({ geometry: f.geometry, ...(f.style !== undefined && { style: f.style }) })
+    return tx(() => {
+      const st = db.prepare(
+        `INSERT INTO features (map_id, entity_id, geometry, style) VALUES (?, ?, ?, ?)`
+      )
+      return list.map((f) =>
+        Number(st.run(f.map_id, f.entity_id ?? null, f.geometry, f.style ?? '{}').lastInsertRowid)
+      )
+    })
+  },
+
+  // --- whole user actions that span more than one table ---------------------------------------
+  //
+  // These exist because the writes cannot be expressed as a batch: the entity's id is an INPUT to
+  // the feature, so the second statement depends on the result of the first. A generic
+  // "run these in a transaction" call over IPC would be a small RPC engine and would let a
+  // compromised renderer compose sequences nobody designed; one method per user action keeps the
+  // surface bounded, makes each transaction obviously the right size, and costs one round trip
+  // instead of two or three.
+
+  /**
+   * A drawing IS an article: every polygon, pin and path is born with its own entity, so drawing
+   * one is two inserts into two tables. Failing between them left an entity nobody could reach —
+   * it had no drawing, so it appeared in the sidebar as an empty row the user never made.
+   *
+   * `entityName` absent = the drawing joins an entity that already exists (or none at all, which
+   * is what a free label does).
+   */
+  createDrawing(d: {
+    map_id: number
+    geometry: string
+    style?: string
+    entityName?: string
+    entity_id?: number
+  }): { featureId: number; entityId?: number } {
+    assertFeaturePatch({ geometry: d.geometry, ...(d.style !== undefined && { style: d.style }) })
+    return tx(() => {
+      let entityId = d.entity_id
+      if (d.entityName !== undefined) {
+        entityId = Number(
+          db
+            .prepare(`INSERT INTO entities (name, content, fields) VALUES (?, '', '{}')`)
+            .run(d.entityName).lastInsertRowid
+        )
+        logEvent('INFO', 'entity.created', { entity: entityId, name: d.entityName })
+      }
+      const featureId = Number(
+        db
+          .prepare(`INSERT INTO features (map_id, entity_id, geometry, style) VALUES (?, ?, ?, ?)`)
+          .run(d.map_id, entityId ?? null, d.geometry, d.style ?? '{}').lastInsertRowid
+      )
+      return { featureId, entityId }
+    })
+  },
+  /** The undo of createDrawing. The entity is passed only when THIS draw created it — a drawing
+   *  that joined an existing article must not take that article with it. */
+  deleteDrawing(featureId: number, entityId?: number): void {
+    tx(() => {
+      db.prepare(`DELETE FROM features WHERE id = ?`).run(featureId)
+      if (entityId !== undefined) {
+        const row = db.prepare(`SELECT name FROM entities WHERE id = ?`).get(entityId) as {
+          name: string
+        }
+        db.prepare(`DELETE FROM entities WHERE id = ?`).run(entityId)
+        logEvent('INFO', 'entity.deleted', { entity: entityId, name: row?.name })
+      }
+    })
+  },
+  /**
+   * Border evolution: copy the drawing forward from this year and close the original at year-1.
+   * Two writes that only mean something together — a copy with no closed original is two borders
+   * claiming the same land in the same year, which is the state the feature exists to avoid.
+   *
+   * The source row is read HERE rather than shipped in and back out: it is the geometry, and a
+   * ring is thousands of numbers.
+   */
+  createFeatureFork(id: number, newStyle: string, closedStyle: string): { id: number } {
+    assertFeaturePatch({ style: newStyle })
+    assertFeaturePatch({ style: closedStyle })
+    return tx(() => {
+      const src = db
+        .prepare(`SELECT map_id, entity_id, geometry FROM features WHERE id = ?`)
+        .get(id) as { map_id: number; entity_id: number | null; geometry: string } | undefined
+      if (!src) throw new Error('NO_SUCH_FEATURE')
+      const copy = Number(
+        db
+          .prepare(`INSERT INTO features (map_id, entity_id, geometry, style) VALUES (?, ?, ?, ?)`)
+          .run(src.map_id, src.entity_id, src.geometry, newStyle).lastInsertRowid
+      )
+      db.prepare(`UPDATE features SET style = ? WHERE id = ?`).run(closedStyle, id)
+      return { id: copy }
+    })
+  },
+  /** The undo of a fork: drop the copy and reopen the original's year range. Two writes that
+   *  only mean something together, exactly like the fork itself. */
+  deleteFeatureFork(copyId: number, sourceId: number, sourceStyle: string): void {
+    assertFeaturePatch({ style: sourceStyle })
+    tx(() => {
+      db.prepare(`DELETE FROM features WHERE id = ?`).run(copyId)
+      db.prepare(`UPDATE features SET style = ? WHERE id = ?`).run(sourceStyle, sourceId)
+    })
+  },
+  /**
+   * Bind a drawing to a different article, and clean up the one it left if the app had invented
+   * it. Two things the renderer used to do in sequence — and it pushed TWO undo entries, so one
+   * Ctrl+Z put the drawing back and left the article deleted.
+   *
+   * The orphan test moves here with the write for the same reason: it is three reads and a
+   * decision, and doing it on this side makes the whole action one round trip and one transaction.
+   * "Invented by the app" means exactly what it meant in the renderer — no drawings left anywhere,
+   * no body, no links, no fields.
+   *
+   * Returns the row it deleted (or null), which is what lets the caller build ONE undo entry that
+   * puts both halves back.
+   */
+  updateFeatureLink(
+    featureId: number,
+    entityId: number | null,
+    style: string,
+    prevEntityId: number | null
+  ): {
+    dropped: {
+      id: number
+      name: string
+      content: string
+      fields: string
+      created_at: string
+    } | null
+  } {
+    assertFeaturePatch({ style })
+    return tx(() => {
+      db.prepare(`UPDATE features SET entity_id = ?, style = ? WHERE id = ?`).run(
+        entityId,
+        style,
+        featureId
+      )
+      if (prevEntityId === null || prevEntityId === entityId) return { dropped: null }
+      const ent = db.prepare(`SELECT * FROM entities WHERE id = ?`).get(prevEntityId) as
+        | { id: number; name: string; content: string; fields: string; created_at: string }
+        | undefined
+      if (!ent) return { dropped: null }
+      const stillDrawn = db
+        .prepare(`SELECT 1 FROM features WHERE entity_id = ? LIMIT 1`)
+        .get(prevEntityId)
+      const linked = db
+        .prepare(`SELECT 1 FROM links WHERE from_id = ? OR to_id = ? LIMIT 1`)
+        .get(prevEntityId, prevEntityId)
+      let written = ent.content.trim() !== '' || !!stillDrawn || !!linked
+      if (!written) {
+        try {
+          written = Object.values(JSON.parse(ent.fields || '{}') as Record<string, unknown>).some(
+            (v) => String(v ?? '').trim() !== ''
+          )
+        } catch {
+          written = true // unreadable fields are not ours to throw away
+        }
+      }
+      if (written) return { dropped: null }
+      db.prepare(`DELETE FROM entities WHERE id = ?`).run(prevEntityId)
+      logEvent('INFO', 'entity.deleted', { entity: prevEntityId, name: ent.name })
+      return { dropped: ent }
     })
   },
 
@@ -2340,6 +2523,197 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
     )
     api.deleteEntity(e2.id)
     api.updateEntity(a.id, { fields: '{}' }) // restore: later checks share this fixture
+    api.updateFeature(feat.id, { geometry: '{"type":"Point","coordinates":[1,2]}' })
+  }
+
+  // --- E-04, second round: user actions that span two TABLES ----------------------------------
+  //
+  // These could not become batches, because the entity's id is an INPUT to the feature — the
+  // second statement depends on the result of the first. One method per user action is what keeps
+  // the transaction obviously the right size.
+  {
+    const pt = '{"type":"Point","coordinates":[4,4]}'
+    const count = (): { e: number; f: number } => ({
+      e: (api.listEntities() as unknown[]).length,
+      f: (api.getMap(m.id) as { features: unknown[] }).features.length
+    })
+
+    // createDrawing: a drawing IS an article, so this is two inserts into two tables.
+    {
+      const was = count()
+      const made = api.createDrawing({
+        map_id: m.id,
+        geometry: pt,
+        entityName: 'Drawn Realm'
+      }) as { featureId: number; entityId?: number }
+      assert.ok(made.entityId !== undefined, 'createDrawing returns the entity it made')
+      assert.deepEqual(count(), { e: was.e + 1, f: was.f + 1 }, 'both rows appeared')
+      const bound = (
+        api.getMap(m.id) as { features: { id: number; entity_id: number }[] }
+      ).features.find((x) => x.id === made.featureId)!
+      assert.equal(bound.entity_id, made.entityId, 'and the feature is bound to it')
+
+      // deleteDrawing is its undo: both rows go, in one transaction.
+      api.deleteDrawing(made.featureId, made.entityId)
+      assert.deepEqual(count(), was, 'deleteDrawing removes both')
+
+      // The FAILING half, which is the whole point: an invalid geometry must not leave the entity
+      // behind. Before the transaction the entity was inserted first and the feature second, so
+      // the refusal left an article with no drawing — an empty row in the sidebar the user never
+      // made. The validation runs before BEGIN, so nothing is written at all.
+      const before = count()
+      assert.throws(
+        () => api.createDrawing({ map_id: m.id, geometry: 'not json', entityName: 'Ghost' }),
+        /BAD_GEOMETRY/,
+        'createDrawing refuses an invalid geometry'
+      )
+      assert.deepEqual(count(), before, 'and left NO orphan entity behind')
+      assert.ok(
+        !(api.listEntities() as { name: string }[]).some((x) => x.name === 'Ghost'),
+        'the entity it would have made is not there'
+      )
+      // And a failure SQLite raises mid-transaction rolls the entity back too.
+      assert.throws(
+        () => api.createDrawing({ map_id: 999999, geometry: pt, entityName: 'Ghost2' }),
+        /FOREIGN KEY/,
+        'createDrawing on a map that does not exist fails'
+      )
+      assert.deepEqual(count(), before, 'and that rolled the entity back as well')
+      assert.ok(
+        !(api.listEntities() as { name: string }[]).some((x) => x.name === 'Ghost2'),
+        'no orphan from the mid-transaction failure either'
+      )
+    }
+
+    // createFeatureFork / deleteFeatureFork: copy forward, close the original. A copy with no
+    // closed original is two borders claiming the same land in the same year.
+    {
+      const src = api.createFeature({
+        map_id: m.id,
+        geometry: pt,
+        style: JSON.stringify({ from: 100 })
+      }) as { id: number }
+      const styleOf = (fid: number): string =>
+        (api.getMap(m.id) as { features: { id: number; style: string }[] }).features.find(
+          (x) => x.id === fid
+        )!.style
+      const original = styleOf(src.id)
+      const was = count()
+
+      // A refused fork must not leave the copy behind. NOTE what this does and does not prove:
+      // it proves the validation runs before any write, and it is what fails if that ordering is
+      // lost. It does NOT prove the transaction, because there is no reachable failure BETWEEN
+      // the insert and the update — the style is already validated and the source id is already
+      // known to exist, so only an IO error could land there, and that cannot be arranged here.
+      // Checked by breaking it: removing `tx` from this method leaves the run green. The
+      // transaction stays as insurance, and is written down as insurance rather than asserted.
+      // (createDrawing IS testable the same way and is tested — its second statement has a real
+      // foreign key, so a failure there is arrangeable and the assertion has teeth.)
+      assert.throws(
+        () => api.createFeatureFork(src.id, JSON.stringify({ from: 200 }), 'not json'),
+        /BAD_STYLE/,
+        'a fork with an invalid closing style is refused'
+      )
+      assert.deepEqual(count(), was, 'and made no copy')
+      assert.equal(styleOf(src.id), original, 'and did not touch the original')
+
+      const copy = api.createFeatureFork(
+        src.id,
+        JSON.stringify({ from: 200 }),
+        JSON.stringify({ from: 100, to: 199 })
+      ) as { id: number }
+      assert.equal(count().f, was.f + 1, 'a successful fork makes exactly one copy')
+      assert.ok(styleOf(src.id).includes('"to":199'), 'and closes the original')
+      assert.ok(styleOf(copy.id).includes('"from":200'), 'and the copy starts where it should')
+
+      api.deleteFeatureFork(copy.id, src.id, original)
+      assert.deepEqual(count(), was, 'unforking removes the copy')
+      assert.equal(styleOf(src.id), original, 'and reopens the original — both halves, one step')
+      api.deleteFeature(src.id)
+    }
+
+    // updateFeatureLink: rebind a drawing, and drop the article it left IF the app invented it.
+    // Two writes and — in the renderer — two undo entries, so one Ctrl+Z used to put the drawing
+    // back and leave the article deleted.
+    {
+      const keep = api.createEntity({ name: 'Has A Body' }) as { id: number }
+      api.updateEntity(keep.id, { content: 'written by the user' })
+      const invented = api.createDrawing({
+        map_id: m.id,
+        geometry: pt,
+        entityName: 'Invented'
+      }) as { featureId: number; entityId: number }
+      const target = api.createEntity({ name: 'Target' }) as { id: number }
+
+      const r = api.updateFeatureLink(invented.featureId, target.id, '{}', invented.entityId) as {
+        dropped: { id: number; name: string } | null
+      }
+      assert.ok(r.dropped, 'the invented article was empty, so it went with the rebind')
+      assert.equal(r.dropped!.name, 'Invented')
+      assert.equal(
+        (api.getMap(m.id) as { features: { id: number; entity_id: number }[] }).features.find(
+          (x) => x.id === invented.featureId
+        )!.entity_id,
+        target.id,
+        'and the drawing is on its new article'
+      )
+      assert.equal(api.getEntity(invented.entityId), null, 'the empty row is gone')
+
+      // An article with anything written in it is NEVER dropped, whatever became of its drawing.
+      const f2 = api.createDrawing({ map_id: m.id, geometry: pt, entity_id: keep.id }) as {
+        featureId: number
+      }
+      const r2 = api.updateFeatureLink(f2.featureId, target.id, '{}', keep.id) as {
+        dropped: unknown | null
+      }
+      assert.equal(r2.dropped, null, 'an article with a body survives the rebind')
+      assert.ok(api.getEntity(keep.id), 'and is still there')
+
+      // A refused style writes neither half.
+      const boundTo = (fid: number): number =>
+        (api.getMap(m.id) as { features: { id: number; entity_id: number }[] }).features.find(
+          (x) => x.id === fid
+        )!.entity_id
+      const at = boundTo(f2.featureId)
+      assert.throws(
+        () => api.updateFeatureLink(f2.featureId, keep.id, 'not json', target.id),
+        /BAD_STYLE/,
+        'updateFeatureLink validates the style it is given'
+      )
+      assert.equal(boundTo(f2.featureId), at, 'and left the binding alone')
+
+      api.deleteFeatures([invented.featureId, f2.featureId])
+      api.deleteEntities([keep.id, target.id])
+    }
+
+    // deleteEntities / createFeatures: the plain batches, for a multi-select and a paste.
+    {
+      const ids = api.createFeatures([
+        { map_id: m.id, geometry: pt },
+        { map_id: m.id, geometry: pt }
+      ]) as number[]
+      assert.equal(ids.length, 2, 'createFeatures returns an id per row, in order')
+      const was = count()
+      assert.throws(
+        () =>
+          api.createFeatures([
+            { map_id: m.id, geometry: pt },
+            { map_id: m.id, geometry: 'not json' }
+          ]),
+        /BAD_GEOMETRY/,
+        'a paste with one bad row is refused'
+      )
+      assert.deepEqual(count(), was, 'and none of it was written')
+      api.deleteFeatures(ids)
+
+      const e1 = api.createEntity({ name: 'Bulk 1' }) as { id: number }
+      const e2b = api.createEntity({ name: 'Bulk 2' }) as { id: number }
+      api.deleteEntities([e1.id, e2b.id])
+      assert.equal(api.getEntity(e1.id), null)
+      assert.equal(api.getEntity(e2b.id), null)
+    }
+    assert.ok(!db.isTransaction, 'every one of those left the connection outside a transaction')
+    // …and it still works, which is the property a bad rollback would take away.
     api.updateFeature(feat.id, { geometry: '{"type":"Point","coordinates":[1,2]}' })
   }
 
