@@ -125,6 +125,9 @@ export default function App(): React.JSX.Element {
    *
    * ONCE, and the guard on `mapId` is what makes it once: `maps` is a fresh array after every
    * refresh(), and without it this would re-read the setting on every edit.
+   *
+   * "WITHOUT going to it" describes THIS effect only — the one below decides whether to navigate,
+   * for the one case that should: a genuinely blank session.
    */
   useEffect(() => {
     if (mapId !== null || !maps.length) return
@@ -145,6 +148,31 @@ export default function App(): React.JSX.Element {
       off = true
     }
   }, [maps, mapId])
+  /**
+   * Land on the map directly for a genuinely blank session — a normal launch or File ▸ New —
+   * instead of the start screen. Its "＋ New world" button was never meaningful there: a normal
+   * launch already IS a new, blank world (main's Photoshop-style reset), and main now seeds that
+   * world with one map before the renderer even loads, purely so there is somewhere to land.
+   *
+   * Waits on `mapId` rather than re-deriving a target: the mount effect above already picked one
+   * with the same "last used, else first" rule, so this reuses that instead of a second read of
+   * `lastMapId` that would only ever miss on a freshly reset world anyway (the setting is wiped
+   * along with everything else).
+   *
+   * Scoped to `!worldFile` — asked for `.world`/`.dunya` FILES to keep landing on the plain empty
+   * view unchanged; a file with no map of its own has nowhere to send this effect regardless.
+   *
+   * ONCE per renderer: without the ref this would fire again on a later `mapId` change (switching
+   * maps from the toolbar) and yank the user's `view` back to a workspace they had already left.
+   */
+  const navigatedBlank = useRef(false)
+  useEffect(() => {
+    if (navigatedBlank.current || view.kind !== 'empty' || mapId === null) return
+    navigatedBlank.current = true
+    void api.worldInfo().then((w) => {
+      if (!w.file) setView({ kind: 'map', id: mapId })
+    })
+  }, [mapId, view.kind])
   useEffect(() => {
     mapIdRef.current = mapId
   }, [mapId])
