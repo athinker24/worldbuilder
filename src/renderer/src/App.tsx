@@ -149,18 +149,22 @@ export default function App(): React.JSX.Element {
     }
   }, [maps, mapId])
   /**
-   * Land on the map directly for a genuinely blank session — a normal launch or File ▸ New —
-   * instead of the start screen. Its "＋ New world" button was never meaningful there: a normal
-   * launch already IS a new, blank world (main's Photoshop-style reset), and main now seeds that
-   * world with one map before the renderer even loads, purely so there is somewhere to land.
+   * Land on the map directly, but only the FIRST time this app has ever been opened — nothing
+   * saved yet, nothing to come back to. Every launch after that keeps showing the start screen
+   * (Recent Projects / Open Project), because by then there is very likely a real project to
+   * return to, and defaulting into a throwaway blank map would bury it. Main still seeds a blank
+   * map into every blank session either way (see the mount effect above), so Maps in the sidebar
+   * is always one click away regardless of which case this is.
    *
    * Waits on `mapId` rather than re-deriving a target: the mount effect above already picked one
    * with the same "last used, else first" rule, so this reuses that instead of a second read of
    * `lastMapId` that would only ever miss on a freshly reset world anyway (the setting is wiped
    * along with everything else).
    *
-   * Scoped to `!worldFile` — asked for `.world`/`.dunya` FILES to keep landing on the plain empty
-   * view unchanged; a file with no map of its own has nowhere to send this effect regardless.
+   * Both `worldInfo()` and `recentWorlds()` are read FRESH here rather than through the `worldFile`
+   * / `recent` state below — those are fetched by their own effect and start out as `null`/`[]`,
+   * indistinguishable at this point from "genuinely none", which would auto-navigate on every
+   * opened file and every returning user until that fetch happened to resolve first.
    *
    * ONCE per renderer: without the ref this would fire again on a later `mapId` change (switching
    * maps from the toolbar) and yank the user's `view` back to a workspace they had already left.
@@ -169,8 +173,8 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     if (navigatedBlank.current || view.kind !== 'empty' || mapId === null) return
     navigatedBlank.current = true
-    void api.worldInfo().then((w) => {
-      if (!w.file) setView({ kind: 'map', id: mapId })
+    void Promise.all([api.worldInfo(), api.recentWorlds()]).then(([w, r]) => {
+      if (!w.file && r.length === 0) setView({ kind: 'map', id: mapId })
     })
   }, [mapId, view.kind])
   useEffect(() => {
@@ -1308,8 +1312,12 @@ export default function App(): React.JSX.Element {
               <h2>{t('World')}</h2>
               {!worldFile && (
                 <>
+                  {/* No "+ New world" here: a normal launch already IS a new, blank world (main's
+                      Photoshop-style reset), so the button offered to do something that had
+                      already happened. Starting genuinely from scratch is still one click away —
+                      Maps in the sidebar, or File ▸ New Project — for the rare case a returning
+                      user wants a fresh document instead of picking one up from here. */}
                   <div className="start-actions">
-                    <button onClick={newWorld}>{t('＋ New world')}</button>
                     <button onClick={openWorld}>
                       <Icon name="folder" size={14} /> {t('Open…')}
                     </button>
