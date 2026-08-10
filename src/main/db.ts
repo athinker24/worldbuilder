@@ -1321,11 +1321,19 @@ export function resolveAssetPath(rel: string): string | null {
   return full.startsWith(normalize(assetsDir) + sep) ? full : null
 }
 
-/** Does the working copy hold anything worth keeping? (avoids a pointless snapshot on blank launch) */
+/** Does the working copy hold anything worth keeping? (avoids a pointless snapshot on blank launch)
+ *  A single map with no image and nothing drawn on it does NOT count. Every blank session (see
+ *  index.ts) seeds exactly one so the app can land on it directly instead of an empty start
+ *  screen — if that seed alone counted as content, every ordinary launch would re-trigger the
+ *  snapshot-and-reset dance for a world nobody touched, which is the shape of bug that once filled
+ *  `backups/` with 8.4 GB of empty sessions (see fix/backup-bloat). More than one map (the user
+ *  pressed "+ New map" on purpose), or an attached image, or anything actually made, still does. */
 export function hasContent(): boolean {
   return (
     !!db.prepare(`SELECT 1 FROM entities LIMIT 1`).get() ||
-    !!db.prepare(`SELECT 1 FROM maps LIMIT 1`).get()
+    !!db.prepare(`SELECT 1 FROM features LIMIT 1`).get() ||
+    !!db.prepare(`SELECT 1 FROM maps WHERE image_path IS NOT NULL LIMIT 1`).get() ||
+    (db.prepare(`SELECT COUNT(*) AS n FROM maps`).get() as { n: number }).n > 1
   )
 }
 
@@ -4011,6 +4019,33 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
   assert.ok(!hasContent())
   assert.ok(!existsSync(join(dir, 'assets', 'test.png')))
   assert.equal(api.getSetting('worldFile'), null)
+
+  // The one map a blank session is seeded with (index.ts, never through this function) must not
+  // itself count as content, or every ordinary launch would re-trigger the snapshot-and-reset it
+  // exists to skip — the exact shape of bug that once filled backups/ with 8.4 GB of nothing.
+  {
+    api.createMap({ name: 'New map' })
+    assert.ok(!hasContent(), 'one blank map, freshly seeded, is not content')
+    api.createMap({ name: 'Second map' })
+    assert.ok(hasContent(), 'a second map is a deliberate action and IS content')
+  }
+  resetWorld()
+  {
+    api.createMap({ name: 'New map', image_path: 'x.png', width: 100, height: 100 })
+    assert.ok(hasContent(), 'an attached image is content even with nothing drawn on it')
+  }
+  resetWorld()
+  {
+    const m = api.createMap({ name: 'New map' }) as { id: number }
+    assert.ok(!hasContent())
+    api.createFeature({
+      map_id: m.id,
+      geometry: '{"type":"Point","coordinates":[0,0]}',
+      style: '{}'
+    })
+    assert.ok(hasContent(), 'a single drawing on the one seeded map is content')
+  }
+  resetWorld()
 
   // Migration when an OLD world with Turkish keys is opened: no data may be lost. This was the
   // one real data risk of anglicising the codebase — years of parent chains, banners and

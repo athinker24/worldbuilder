@@ -414,6 +414,10 @@ function newProject(): void {
     logEvent('INFO', 'project.autobacked', { reason: 'previous session had content' })
   }
   resetWorld()
+  // A blank world with one map already waiting, so the renderer can land straight on it instead
+  // of the start screen. Called directly, never through the 'api' IPC channel, so this does not
+  // touch `dirty` — the world must still read as untouched the moment it opens. See hasContent().
+  dbApi.createMap({ name: ml('New map') })
   currentFile = null
   dirty = false
   updateTitle()
@@ -454,6 +458,10 @@ const MENU_TR: Record<string, string> = {
   Redo: 'Yinele',
   Preferences: 'Tercihler',
   Maps: 'Haritalar',
+  // Used once, when a blank session's first map is seeded directly by main — see newProject and
+  // the launch sequence. Kept in sync with i18n.tsx's own 'New map' entry by hand; the two never
+  // read from one another (main cannot import the renderer's i18n module).
+  'New map': 'Yeni harita',
   Overview: 'Genel Bakış',
   'Hide Panels': 'Panelleri Gizle',
   'Hide Panels, Keep Tools': 'Panelleri Gizle, Araçlar Kalsın',
@@ -1051,6 +1059,13 @@ app.whenReady().then(() => {
       const stamp = new Date().toISOString().replace(/[:.]/g, '-')
       packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.world`))
       resetWorld()
+      dbApi.createMap({ name: ml('New map') }) // see newProject() — same reasoning
+    } else if (!(dbApi.listMaps() as unknown[]).length) {
+      // Not a reset, but still blank: the very first launch this app has ever had (a fresh
+      // world.db, schema only, nothing seeded yet), or a blank session continuing from last time
+      // that somehow lost its map. Either way the guarantee is unconditional — a blank session
+      // always has exactly one map to land on.
+      dbApi.createMap({ name: ml('New map') })
     }
   } catch (err) {
     startupWarning = err instanceof Error ? err.message : String(err)
