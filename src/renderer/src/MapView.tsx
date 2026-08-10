@@ -573,6 +573,57 @@ const ringAreaCentroid = (ring: number[][]): [number, number] => {
   if (Math.abs(a) < 1e-9) return ringCentroid(ring) // degenerate ring — fall back rather than divide by ~0
   return [cx / (6 * a), cy / (6 * a)]
 }
+// Adjacency tolerance for derived-label clustering, as a FRACTION of the map's own long side.
+//
+// It was a flat 0.01 (the vertex grid's own cell), and on real hand-drawn borders that caught
+// nothing: measured across a real world's map, neighbours that look welded sit 0.039 to 0.14 units
+// apart on a 1024-unit map — snapping residue, a hundredth of a pixel, invisible and not something
+// anyone drew on purpose. Regions that are GENUINELY apart on that same map start at 18.8 units.
+// Two populations separated by more than a hundredfold, so the threshold is not a close call; this
+// puts it at ~1 unit there and ~4 on a 4096-unit map, still an order of magnitude under anything
+// real. "Only touching neighbours merge" is the rule — this is what touching measures as.
+const ADJ_FRAC = 0.001
+// Squared distance from a point to a segment. The T-junction test below runs it per vertex per
+// candidate segment, so it stays allocation-free and never takes a square root.
+const segDist2 = (
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number
+): number => {
+  const dx = bx - ax
+  const dy = by - ay
+  const len2 = dx * dx + dy * dy
+  let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0
+  t = t < 0 ? 0 : t > 1 ? 1 : t
+  const qx = px - (ax + t * dx)
+  const qy = py - (ay + t * dy)
+  return qx * qx + qy * qy
+}
+/**
+ * Do these two rings touch? A vertex of either lying ON an edge of the other counts.
+ *
+ * The vertex-cell test that runs first only catches neighbours that share a CORNER, which is what
+ * geoman produces when a vertex is dragged onto a vertex. It also snaps a vertex onto an EDGE, and
+ * that leaves the other polygon with no vertex there at all: a T-junction, two polygons sharing a
+ * real border and not one coordinate. Both directions are checked because a T-junction is
+ * one-sided by construction — the vertex belongs to whichever polygon was drawn second.
+ */
+const ringsTouch = (a: number[][], b: number[][], tol: number): boolean => {
+  const tol2 = tol * tol
+  const hit = (pts: number[][], ring: number[][]): boolean => {
+    for (const [px, py] of pts)
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++)
+        if (segDist2(px, py, ring[j][0], ring[j][1], ring[i][0], ring[i][1]) <= tol2) return true
+    return false
+  }
+  return hit(a, b) || hit(b, a)
+}
+// Below this the two PCA eigenvalues are too close to call a direction (see pcaAxis). 0.15 sits
+// just under a 1.2:1 rectangle, measured against open rings — anything rounder is written level.
+const ANISO_MIN = 0.15
 // PCA main axis: long-axis angle (radians) from the vertex cloud's covariance + width along it.
 // CK3/cartography use medial axis; PCA is enough at personal scale (ponytail: medial axis is overkill).
 const pcaAxis = (verts: number[][]): { theta: number; extent: number } => {
@@ -594,7 +645,15 @@ const pcaAxis = (verts: number[][]): { theta: number; extent: number } => {
     sxy += dx * dy
     syy += dy * dy
   }
-  const theta = 0.5 * Math.atan2(2 * sxy, sxx - syy)
+  // A shape with no dominant axis has no meaningful angle to follow, and atan2 does not know
+  // that: the two eigenvalues of the covariance come out equal and the direction it returns is
+  // whatever the rounding leaned toward — a square answers 45°, which is a name written up the
+  // diagonal of a region that is not diagonal at all. Compare the eigenvalues instead
+  // ((l1-l2)/(l1+l2), scale-free) and write horizontally below ANISO_MIN, which sits just under a
+  // 1.2:1 rectangle. Past it the axis is real and the label follows it as before.
+  const trace = sxx + syy
+  const spread = Math.sqrt((sxx - syy) ** 2 + 4 * sxy * sxy)
+  const theta = trace > 0 && spread / trace < ANISO_MIN ? 0 : 0.5 * Math.atan2(2 * sxy, sxx - syy)
   const c = Math.cos(theta)
   const s = Math.sin(theta)
   let min = Infinity
@@ -1202,12 +1261,6 @@ export default function MapView({
     setConquestState(c)
   }
   const [ladderTags, setLadderTags] = useState<string[]>([])
-  // Which rank tags currently resolve to SOMETHING on THIS map — set alongside ladderTags in
-  // reloadFeatures (see the mosaicManaged block). A rank whose whole ladder has nothing reachable
-  // from a base polygon drawn here would press into an empty view, so HierarchyPanel hides its
-  // chip. Per-map on purpose: the same rank can be populated on one map and empty on another, and
-  // "press it and nothing shows up HERE" is what was actually reported.
-  const [nonEmptyRankTags, setNonEmptyRankTags] = useState<Set<string>>(new Set())
   // Climb the parent chain to the ancestor carrying `level` (null level = the entity itself).
   // Returns null when that year's chain has no such ancestor. Cycle-guarded.
   const levelAncestor = (eid: number, level: string | null, year: number): number | null => {
@@ -2220,30 +2273,36 @@ export default function MapView({
           }
         }
       }
-      // Which rank chips are worth showing on THIS map: `seen` is already every base entity
-      // drawn here PLUS every ancestor reached from them, across every year — year-independent
-      // on purpose, the same reason mosaicManaged is, so a chip does not blink in and out while
-      // the timeline is dragged. A tag with nothing in `seen` would press into an empty view.
-      const nonEmpty = new Set<string>()
-      for (const eid of seen) for (const t of entTags.current.get(eid) ?? []) nonEmpty.add(t)
-      setNonEmptyRankTags(nonEmpty)
     }
-    // Rank mode: base polygons painted by their ancestor at that rank (color resolved in
-    // applyYear). Paint mode: base polygons colored by fields[dim]; empty values grey.
-    let paint: { base: Set<number>; color: Map<number, string> } | null = null
-    let rank: { base: Set<number> } | null = null
+    // A parent's own polygon is hidden in a derived view because the mosaic of what lies UNDER it
+    // already draws that land, and two images of the same region is the thing the mosaic exists to
+    // prevent. When nothing lies under it ON THIS MAP that reasoning inverts: a duchy with no
+    // counties yet, a realm drawn before it was carved up, has only its own drawing to stand for
+    // the land — and dropping that made the region vanish the moment a filter was pressed while
+    // the panel went on listing the entry and its colour. `mosaicManaged` is already exactly
+    // "something below points at me", so it answers this question too, per map and across every
+    // year for the same reason it is built that way.
+    //
+    // Ranks only: an untagged drawing is not part of the ladder and stays out of these views
+    // exactly as before, so pressing a filter still narrows the map rather than redrawing it.
+    const inDerived = (eid: number): boolean =>
+      baseSet.current.has(eid) || (entTags.current.has(eid) && !mosaicManaged.current.has(eid))
+    // Rank mode: polygons painted by their ancestor at that rank (color resolved in applyYear).
+    // Paint mode: polygons colored by fields[dim]; empty values grey.
+    let paint: { shows: (eid: number) => boolean; color: Map<number, string> } | null = null
+    let rank: { shows: (eid: number) => boolean } | null = null
     const mode = activeModeRef.current
     if (mode?.kind === 'paint') {
       const color = new Map<number, string>()
       for (const e of h.entities) {
-        if (!baseSet.current.has(e.id)) continue
+        if (!inDerived(e.id)) continue
         const value = (JSON.parse(e.fields || '{}') as Record<string, string>)[mode.key]
         color.set(e.id, value ? (modes.colors[mode.key]?.[value] ?? autoColor(value)) : '#666666')
         if (value) dimValue.current.set(e.id, value) // label text; a valueless (grey) region gets none
       }
-      paint = { base: baseSet.current, color }
+      paint = { shows: inDerived, color }
     } else if (mode?.kind === 'rank') {
-      rank = { base: baseSet.current }
+      rank = { shows: inDerived }
       // Rank targets: entities carrying the displayed tag
       for (const e of h.entities)
         if (e.tags.includes(mode.key)) rungTargets.current.set(e.id, entColors.current.get(e.id)!)
@@ -2256,8 +2315,7 @@ export default function MapView({
       // Before the mode filter below: what is in the database is a fact about the feature, not
       // about whether this view happens to draw it.
       featGeom.current.set(f.id, f.geometry)
-      if (derived && (f.entity_id === null || !derived.base.has(f.entity_id) || !isPolygon))
-        continue
+      if (derived && (f.entity_id === null || !derived.shows(f.entity_id) || !isPolygon)) continue
       const style = JSON.parse(f.style || '{}') as FeatureStyle
       // A label has Point geometry like a pin — the discriminator is the text field in style
       const isLabel = !isPolygon && !isLine && style.text !== undefined
@@ -2433,7 +2491,19 @@ export default function MapView({
             // boundary could in theory split a component — write the 4 neighbour cells too if seen.
             const geom = JSON.parse(f.geometry) as { type: string; coordinates: number[][][] }
             if (geom.type === 'Polygon') {
-              const ring = geom.coordinates[0]
+              const closed = geom.coordinates[0]
+              // GeoJSON closes a ring by REPEATING its first vertex, and that duplicate is a real
+              // weight in everything below: it drags both the vertex-average centroid and the PCA
+              // mean toward one corner, which tilts the label's axis on a shape that should read
+              // dead level — measured at -10.9° on a 1.5:1 rectangle and -3.6° on a 3:1. Every
+              // ring in the table is closed, so this was every derived label, always in the same
+              // direction. The open ring is what the rest of this wants anyway: ringsTouch wraps
+              // to close by itself, and ringArea already indexes modulo its length.
+              const n = closed.length
+              const ring =
+                n > 1 && closed[0][0] === closed[n - 1][0] && closed[0][1] === closed[n - 1][1]
+                  ? closed.slice(0, -1)
+                  : closed
               labelGeo.current.set(f.id, {
                 keys: ring.map(([x, y]) => `${Math.round(x / 0.01)}_${Math.round(y / 0.01)}`),
                 verts: ring,
@@ -2928,14 +2998,60 @@ export default function MapView({
         else parent.set(find(fid), find(first))
       }
     }
-    // Derived labels scale relative to the OPEN MAP's own size, not fixed pixels — a fixed cap
-    // and floor tuned to one map's base image come out wrong the moment a differently-sized one
-    // is used. `worldMapRef`, not the `worldMap` state, for the same staleness reason `mode`
-    // above reads `activeModeRef`: this function is a fresh closure every render, and the ref is
-    // what handlers reach for to see the CURRENT map rather than whichever one they closed over.
+    // Both the adjacency tolerance and the label size below are FRACTIONS of the open map's own
+    // long side, not fixed pixels: numbers tuned against one base image come out wrong the moment
+    // a differently-sized one is used. `worldMapRef`, not the `worldMap` state, for the same
+    // staleness reason `mode` above reads `activeModeRef` — this function is a fresh closure every
+    // render, and the ref is what sees the CURRENT map rather than whichever one it closed over.
     // Falls back to MAX_BASE_PX when there is no base image yet, so this never divides by zero.
     const wmr = worldMapRef.current
     const mapSpan = Math.max(wmr?.width ?? MAX_BASE_PX, wmr?.height ?? MAX_BASE_PX)
+    const adjTol = mapSpan * ADJ_FRAC
+    // Second pass: neighbours that touch along an edge without sharing a corner (see ringsTouch).
+    // Left out, a realm drawn with T-junctions got its name written once per piece instead of once
+    // over the whole thing — which is the repeated label, and it is easy to produce by hand because
+    // geoman snaps a vertex to an edge just as readily as to a vertex.
+    //
+    // Two filters keep this cheap, and both matter: pairs already in one component are skipped, so
+    // the ordinary case (merged by a shared corner in the pass above) costs a find() and nothing
+    // more, and boxes that do not overlap are skipped before any geometry is looked at. Measured on
+    // a mode switch: 400 adjacent polygons in one realm, 36-70 ms, indistinguishable from before.
+    // ponytail: still O(pairs) within a group, so the slow case is polygons that overlap by box and
+    // never touch — 60 mutually overlapping 102-vertex slivers cost 330 ms, contrived (real
+    // neighbours touch, and touching merges them out of the loop) and paid on a mode switch rather
+    // than per frame. A segment grid is the upgrade if a real map ever finds it.
+    const box = new Map<number, [number, number, number, number]>()
+    for (const { fid } of items) {
+      let x0 = Infinity
+      let y0 = Infinity
+      let x1 = -Infinity
+      let y1 = -Infinity
+      for (const [x, y] of labelGeo.current.get(fid)!.verts) {
+        if (x < x0) x0 = x
+        if (x > x1) x1 = x
+        if (y < y0) y0 = y
+        if (y > y1) y1 = y
+      }
+      box.set(fid, [x0, y0, x1, y1])
+    }
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const A = items[i]
+        const B = items[j]
+        if (A.key !== B.key) continue
+        const ra = find(A.fid)
+        const rb = find(B.fid)
+        if (ra === rb) continue
+        const a = box.get(A.fid)!
+        const b = box.get(B.fid)!
+        if (a[0] - adjTol > b[2] || b[0] - adjTol > a[2]) continue
+        if (a[1] - adjTol > b[3] || b[1] - adjTol > a[3]) continue
+        if (
+          ringsTouch(labelGeo.current.get(A.fid)!.verts, labelGeo.current.get(B.fid)!.verts, adjTol)
+        )
+          parent.set(ra, rb)
+      }
+    }
     // 4. One label per component
     const comps = new Map<number, { key: string; fids: number[] }>()
     for (const { fid, key } of items) {
@@ -5518,7 +5634,6 @@ export default function MapView({
               <HierarchyPanel
                 active={activeMode}
                 reloadToken={reloadToken}
-                nonEmptyRankTags={nonEmptyRankTags}
                 onMode={(m) => {
                   activeModeRef.current = m
                   setActiveMode(m)
