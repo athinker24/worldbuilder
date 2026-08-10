@@ -1,6 +1,6 @@
 {
   "name": "worldbuilding",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "Worldbuilding desktop app: nested interactive maps, encyclopedia articles, dynasties, languages and a timeline — all linked together.",
   "license": "SEE LICENSE IN TERMS.txt",
   "main": "./out/main/index.js",
