@@ -498,6 +498,10 @@ export function packWorld(targetPath: string): void {
   // invariant with one exception in it is not an invariant, and this is the cheaper end of proving
   // that.
   const out = openDb(tmp)
+  // The output trust boundary. On the SNAPSHOT, inside the same try/finally that already deletes
+  // it on any failure — so a sanitise that throws costs the save and nothing else: the working
+  // copy is not touched by this function past the two lines above, and the target .world is only
+  // replaced by the rename at the very end.
   // Everything from here to the close is inside a try, and the reason is the NEXT save rather than
   // this one. A throw in the loop below — an image deleted between the readdir and the read, a
   // disk that fills partway through — used to leave the temp file open AND on disk, and Windows
@@ -507,6 +511,14 @@ export function packWorld(targetPath: string): void {
   // failure cost exactly the save it happened on.
   let packed = false
   try {
+    if (sanitizeExport(out))
+      // VACUUM after, and this is gate 27's lesson in a second place: an UPDATE frees the old
+      // cell by dropping it from the page index, it does not erase the bytes. Sanitising AFTER
+      // the VACUUM INTO therefore left the rejected value plainly readable in the packed file
+      // with a text editor — measured, on the first run of the regression that now guards it.
+      // Rebuilding the snapshot is what makes the removal real. Skipped entirely when nothing
+      // was sanitised, which is every ordinary save.
+      out.exec(`VACUUM`)
     out.exec(`CREATE TABLE IF NOT EXISTS assets (name TEXT PRIMARY KEY, data BLOB NOT NULL)`)
     out.exec(`PRAGMA user_version = ${FORMAT_VERSION}`) // header field, not a row — see FORMAT_VERSION
     const ins = out.prepare(`INSERT OR REPLACE INTO assets (name, data) VALUES (?, ?)`)
@@ -1053,12 +1065,27 @@ function isGeometry(v: string): boolean {
   return typeof g.type === 'string' && GEOM_TYPES.has(g.type) && Array.isArray(g.coordinates)
 }
 
-/** Reset malformed JSON columns in an imported .world to defaults; returns rows repaired.
- *  Deliberately in ONE place: the renderer JSON.parses these columns in 20+ spots and a
- *  single bad row would take down that whole view (the map never opens, the entity page
- *  stays blank). Rather than wrapping every call site in try/catch, the data is repaired at
- *  the gate where it enters the app. Rows are NEVER deleted — only the bad column is reset. */
-function repairImportedJson(): number {
+/**
+ * THE ONE DEFINITION OF "this row is not something this app can consume".
+ *
+ * It takes the database to work on rather than using the module-level one, and that is the whole
+ * reason it looks like this. There are now TWO boundaries that need this exact rule and they are
+ * not the same boundary:
+ *
+ *  - the OPEN (`repairImportedJson`), where somebody else's file becomes the working copy and
+ *    repairing it is the price of opening it at all;
+ *  - the EXPORT (`sanitizeExport`), where the working copy becomes somebody else's file and the
+ *    app must not hand on data its own gate would reject.
+ *
+ * Two copies of a rule this exact would drift on the first change to either. One function, two
+ * callers, and the callers keep their own logging and their own transaction — because what they
+ * MEAN is different even though what they DO is identical.
+ *
+ * Rows are NEVER deleted; only the unusable column is reset. The single exception is a settings
+ * row, which has no other column to fall back to.
+ */
+function repairJson(target: DatabaseSync): { fixed: number; byKind: Record<string, number> } {
+  const db = target // shadows the module-level handle on purpose: this function must not use it
   let fixed = 0
   // Counted per column, not just totalled: this is the one place in the app that DISCARDS a user's
   // data without asking, and "3 rows repaired" does not tell them what they lost. `geometry=3` says
@@ -1167,7 +1194,11 @@ function repairImportedJson(): number {
   }
 
   // The same for the sidebar's folder tree, which lives as one JSON array in settings.
-  const rawFolders = api.getSetting('entityFolders')
+  const rawFolders =
+    (
+      db.prepare(`SELECT value FROM settings WHERE key = 'entityFolders'`).get() as
+        { value: string } | undefined
+    )?.value ?? null
   if (rawFolders && isArray(rawFolders)) {
     const folders = JSON.parse(rawFolders) as { id: string; parent: string | null }[]
     const fParent = new Map(folders.map((f) => [f.id, f.parent ?? null]))
@@ -1187,15 +1218,73 @@ function repairImportedJson(): number {
       }
     }
     if (cut) {
-      api.setSetting('entityFolders', JSON.stringify(folders))
+      db.prepare(`UPDATE settings SET value = ? WHERE key = 'entityFolders'`).run(
+        JSON.stringify(folders)
+      )
       fixed += cut
       byKind.folderParent = cut
     }
   }
 
-  // WARN, not INFO: nothing else in the app throws a user's data away, and the only trace it used
-  // to leave was the data being gone. A clean file stays silent.
+  return { fixed, byKind }
+}
+
+/**
+ * The OPEN boundary: someone else's file has just been copied over the working copy.
+ *
+ * WARN, not INFO: nothing else in the app throws a user's data away, and the only trace it used to
+ * leave was the data being gone. A clean file stays silent.
+ */
+function repairImportedJson(): number {
+  const { fixed, byKind } = repairJson(db)
   if (fixed) logEvent('WARN', 'data.repaired', { rows: fixed, ...byKind })
+  return fixed
+}
+
+/**
+ * The EXPORT boundary: the working copy is about to become somebody else's file.
+ *
+ * E-02. A `.world` that arrives with rows this app cannot consume gets them repaired on the way
+ * IN — but only the rows the user then touches are rewritten, so everything they never opened was
+ * carried straight back out again by `packWorld`, byte for byte. Measured: seven planted values,
+ * seven still present after an ordinary edit and a save. The app was a carrier.
+ *
+ * Runs on the SNAPSHOT (the VACUUM INTO temp copy), never on the working copy. That is not a
+ * detail: repairing at the open is something the user accepts as the cost of opening a file they
+ * were given, while silently rewriting their own database on the way to Ctrl+S is data loss they
+ * never asked for. The snapshot is discarded on any failure and the working copy is untouched by
+ * construction — see packWorld.
+ *
+ * ONLY what the open would reject. Not "make the data perfect": non-finite coordinates, extra keys
+ * inside a geometry and enormous-but-valid style JSON all pass the open, so they pass here too and
+ * travel exactly as the user has them. The rule is "never hand on what our own gate refuses",
+ * which is a narrower and more defensible promise than "hand on nothing that could ever break a
+ * consumer".
+ */
+function sanitizeExport(out: DatabaseSync): number {
+  out.exec(`BEGIN IMMEDIATE`)
+  let fixed = 0
+  let byKind: Record<string, number> = {}
+  try {
+    ;({ fixed, byKind } = repairJson(out))
+    out.exec(`COMMIT`)
+  } catch (err) {
+    try {
+      out.exec(`ROLLBACK`)
+    } catch {
+      /* the snapshot is thrown away either way; the caller's error is the honest one */
+    }
+    throw err
+  }
+  // Counted per column, like the open. The user is handing this file to somebody, so "nine rows
+  // were dropped on the way out" is something they are owed — and never the rows themselves.
+  // Guarded: a failure to log must not turn a completed pack into an exception (gate 38's rule).
+  if (fixed)
+    try {
+      logEvent('WARN', 'export.sanitised', { rows: fixed, ...byKind })
+    } catch {
+      /* the file is already correct; a missing log line is not worth failing the save */
+    }
   return fixed
 }
 
@@ -1361,6 +1450,55 @@ function tx<T>(fn: () => T): T {
  * `style` gets `isPlainObject` and no more, because that is the whole contract its consumers have:
  * every one of them does `JSON.parse(f.style || '{}')` and reads fields defensively.
  */
+/**
+ * The same question for the other three tables, and NO MORE than the open asks.
+ *
+ * `settings` is the one to be careful with: the open only checks values that LOOK like JSON,
+ * because the same table legitimately holds `dark`, `tr`, a file path and `lastMapId` as a bare
+ * number. Refusing every non-object here would break the app's own writes. What is refused is
+ * exactly the form the open DELETES: something that opens with `{` or `[` and then does not parse.
+ */
+function assertEntityPatch(patch: Record<string, unknown>): void {
+  if ('fields' in patch) {
+    const f = patch.fields
+    if (typeof f !== 'string' || !isPlainObject(f)) throw new Error('BAD_FIELDS: not a JSON object')
+  }
+}
+function assertSettingValue(value: unknown): void {
+  if (typeof value !== 'string') throw new Error('BAD_SETTING: not a string')
+  if (!/^\s*[[{]/.test(value)) return // a primitive: the open does not check it, nor do we
+  if (!isPlainObject(value) && !isArray(value))
+    throw new Error('BAD_SETTING: looks like JSON and is not')
+}
+/**
+ * Would this parent make a cycle, or a chain deeper than the open allows?
+ *
+ * Mirrors `repairJson`'s walk rather than checking `parent === id`: the open cuts a link when the
+ * climb from a row reaches something already seen OR runs past MAX_TREE_DEPTH, and a two-map loop
+ * (A under B under A) is neither self-parenthood nor rare. The UI has its own guard where a cycle
+ * would be created; this is the same rule at the boundary that guard cannot see.
+ */
+function assertMapParent(id: number, parent: unknown): void {
+  if (parent === null || parent === undefined) return
+  if (typeof parent !== 'number') throw new Error('BAD_PARENT: not a map id')
+  if (parent === id) throw new Error('BAD_PARENT: a map cannot be its own parent')
+  const parentOf = new Map(
+    (
+      db.prepare(`SELECT id, parent_map_id FROM maps`).all() as {
+        id: number
+        parent_map_id: number | null
+      }[]
+    ).map((m) => [m.id, m.parent_map_id])
+  )
+  const seen = new Set<number>([id])
+  let cur: number | null | undefined = parent
+  while (cur !== null && cur !== undefined) {
+    if (seen.has(cur)) throw new Error('BAD_PARENT: that would make a loop')
+    seen.add(cur)
+    if (seen.size > MAX_TREE_DEPTH) throw new Error('BAD_PARENT: nested too deep')
+    cur = parentOf.get(cur) ?? null
+  }
+}
 function assertFeaturePatch(patch: Record<string, unknown>): void {
   if ('geometry' in patch) {
     const g = patch.geometry
@@ -1510,6 +1648,7 @@ export const api = {
   // when a sixth route appears. Names, never content: the log is meant to be pasted into a message,
   // and a name is what makes "my article vanished" answerable at all.
   createEntity(e: { name: string; content?: string; fields?: string }): unknown {
+    if (e.fields !== undefined) assertEntityPatch({ fields: e.fields })
     const r = db
       .prepare(`INSERT INTO entities (name, content, fields) VALUES (?, ?, ?)`)
       .run(e.name, e.content ?? '', e.fields ?? '{}')
@@ -1524,6 +1663,7 @@ export const api = {
       'name' in patch
         ? (db.prepare(`SELECT name FROM entities WHERE id = ?`).get(id) as { name: string })?.name
         : undefined
+    assertEntityPatch(patch)
     const p = patchSql('entities', ['name', 'content', 'fields'], patch)
     if (p)
       db.prepare(`${p.sql}, updated_at = datetime('now') WHERE id = ?`).run(
@@ -1537,12 +1677,7 @@ export const api = {
    *  realm, and stopping half way used to leave some conquered and some not under a single undo
    *  entry that claimed all of them. `fields` is validated the same way the open validates it. */
   updateEntities(list: { id: number; patch: Record<string, unknown> }[]): void {
-    for (const u of list)
-      if ('fields' in u.patch) {
-        const f = u.patch.fields
-        if (typeof f !== 'string' || !isPlainObject(f))
-          throw new Error('BAD_FIELDS: not a JSON object')
-      }
+    for (const u of list) assertEntityPatch(u.patch)
     tx(() => {
       for (const u of list) {
         const p = patchSql('entities', ['name', 'content', 'fields'], u.patch)
@@ -1714,6 +1849,74 @@ export const api = {
     logEvent('INFO', 'link.created', { from: from_id, to: to_id, relation })
     return { id: Number(r.lastInsertRowid) }
   },
+  /**
+   * Add a family tie, creating the person on the spot when they are new — as ONE action.
+   *
+   * Typing a name into the dynasty section is how people get made in this app, so "add a mother
+   * called X" is two writes into two tables whenever X is new: the entity, then the link. The
+   * renderer did them in sequence, so a link that failed left a person in the Person folder
+   * attached to nobody — visible in the sidebar, invisible as a relation, and nothing to undo
+   * because the undo record came after both.
+   *
+   * EITHER endpoint may be a creation, because the direction is not fixed: a mother is
+   * `self → person`, a child is `person → self`. Nothing here decides which; the caller says.
+   *
+   * Returns `created` so the caller can build ONE undo entry that removes the link and the person
+   * together — and only the person it actually made, never one that already existed.
+   */
+  addRelation(
+    from: number | { name: string; fields?: string },
+    to: number | { name: string; fields?: string },
+    relation: string
+  ): { linkId: number; from_id: number; to_id: number; created?: number } {
+    for (const side of [from, to])
+      if (typeof side !== 'number' && side.fields !== undefined && !isPlainObject(side.fields))
+        throw new Error('BAD_FIELDS: not a JSON object')
+    return tx(() => {
+      let created: number | undefined
+      const resolve = (side: number | { name: string; fields?: string }): number => {
+        if (typeof side === 'number') return side
+        const id = Number(
+          db
+            .prepare(`INSERT INTO entities (name, content, fields) VALUES (?, '', ?)`)
+            .run(side.name, side.fields ?? '{}').lastInsertRowid
+        )
+        logEvent('INFO', 'entity.created', { entity: id, name: side.name })
+        created = id
+        return id
+      }
+      const from_id = resolve(from)
+      const to_id = resolve(to)
+      const linkId = Number(
+        db
+          .prepare(`INSERT INTO links (from_id, to_id, relation) VALUES (?, ?, ?)`)
+          .run(from_id, to_id, relation).lastInsertRowid
+      )
+      logEvent('INFO', 'link.created', { from: from_id, to: to_id, relation })
+      return { linkId, from_id, to_id, created }
+    })
+  },
+  /** The undo of addRelation: drop the link, and the person only if this action invented them. */
+  deleteRelation(linkId: number, createdEntityId?: number): void {
+    tx(() => {
+      const row = db
+        .prepare(`SELECT from_id, to_id, relation FROM links WHERE id = ?`)
+        .get(linkId) as { from_id: number; to_id: number; relation: string } | undefined
+      db.prepare(`DELETE FROM links WHERE id = ?`).run(linkId)
+      if (row)
+        logEvent('INFO', 'link.deleted', {
+          from: row.from_id,
+          to: row.to_id,
+          relation: row.relation
+        })
+      if (createdEntityId !== undefined) {
+        const ent = db.prepare(`SELECT name FROM entities WHERE id = ?`).get(createdEntityId) as
+          { name: string } | undefined
+        db.prepare(`DELETE FROM entities WHERE id = ?`).run(createdEntityId)
+        logEvent('INFO', 'entity.deleted', { entity: createdEntityId, name: ent?.name })
+      }
+    })
+  },
   deleteLink(id: number): void {
     const row = db.prepare(`SELECT from_id, to_id, relation FROM links WHERE id = ?`).get(id) as {
       from_id: number
@@ -1773,6 +1976,11 @@ export const api = {
     return { id: Number(r.lastInsertRowid) }
   },
   updateMap(id: number, patch: Record<string, unknown>): void {
+    if ('layers' in patch) {
+      const l = patch.layers
+      if (typeof l !== 'string' || !isArray(l)) throw new Error('BAD_LAYERS: not a JSON array')
+    }
+    if ('parent_map_id' in patch) assertMapParent(id, patch.parent_map_id)
     const p = patchSql(
       'maps',
       ['name', 'parent_map_id', 'image_path', 'width', 'height', 'layers'],
@@ -2047,6 +2255,7 @@ export const api = {
     return row?.value ?? null
   },
   setSetting(key: string, value: string): void {
+    assertSettingValue(value)
     db.prepare(
       `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`
     ).run(key, value)

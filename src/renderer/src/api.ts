@@ -165,6 +165,22 @@ export const api = {
   addLink: (from_id: number, to_id: number, relation: string) =>
     inv<{ id: number }>('addLink', from_id, to_id, relation),
   deleteLink: (id: number) => inv<void>('deleteLink', id),
+  // Adding a family tie when the person is new is two writes into two tables, so it is one call
+  // and one transaction — see db.ts. Either endpoint may be the creation, because a mother is
+  // self→person and a child is person→self.
+  addRelation: (
+    from: number | { name: string; fields?: string },
+    to: number | { name: string; fields?: string },
+    relation: string
+  ) =>
+    inv<{ linkId: number; from_id: number; to_id: number; created?: number }>(
+      'addRelation',
+      from,
+      to,
+      relation
+    ),
+  deleteRelation: (linkId: number, createdEntityId?: number) =>
+    inv<void>('deleteRelation', linkId, createdEntityId),
   listLinks: () =>
     inv<{ id: number; from_id: number; to_id: number; relation: string }[]>('listLinks'),
 

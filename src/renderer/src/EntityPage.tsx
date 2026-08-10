@@ -360,7 +360,20 @@ export default function EntityPage({
   // Find a person entity by name; create when missing (ruler/family inputs live as person
   // entities). When no type is marked "Person", one is set up automatically on first use —
   // every name typed into the dynasty section becomes a person entity with no manual setup.
-  const findOrCreate = async (name: string): Promise<number | null> => {
+  /**
+   * Who this name refers to — an id when the person exists, a DESCRIPTION when they do not.
+   *
+   * It does not write, and that is the whole point: creating the person and attaching them is one
+   * user action, so the creation has to travel WITH the attachment into a single transaction
+   * (api.addRelation). Writing here first was what left a person in the Person folder attached to
+   * nobody whenever the second write failed.
+   *
+   * The Person folder is still made here when there is none, because that is a settings write
+   * about the sidebar rather than part of the relation, and it is idempotent.
+   */
+  const resolvePerson = async (
+    name: string
+  ): Promise<number | { name: string; fields: string } | null> => {
     const n = name.trim()
     if (!n) return null
     const found = personEntities.find((en) => en.name.toLowerCase() === n.toLowerCase())
@@ -382,12 +395,17 @@ export default function EntityPage({
         }
       ])
     }
-    // One write, not two: createEntity has always taken `fields`, so the folder goes in at
-    // creation and there is no window where the person exists outside their folder.
-    const { id: newId } = await api.createEntity({
-      name: n,
-      fields: JSON.stringify({ folder: pf })
-    })
+    // The folder rides along in `fields` (createEntity has always taken it), so there is never a
+    // moment where the person exists outside their folder.
+    return { name: n, fields: JSON.stringify({ folder: pf }) }
+  }
+  /** The ruler form still needs an id in hand: its second write is a field on THIS entry whose
+   *  CONTENT depends on the new person's id, so it cannot travel inside addRelation. One call
+   *  when the person exists, two when they do not — the remaining non-atomic pair, knowingly. */
+  const findOrCreate = async (name: string): Promise<number | null> => {
+    const who = await resolvePerson(name)
+    if (who === null || typeof who === 'number') return who
+    const { id: newId } = await api.createEntity(who)
     setAllEntities(await api.listEntities())
     onChanged()
     return newId
@@ -518,10 +536,28 @@ export default function EntityPage({
               const form = e.currentTarget
               const nm = (new FormData(form).get('name') as string) ?? ''
               form.reset()
-              const target = await findOrCreate(nm)
-              if (target === null || target === id) return
-              await api.addLink(id, target, rel)
-              reloadFamily()
+              const who = await resolvePerson(nm)
+              if (who === null || who === id) return
+              // ONE transaction and ONE history step: the person and the tie appear together, or
+              // neither does. Adding a relation used to leave no undo entry at all.
+              const r = await api.addRelation(id, who, rel)
+              // Identity drift: a redo that had to invent the person again gets a NEW row id, so
+              // the ref carries what the NEXT undo must delete — never the id from the first run.
+              const ref = { linkId: r.linkId, created: r.created }
+              pushUndo({
+                label: 'Add relation',
+                params: { name: rel },
+                undo: () => api.deleteRelation(ref.linkId, ref.created).then(reloadFamily),
+                redo: async () => {
+                  // `who` again, not the old id: if it was a description the person was deleted
+                  // with the link and has to be made afresh; if it was an id they were never ours.
+                  const again = await api.addRelation(id, who, rel)
+                  ref.linkId = again.linkId
+                  ref.created = again.created
+                  await reloadFamily()
+                }
+              })
+              await reloadFamily()
             }}
           >
             <input name="name" list="person-list" placeholder={t('person…')} />
@@ -1062,11 +1098,24 @@ export default function EntityPage({
                 const form = e.currentTarget
                 const nm = (new FormData(form).get('name') as string) ?? ''
                 form.reset()
-                const child = await findOrCreate(nm)
-                if (child === null || child === id) return
+                const who = await resolvePerson(nm)
+                if (who === null || who === id) return
                 const rel = inferredGender === 'F' ? 'mother' : 'father'
-                await api.addLink(child, id, rel)
-                reloadFamily()
+                // Reversed direction, same guarantee: the child points at this entry.
+                const r = await api.addRelation(who, id, rel)
+                const ref = { linkId: r.linkId, created: r.created }
+                pushUndo({
+                  label: 'Add relation',
+                  params: { name: rel },
+                  undo: () => api.deleteRelation(ref.linkId, ref.created).then(reloadFamily),
+                  redo: async () => {
+                    const again = await api.addRelation(who, id, rel)
+                    ref.linkId = again.linkId
+                    ref.created = again.created
+                    await reloadFamily()
+                  }
+                })
+                await reloadFamily()
               }}
             >
               <input name="name" list="person-list" placeholder={t('child…')} />
