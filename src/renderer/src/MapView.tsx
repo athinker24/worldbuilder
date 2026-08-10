@@ -43,7 +43,7 @@ import ColorPicker from './ColorPicker'
 import ContextMenu, { MenuItem, MenuState } from './ContextMenu'
 import { ImageStrip, PinShape, PinShapePicker, pinShapeBody } from './pinIcons'
 import { LabelLayer, type LabelSpec } from './pixiLabels'
-import { ShapeLayer, shapeAt, pathAt, hexNum, type ShapeSpec } from './pixiShapes'
+import { ShapeLayer, shapeAt, shapeAllAt, pathAt, hexNum, type ShapeSpec } from './pixiShapes'
 import EntityPage from './EntityPage'
 import HierarchyPanel, { ActiveMode } from './HierarchyPanel'
 import { alertDialog, confirmDialog } from './dialog'
@@ -1202,6 +1202,12 @@ export default function MapView({
     setConquestState(c)
   }
   const [ladderTags, setLadderTags] = useState<string[]>([])
+  // Which rank tags currently resolve to SOMETHING on THIS map — set alongside ladderTags in
+  // reloadFeatures (see the mosaicManaged block). A rank whose whole ladder has nothing reachable
+  // from a base polygon drawn here would press into an empty view, so HierarchyPanel hides its
+  // chip. Per-map on purpose: the same rank can be populated on one map and empty on another, and
+  // "press it and nothing shows up HERE" is what was actually reported.
+  const [nonEmptyRankTags, setNonEmptyRankTags] = useState<Set<string>>(new Set())
   // Climb the parent chain to the ancestor carrying `level` (null level = the entity itself).
   // Returns null when that year's chain has no such ancestor. Cycle-guarded.
   const levelAncestor = (eid: number, level: string | null, year: number): number | null => {
@@ -1291,6 +1297,11 @@ export default function MapView({
     setNavState(n)
   }
   const navTemp = useRef<L.LayerGroup | null>(null) // route highlight (not a persistent feature)
+  // Alt+click cycle: repeated Alt+clicks at (about) the same point step one shape down the
+  // z-stack each time, wrapping back to the top past the bottom. `order` is cached from the
+  // first click at a point (topmost-first, same order shapeAt already resolves) so a repeat
+  // click at the same spot advances through it rather than recomputing "topmost only" again.
+  const cycleRef = useRef<{ x: number; y: number; order: number[]; idx: number } | null>(null)
   const endNav = (): void => {
     navTemp.current?.remove()
     navTemp.current = null
@@ -2209,6 +2220,13 @@ export default function MapView({
           }
         }
       }
+      // Which rank chips are worth showing on THIS map: `seen` is already every base entity
+      // drawn here PLUS every ancestor reached from them, across every year — year-independent
+      // on purpose, the same reason mosaicManaged is, so a chip does not blink in and out while
+      // the timeline is dragged. A tag with nothing in `seen` would press into an empty view.
+      const nonEmpty = new Set<string>()
+      for (const eid of seen) for (const t of entTags.current.get(eid) ?? []) nonEmpty.add(t)
+      setNonEmptyRankTags(nonEmpty)
     }
     // Rank mode: base polygons painted by their ancestor at that rank (color resolved in
     // applyYear). Paint mode: base polygons colored by fields[dim]; empty values grey.
@@ -2910,6 +2928,14 @@ export default function MapView({
         else parent.set(find(fid), find(first))
       }
     }
+    // Derived labels scale relative to the OPEN MAP's own size, not fixed pixels — a fixed cap
+    // and floor tuned to one map's base image come out wrong the moment a differently-sized one
+    // is used. `worldMapRef`, not the `worldMap` state, for the same staleness reason `mode`
+    // above reads `activeModeRef`: this function is a fresh closure every render, and the ref is
+    // what handlers reach for to see the CURRENT map rather than whichever one they closed over.
+    // Falls back to MAX_BASE_PX when there is no base image yet, so this never divides by zero.
+    const wmr = worldMapRef.current
+    const mapSpan = Math.max(wmr?.width ?? MAX_BASE_PX, wmr?.height ?? MAX_BASE_PX)
     // 4. One label per component
     const comps = new Map<number, { key: string; fids: number[] }>()
     for (const { fid, key } of items) {
@@ -2941,9 +2967,17 @@ export default function MapView({
       let angle = (-theta * 180) / Math.PI
       if (angle > 90) angle -= 180
       if (angle < -90) angle += 180
-      // Spread the text over ~80% of the main axis: labelDivIcon estimates ~0.62em per letter
-      const base = Math.min(300, (extent * 0.8) / (0.62 * Math.max(4, text.length)))
-      if (base < LABEL_MIN) continue // a tiny region gets no label
+      // Spread the text over ~80% of the main axis: labelDivIcon estimates ~0.62em per letter.
+      // Cap and floor as FRACTIONS of the map's own span (mapSpan, above), not fixed pixels —
+      // fixed numbers tuned against one map's base image drift wrong on a differently-sized one.
+      // The fractions were picked against a real 4096px map: 0.045 keeps the cap from engaging
+      // until a region is genuinely large (a fixed 300 used to engage around a quarter of the
+      // map's width, collapsing most non-trivial regions to one identical size); 0.005 excludes
+      // slivers rather than almost nothing, the way the fixed LABEL_MIN=5 effectively did.
+      const labelCap = mapSpan * 0.045
+      const labelFloor = Math.max(LABEL_MIN, mapSpan * 0.005)
+      const base = Math.min(labelCap, (extent * 0.8) / (0.62 * Math.max(4, text.length)))
+      if (base < labelFloor) continue // a tiny region gets no label
       // Negative ids: these are not features, and the layer diffs by id — a collision with a real
       // feature's label would make one of the two vanish depending on rebuild order.
       const p = map.project(L.latLng(cy, cx), 0)
@@ -4157,6 +4191,23 @@ export default function MapView({
       const specs = shapeSpecs.current
       if (!specs.length) return
       const p = map.project(e.latlng, 0)
+      // Alt+click: cycle down through everything stacked at this point instead of only the
+      // topmost. `order` is topmost-first, the same order shapeAt already resolves — cached on
+      // the FIRST click at a point so a repeat click here steps through it instead of
+      // recomputing "topmost only" again. Starts at index 1 (one below the top), not 0, since a
+      // plain click already reaches the top — so the first Alt+click is immediately useful.
+      if (e.originalEvent?.altKey) {
+        const tol = 8 / 2 ** map.getZoom()
+        const c = cycleRef.current
+        const same = c && Math.hypot(c.x - p.x, c.y - p.y) < tol
+        const order = same ? c!.order : shapeAllAt(specs, p.x, p.y)
+        if (!order.length) return
+        const idx = same ? (c!.idx + 1) % order.length : order.length > 1 ? 1 : 0
+        cycleRef.current = { x: p.x, y: p.y, order, idx }
+        featClick.current.get(order[idx])?.(e)
+        return
+      }
+      cycleRef.current = null // a plain click elsewhere starts the next Alt+click cycle fresh
       // Paths are picked by proximity, and the tolerance has to be in the same zoom-0 space the
       // geometry is in — a fixed number of screen pixels divided by the current scale.
       const fid = shapeAt(specs, p.x, p.y) ?? pathAt(specs, p.x, p.y, 8 / 2 ** map.getZoom())
@@ -5467,6 +5518,7 @@ export default function MapView({
               <HierarchyPanel
                 active={activeMode}
                 reloadToken={reloadToken}
+                nonEmptyRankTags={nonEmptyRankTags}
                 onMode={(m) => {
                   activeModeRef.current = m
                   setActiveMode(m)

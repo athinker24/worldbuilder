@@ -21,6 +21,10 @@ export type ActiveMode = { kind: 'rank' | 'paint'; key: string } | null
 interface Props {
   active: ActiveMode
   reloadToken: number // to refresh when tags change (undo included)
+  // Rank tags that currently resolve to something on THIS map (MapView's reloadFeatures) — a tag
+  // outside this set would press into an empty view, so its chip is hidden. The active chip stays
+  // visible even if it drops out, so the user can still turn it off (see the filter below).
+  nonEmptyRankTags: Set<string>
   onMode: (m: ActiveMode) => void
   onConquest: () => void // start the ⚔ Conquest flow (visible only in rank mode)
   onOpenEntity: (id: number) => void
@@ -31,6 +35,7 @@ interface Props {
 export default function HierarchyPanel({
   active,
   reloadToken,
+  nonEmptyRankTags,
   onMode,
   onConquest,
   onOpenEntity,
@@ -133,15 +138,20 @@ export default function HierarchyPanel({
         >
           {t('All')}
         </button>
-        {(gov?.tags ?? []).map((tag) => (
-          <button
-            key={tag}
-            className={`tag-chip clickable ${rungTag === tag ? 'active' : ''}`}
-            onClick={() => onMode(tag === rungTag ? null : { kind: 'rank', key: tag })}
-          >
-            {tag}
-          </button>
-        ))}
+        {/* A tag with nothing reachable from a base polygon on this map would press into an
+            empty view — hidden, unless it is the one currently active (so it stays reachable
+            to turn off even after an edit/undo empties it out). */}
+        {(gov?.tags ?? [])
+          .filter((tag) => tag === rungTag || nonEmptyRankTags.has(tag))
+          .map((tag) => (
+            <button
+              key={tag}
+              className={`tag-chip clickable ${rungTag === tag ? 'active' : ''}`}
+              onClick={() => onMode(tag === rungTag ? null : { kind: 'rank', key: tag })}
+            >
+              {tag}
+            </button>
+          ))}
         {cfg.govs.length === 0 && (
           <p className="hint">
             {t(

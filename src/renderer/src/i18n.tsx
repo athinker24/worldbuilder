@@ -109,6 +109,8 @@ const TR: Record<string, string> = {
   'Delete selected entries (in the list)': 'Seçili maddeleri sil (listede)',
   Click: 'Tık',
   'Select a drawing': 'Bir çizim seç',
+  'Select what is underneath (repeat to go further down)':
+    'Alttakini seç (tekrarla daha da alta in)',
   'Ctrl+click': 'Ctrl+tık',
   'Add/remove from selection (edits apply to all)':
     'Seçime ekle/çıkar (düzenlemeler hepsine uygulanır)',

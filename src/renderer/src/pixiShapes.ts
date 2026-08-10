@@ -535,6 +535,30 @@ export const shapeAt = (specs: ShapeSpec[], x: number, y: number): number | null
 }
 
 /**
+ * Every shape at this point, topmost first — the same even/odd test as `shapeAt`, but collecting
+ * instead of returning on the first hit. `shapeAt` stays as it was for the hot path (hover, a
+ * plain click); this is only for Alt+click's "select what is underneath" cycle, which needs the
+ * whole stack, not just what the eye sees on top of it.
+ */
+export const shapeAllAt = (specs: ShapeSpec[], x: number, y: number): number[] => {
+  const hits: number[] = []
+  for (let i = specs.length - 1; i >= 0; i--) {
+    const s = specs[i]
+    if (!s.closed) continue
+    let inside = false
+    for (const ring of s.rings) {
+      for (let a = 0, b = ring.length - 1; a < ring.length; b = a++) {
+        const [ax, ay] = ring[a]
+        const [bx, by] = ring[b]
+        if (ay > y !== by > y && x < ((bx - ax) * (y - ay)) / (by - ay) + ax) inside = !inside
+      }
+    }
+    if (inside) hits.push(s.id)
+  }
+  return hits
+}
+
+/**
  * Which open path passes within `tol` of this point, or null. Paths have no interior to test, so
  * they are picked by distance to their segments instead.
  */

@@ -24,6 +24,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     title: 'Map: selection',
     rows: [
       ['Click', 'Select a drawing'],
+      ['Alt+click', 'Select what is underneath (repeat to go further down)'],
       ['Ctrl+click', 'Add/remove from selection (edits apply to all)'],
       ['Del / Backspace', 'Delete selected drawings'],
       ['Esc', 'Cancel conquest / measure / route session']
