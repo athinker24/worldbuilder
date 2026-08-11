@@ -115,7 +115,8 @@ const TR: Record<string, string> = {
   'Add/remove from selection (edits apply to all)':
     'Seçime ekle/çıkar (düzenlemeler hepsine uygulanır)',
   'Delete selected drawings': 'Seçili çizimleri sil',
-  'Cancel conquest / measure / route session': 'Fetih / ölçüm / rota oturumunu iptal et',
+  'Leave the active tool; cancel a conquest / measure / route session':
+    'Etkin aletten çık; fetih / ölçüm / rota oturumunu iptal et',
   'Copy selected drawings': 'Seçili çizimleri kopyala',
   'Paste under the cursor (also into another map)':
     'İmlecin altına yapıştır (başka haritaya da olur)',
