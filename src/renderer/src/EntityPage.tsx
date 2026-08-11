@@ -649,7 +649,8 @@ export default function EntityPage({
     const found = await api.findEntityByName(name)
     if (found) {
       onOpen(found.id)
-    } else if (await confirmDialog(t('No entry named "{name}". Create it?', { name }))) {
+      // The one confirmation in the app that CREATES rather than destroys — see confirmDialog.
+    } else if (await confirmDialog(t('No entry named "{name}". Create it?', { name }), false)) {
       const { id: newId } = await api.createEntity({ name })
       onChanged()
       onOpen(newId)

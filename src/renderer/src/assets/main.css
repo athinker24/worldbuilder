@@ -3325,7 +3325,28 @@ a {
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--sp-2);
+}
+
+/* The confirming button of a DESTRUCTIVE dialog is filled, not merely red on hover.
+   `button.danger` is deliberately neutral at rest everywhere else — a live red × on every row
+   reads as an invitation to delete things, which is the same rule .row-action follows — but in a
+   dialog that button IS the view's one action, and left at rest it was indistinguishable from
+   Cancel. Scoped here rather than changed globally so the hover-only rule keeps holding in the
+   lists. Text is --accent-contrast, which happens to be right for both fills: measured 6.1:1 on
+   the dark theme's #e06c75 and 5.7:1 on the light theme's #b63b45. */
+.dialog-actions .danger {
+  background: var(--danger);
+  border-color: transparent;
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.dialog-actions .danger:hover {
+  background: var(--danger);
+  border-color: transparent;
+  color: var(--accent-contrast);
+  filter: brightness(1.08);
 }
 
 .ctx-item {
