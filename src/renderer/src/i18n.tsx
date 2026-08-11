@@ -147,7 +147,7 @@ const TR: Record<string, string> = {
   'file not found': 'dosya bulunamadı',
   'File not found: {p}': 'Dosya bulunamadı: {p}',
   'Remove from list': 'Listeden çıkar',
-  World: 'Dünya',
+  'Nothing open': 'Açık bir şey yok',
   'This entry is not marked on any map yet.': 'Bu madde henüz hiçbir haritada işaretli değil.',
 
   // ProjectPreferences.tsx (eski Settings.tsx). Not dışa aktarma artık File ▸ Export ▸ Notes.

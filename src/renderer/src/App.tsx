@@ -21,7 +21,7 @@ import ColorPicker from './ColorPicker'
 import ContextMenu, { MenuState } from './ContextMenu'
 import Icon from './icons'
 import Select from './Select'
-import { IconButton } from './ui'
+import { EmptyState, IconButton } from './ui'
 import { alertDialog, confirmDialog, DialogHost } from './dialog'
 import EntityPage from './EntityPage'
 import { deleteEntitiesWithUndo, deleteEntityWithUndo } from './entityOps'
@@ -1320,55 +1320,68 @@ export default function App(): React.JSX.Element {
         )}
 
         <div className="main">
-          {view.kind === 'empty' && (
-            <div className="empty-state start-screen">
-              <h2>{t('World')}</h2>
-              {!worldFile && (
-                <>
-                  {/* No "+ New world" here: a normal launch already IS a new, blank world (main's
-                      Photoshop-style reset), so the button offered to do something that had
-                      already happened. Starting genuinely from scratch is still one click away —
-                      Maps in the sidebar, or File ▸ New Project — for the rare case a returning
-                      user wants a fresh document instead of picking one up from here. */}
-                  <div className="start-actions">
-                    <button onClick={openWorld}>
-                      <Icon name="folder" size={14} /> {t('Open…')}
-                    </button>
-                  </div>
-                  <h4>{t('Recent')}</h4>
-                  {recent.length === 0 ? (
-                    <p>{t('No recent worlds yet. Save one with Ctrl+S.')}</p>
-                  ) : (
-                    <ul className="recent-list">
-                      {recent.map((r) => (
-                        <li key={r.path} className={r.missing ? 'missing' : undefined}>
-                          <button
-                            className="recent-open"
-                            title={r.path}
-                            onClick={() => openRecent(r.path)}
-                          >
-                            <span className="recent-name">{r.name}</span>
-                            <span className="recent-path">
-                              {r.missing ? t('file not found') : r.path}
-                            </span>
-                          </button>
-                          <button
-                            className="recent-x"
-                            title={t('Remove from list')}
-                            aria-label={t('Remove from list')}
-                            onClick={() => forgetRecent(r.path)}
-                          >
-                            <Icon name="x" size={14} />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              )}
-              <p>{t('Pick an entry or a map from the left, or search with Ctrl+K.')}</p>
-            </div>
-          )}
+          {/* Two different screens wearing one class until now. With NO document this is the
+              app's cover — the Photoshop/Krita "home", and the only screen that says the app's
+              name. With a document open it is not a start screen at all, it is "nothing is
+              selected", which is what EmptyState exists for and is where the user lands after
+              deleting the entry they were reading. As one component the second case was a
+              heading reading "World" and a single grey sentence. */}
+          {view.kind === 'empty' &&
+            (worldFile ? (
+              <div className="empty-state">
+                <EmptyState
+                  icon="book-open"
+                  title={t('Nothing open')}
+                  hint={t('Pick an entry or a map from the left, or search with Ctrl+K.')}
+                />
+              </div>
+            ) : (
+              <div className="empty-state start-screen">
+                {/* The app's own name, in the display face, once — this is the one screen that
+                    is allowed to be a cover. Not a translation key: it is a proper noun. */}
+                <h2 className="page-title">Worldbuilder</h2>
+                {/* No "+ New world" here: a normal launch already IS a new, blank world (main's
+                    Photoshop-style reset), so the button offered to do something that had already
+                    happened. Starting genuinely from scratch is still one click away — Maps in the
+                    sidebar, or File ▸ New Project — for the rare case a returning user wants a
+                    fresh document instead of picking one up from here.
+                    The one action of this screen, so it carries the one primary fill. */}
+                <div className="start-actions">
+                  <button className="primary" onClick={openWorld}>
+                    <Icon name="folder" size={14} /> {t('Open…')}
+                  </button>
+                </div>
+                <h4>{t('Recent')}</h4>
+                {recent.length === 0 ? (
+                  <p>{t('No recent worlds yet. Save one with Ctrl+S.')}</p>
+                ) : (
+                  <ul className="recent-list">
+                    {recent.map((r) => (
+                      <li key={r.path} className={r.missing ? 'missing' : undefined}>
+                        <button
+                          className="recent-open"
+                          title={r.path}
+                          onClick={() => openRecent(r.path)}
+                        >
+                          <span className="recent-name">{r.name}</span>
+                          <span className="recent-path">
+                            {r.missing ? t('file not found') : r.path}
+                          </span>
+                        </button>
+                        <button
+                          className="recent-x"
+                          title={t('Remove from list')}
+                          aria-label={t('Remove from list')}
+                          onClick={() => forgetRecent(r.path)}
+                        >
+                          <Icon name="x" size={14} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
           {view.kind === 'entity' && (
             <EntityPage
               key={`e-${view.id}-${bump}`}

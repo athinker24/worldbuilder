@@ -1077,11 +1077,13 @@ kbd {
 }
 .start-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
 }
+
+/* Natural width, not stretched. `flex: 1` was written for the two buttons this row used to
+   hold; with one button left it made a 520px-wide accent bar out of the primary. */
 .start-actions button {
-  flex: 1;
-  padding: 10px;
+  padding: 10px var(--sp-5);
 }
 .recent-list {
   list-style: none;
