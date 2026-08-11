@@ -65,37 +65,21 @@
      Warm gold = the WORLD's own content (rulers, eras, year marks, templates) —
      the family tree already used gold for rulers; this formalises that.
      Neither ever paints user data: that stays autoColor(), theme-exempt. */
-  /* Toned down for the dark themes, and no longer a FILL at all.
+  /* Toned down for the dark themes, and it is no longer a FILL anywhere.
 
      As text and icons the teal was not wrong, it was hot: 7.73:1 against the workspace and
      6.21:1 on a popover, past what a UI accent needs. It is 6.29:1 / 5.06:1 now — a 21% cut in
      luminance (0.435 → 0.345), still clear of 4.5:1 on every surface it lands on, and
      --surface-float is the one that binds, not the workspace.
 
-     Filling a BUTTON with it was the real problem and no value fixed it. Area is why: what
-     reads as "the one emphasised control" in a 12px glyph reads as a lamp across a button, and
-     a deeper teal only traded glare for mud. The emphasised button is grey now — see
-     --emphasis — which is what the rest of this file already says out loud: chrome is grey,
-     colour is for meaning. The accent stays what it was for, an accent. */
-  --accent: #3ab0a0; /* active/selected text and icons */
+     Filling a BUTTON with it was the real problem, and no value fixed it — a deeper teal only
+     traded glare for mud. AREA was always the variable: what reads as "the one emphasised
+     control" in a 12px glyph reads as a lamp across a button. Two greys were then tried in its
+     place and both were wrong in the other direction, which is what settled it — the emphasised
+     button is teal again, TINTED rather than filled, at 14% behind an --accent edge. See
+     button.primary. Colour still means something and nothing is lit up. */
+  --accent: #3ab0a0; /* active/selected text and icons, and the emphasised button's edge */
   --accent-soft: rgba(58, 176, 160, 0.14); /* active/selected backgrounds */
-  /* The one high-emphasis fill per view — and NOT the accent, in either hue or job. Chrome is
-     grey and colour is for meaning; a filled teal button was the one place colour became a
-     SURFACE, and at that size it read as glare whatever the value.
-
-     ON THE RAMP, and that is the whole of it: the surfaces run L* 4.2 / 9.1 / 11.1 / 14.5 /
-     19.3, so the emphasised button is the next step, 24.3. The first attempt at this was picked
-     by eye at L* 37 — nearly double the top of the ramp — and read as a light block borrowed
-     from another interface, which is exactly what the note above the surfaces warns against:
-     move the ramp, never re-tint it by eye. It applies to a value ADDED to the ramp too.
-
-     One step is only 1.18:1 against --surface-float, and this button appears on a float (the
-     empty-map card) as well as on the page, so the fill alone cannot carry it — which is true
-     of every real desktop default button and is why they all have an edge. It takes a visible
-     border (--text-faint, 4.42:1 against the float it sits on) and the top highlight a physical
-     button has. Fill, edge, weight: emphasis without brightness. Text on it 8.96:1. */
-  --emphasis: #393a39;
-  --emphasis-contrast: var(--text);
   --danger: #e06c75;
   --danger-contrast: #08201c; /* text ON a --danger fill — 5.33:1; white would be 3.20:1 */
   --danger-soft: rgba(224, 108, 117, 0.14);
@@ -220,12 +204,6 @@
      Now 3.33:1 and 4.51:1 — where they were before the ramp moved. */
   --accent: #0c8b80;
   --accent-soft: rgba(12, 139, 128, 0.13);
-  /* The same step, mirrored — and the mirror is not "one past float", because float here IS
-     white and elevation has nowhere left to go. A light theme's default button is DARKER than
-     its page, so this is one step the other way, between --surface-sunken (L* 87) and
-     --surface-canvas (78) at 83. Same edge, same weight; text on it 10.55:1. */
-  --emphasis: #c9d0d0;
-  --emphasis-contrast: var(--text);
   --danger: #b63b45;
   /* The light theme's danger is a DARK red, so here the two contrasts agree — the token exists
      because the dark theme's does not, not because this one needed splitting. 5.67:1. */
@@ -1116,9 +1094,13 @@ kbd {
 }
 
 /* Natural width, not stretched. `flex: 1` was written for the two buttons this row used to
-   hold; with one button left it made a 520px-wide accent bar out of the primary. */
+   hold; with one button left it made a 520px-wide bar out of the primary.
+   Height comes from the control scale now rather than a bespoke 10px of padding: at 42px tall
+   this button had a silhouette nothing else on the screen shared, which is its own kind of not
+   belonging — the recent-file rows beside it are what it has to sit with. */
 .start-actions button {
-  padding: 10px var(--sp-5);
+  min-height: var(--h-lg);
+  padding: 0 var(--sp-4);
 }
 .recent-list {
   list-style: none;
@@ -2219,30 +2201,32 @@ button.mini {
   font-size: var(--fs-2);
 }
 
-/* The one high-emphasis action per view, and it is a DESKTOP default button: one step up the
-   grey ramp, a real edge, a top highlight and a semibold label. Three quiet signals rather than
-   one loud one — which is what lets it stay on the ramp (see --emphasis) and still read on both
-   the page and a floating card, where a fill one step from its backdrop cannot carry alone.
-   The border is --text-faint, not --border-strong: at 4.42:1 it is an edge you can see, where a
-   7%-white hairline on a grey fill is the same nothing the ordinary buttons wear (1.07:1). */
+/* The one high-emphasis action per view: teal, but TINTED rather than filled.
+
+   This is the app's own "the active thing" idiom — --accent-soft behind, --accent on the edge —
+   the one the sidebar's current workspace and the pressed tool button already wear. A grey
+   emphasis was tried and was wrong for a reason worth keeping: the colour was never the problem,
+   the AREA was. At 14% the tint is 1.24:1 against whatever it sits on, so it tells you where the
+   button is without lighting anything up, and the edge does the work at 6.29:1 on the page and
+   5.06:1 on the float card this also appears on.
+
+   The LABEL is --text and not --accent, which is the one thing measurement decided rather than
+   taste: accent on the tint is 4.05:1 on that float card and 2.87:1 in the light theme, both
+   under the floor for text. Teal on the edge, ordinary ink in the middle. */
 button.primary {
-  background: var(--emphasis);
-  border-color: var(--text-faint);
-  color: var(--emphasis-contrast);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
   font-weight: 600;
-  box-shadow: inset 0 1px 0 var(--tint-2);
 }
 
 button.primary:hover {
-  background: var(--emphasis);
-  border-color: var(--text-muted);
-  filter: brightness(1.15);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  filter: brightness(1.2);
 }
 
-/* Pressed: the highlight is on the underside instead, which is the whole of what a physical
-   button does when you push it in. */
 button.primary:active {
-  box-shadow: inset 0 -1px 0 var(--tint-2);
   filter: brightness(0.95);
 }
 
@@ -3403,9 +3387,9 @@ a {
    reads as an invitation to delete things, which is the same rule .row-action follows — but in a
    dialog that button IS the view's one action, and left at rest it was indistinguishable from
    Cancel. Scoped here rather than changed globally so the hover-only rule keeps holding in the
-   lists. Its ink is --danger-contrast and not --emphasis-contrast: the dark theme's danger is a
-   LIGHT red and wants dark ink (5.33:1; white on it would be 3.20:1), where the emphasis fill is
-   a mid grey wanting the ordinary text colour. 5.67:1 in the light theme. */
+   lists. It is the one FILLED button left in the app — the emphasised button next to it is a
+   tint behind an edge — and it needs its own ink: the dark theme's danger is a LIGHT red wanting
+   dark ink at 5.33:1, where white on it would be 3.20:1. 5.67:1 in the light theme. */
 .dialog-actions .danger {
   background: var(--danger);
   border-color: transparent;
