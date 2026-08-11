@@ -79,6 +79,7 @@
      button.primary), and the accent keeps the job it is good at. */
   --accent: #3ab0a0; /* active/selected text and icons */
   --accent-soft: rgba(58, 176, 160, 0.14); /* active/selected backgrounds */
+  --accent-ink: #08201c; /* text ON a solid --accent — 6.40:1 (white on it would be 2.66:1) */
   --danger: #e06c75;
   --danger-contrast: #08201c; /* text ON a --danger fill — 5.33:1; white would be 3.20:1 */
   --danger-soft: rgba(224, 108, 117, 0.14);
@@ -203,6 +204,9 @@
      Now 3.33:1 and 4.51:1 — where they were before the ramp moved. */
   --accent: #0c8b80;
   --accent-soft: rgba(12, 139, 128, 0.13);
+  /* The light theme's accent is DARK, so a solid one wants white on it — 4.18:1, and the reason
+     this is a token per theme rather than one shared value. */
+  --accent-ink: #ffffff;
   --danger: #b63b45;
   /* The light theme's danger is a DARK red, so here the two contrasts agree — the token exists
      because the dark theme's does not, not because this one needed splitting. 5.67:1. */
@@ -4059,12 +4063,32 @@ a {
   box-shadow: var(--shadow-2);
 }
 
-/* The one place the emphasised button stands INSIDE a float. The card itself already carries
-   --shadow-2, so the button's --shadow-1 was being read as part of the card rather than as the
-   button lifting off it. One step up, for the same reason its fill is relative rather than
-   fixed: what has to stay constant is the distance from whatever it is standing on. */
+/* The one place the emphasised button stands INSIDE a float, and the only place in the app that
+   fills a control with the accent.
+ *
+ * Both halves of that are deliberate. The card already carries --shadow-2, so the button's own
+ * --shadow-1 read as part of the card rather than as the button lifting off it — hence one step
+ * up, the same relative rule its fill follows elsewhere.
+ *
+ * And grey does not carry HERE, which is what makes this different from the start screen rather
+ * than an exception to it: that screen is quiet and a button one elevation up is the loudest
+ * thing on it, while this card floats over a whole map — terrain, borders, labels — where the
+ * same button is one more grey rectangle among them. The screen decides how much a signal is
+ * worth. Colour is the signal a busy backdrop cannot swallow, and at 32px it is a button rather
+ * than the 520px bar that made the accent unusable when this was tried globally.
+ *
+ * 5.06:1 against the card, ink at 6.40:1 (4.73:1 / 4.18:1 in the other two themes). */
 .map-empty .primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-ink);
   box-shadow: var(--shadow-2);
+}
+
+.map-empty .primary:hover {
+  background: var(--accent);
+  border-color: transparent;
+  filter: brightness(1.1);
 }
 
 /* Error screen: the stack is collapsed by default (see ErrorBoundary for why) but must not
