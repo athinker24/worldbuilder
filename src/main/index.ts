@@ -165,6 +165,11 @@ type Prefs = {
   theme?: string
   sidebarWidth?: number
   mapPanelWidth?: number
+  /** Interface scale, as a PERCENT. The app is drawn in CSS pixels, so on a 2560-wide display at
+      100% system scaling everything is physically small — the usual complaint about any desktop
+      app on a 2K panel, and the usual answer is the one VS Code, Discord and Obsidian all give:
+      a zoom the app owns, per machine, because it describes a screen rather than a world. */
+  uiScale?: number
   // Developer logging. Per machine like everything else here — it describes how YOU want the app
   // to behave, and a shared .world must not be able to turn it on for someone else.
   debugLog?: boolean
@@ -183,6 +188,44 @@ const writePrefs = (p: Prefs): void => {
   } catch {
     /* expendable like recent.json — never block launch over it */
   }
+}
+
+/** The steps the scale moves in, and the list the Preferences dropdown shows. Discrete rather
+    than a slider: nobody wants 113%, and a fixed ladder is what makes Zoom In/Out a step rather
+    than an arithmetic problem. */
+const UI_SCALES = [75, 90, 100, 110, 125, 150, 175, 200]
+
+/** Zoom the whole window.
+ *
+ * setZoomFactor rather than a CSS scale, because the app is written in px and always has been —
+ * a font-size-based scale would reach the type and nothing else. Everything here is drawn in CSS
+ * pixels, so the factor moves layout, chrome, the map and its labels together, which is what
+ * makes it the answer the other desktop apps landed on too.
+ *
+ * The map survives it by construction: both WebGL layers are created at resolution 1 (they
+ * already ignore devicePixelRatio), the Leaflet host is watched by a ResizeObserver that
+ * invalidates the map size, and drawBase re-reads devicePixelRatio on every draw. Nothing caches
+ * a scale across the change.
+ */
+function applyUiScale(percent: number): void {
+  mainWindow?.webContents.setZoomFactor(percent / 100)
+}
+
+/** Persist and apply in one place, so the menu keys and the Preferences dropdown cannot drift. */
+function setUiScaleTo(percent: number): void {
+  writePrefs({ ...readPrefs(), uiScale: percent })
+  applyUiScale(percent)
+}
+
+/** One rung along UI_SCALES, clamped at both ends rather than wrapping. */
+function stepUiScale(dir: 1 | -1): void {
+  const cur = readPrefs().uiScale ?? 100
+  // The nearest rung to whatever is stored, so a hand-edited prefs.json still steps sensibly.
+  const i = UI_SCALES.reduce(
+    (best, v, n) => (Math.abs(v - cur) < Math.abs(UI_SCALES[best] - cur) ? n : best),
+    0
+  )
+  setUiScaleTo(UI_SCALES[Math.min(UI_SCALES.length - 1, Math.max(0, i + dir))])
 }
 // One-time adoption of the language/theme the user already picked, which until now lived in the
 // settings table. MUST run before resetWorld() empties world.db — see app.whenReady below.
@@ -469,6 +512,9 @@ const MENU_TR: Record<string, string> = {
   Chronology: 'Kronoloji',
   Relations: 'İlişkiler',
   'Project Preferences': 'Proje Tercihleri',
+  'Zoom In': 'Yakınlaştır',
+  'Zoom Out': 'Uzaklaştır',
+  'Reset Zoom': 'Yakınlaştırmayı Sıfırla',
   'Keyboard Shortcuts': 'Klavye Kısayolları',
   'Open Error Log': 'Hata Kaydını Aç',
   'Terms of Use': 'Kullanım Şartları',
@@ -569,6 +615,26 @@ function buildMenu(): void {
               { label: ml('Chronology'), click: () => send('view.overview:chronology') },
               { label: ml('Relations'), click: () => send('view.overview:relations') }
             ]
+          },
+          { type: 'separator' },
+          // The keyboard half of the interface scale, because every app that has this setting
+          // also has these three keys and people reach for them before they open Preferences.
+          // Handled HERE rather than forwarded to the renderer: main owns both the window and
+          // prefs.json, so a round trip would only add a way for them to disagree.
+          {
+            label: ml('Zoom In'),
+            accelerator: 'CommandOrControl+=',
+            click: () => stepUiScale(1)
+          },
+          {
+            label: ml('Zoom Out'),
+            accelerator: 'CommandOrControl+-',
+            click: () => stepUiScale(-1)
+          },
+          {
+            label: ml('Reset Zoom'),
+            accelerator: 'CommandOrControl+0',
+            click: () => setUiScaleTo(100)
           },
           { type: 'separator' },
           { label: ml('Project Preferences'), click: () => send('view.projectPrefs') }
@@ -735,8 +801,14 @@ const mainApi = {
     if (sw !== undefined) keep.sidebarWidth = sw
     if (mw !== undefined) keep.mapPanelWidth = mw
     if (typeof patch?.debugLog === 'boolean') keep.debugLog = patch.debugLog
+    // Clamped for the same reason the widths are, and harder: this one goes to the window itself.
+    // Below ~50 the menu bar stops being clickable and above ~250 the map toolbar does not fit,
+    // and neither is recoverable from inside an app you can no longer read.
+    if (typeof patch?.uiScale === 'number' && Number.isFinite(patch.uiScale))
+      keep.uiScale = Math.min(250, Math.max(50, Math.round(patch.uiScale)))
     writePrefs({ ...readPrefs(), ...keep })
     if (keep.debugLog !== undefined) logSetDebug(keep.debugLog === true)
+    if (keep.uiScale !== undefined) applyUiScale(keep.uiScale)
     buildMenu() // menu labels follow the language
   },
   async pickImage(): Promise<string | null> {
@@ -890,6 +962,15 @@ function createWindow(): void {
 
   win.on('ready-to-show', () => {
     win.show()
+  })
+
+  // On EVERY load, not once at startup: Chromium resets the zoom factor on navigation, and this
+  // app reloads the renderer whenever a world is opened, created or closed (webContents.reload).
+  // Set once and the user's scale would silently go back to 100% the first time they opened a
+  // file — which reads as the preference not sticking.
+  win.webContents.on('did-finish-load', () => {
+    const s = readPrefs().uiScale
+    if (s) applyUiScale(s)
   })
 
   // Close guard while dirty (Photoshop pattern): Save / Don't Save / Cancel
