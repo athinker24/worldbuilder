@@ -368,7 +368,8 @@ export default function Timeline({
       {todayEvents.length > 0 && (
         <div className="timeline-today">
           {todayEvents.map((e, i) => (
-            <button className="tag-chip clickable" key={i} onClick={() => jumpEvent(e)}>
+            /* Jumps the year and flies to the drawing — an action, not a label on the strip. */
+            <button className="mini" key={i} onClick={() => jumpEvent(e)}>
               <Icon name="calendar" size={12} /> {e.name}
             </button>
           ))}

@@ -3068,23 +3068,10 @@ a {
   align-items: center;
 }
 
-.hier-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 8px;
-}
-
 .hier-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-.hier-modes {
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
 }
 
 .hier-list {
@@ -3093,15 +3080,10 @@ a {
   padding-top: 6px;
 }
 
-/* --- hierarchy tag chips (entity page + panel) --- */
-.tag-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
+/* --- tag chips: DATA, and only data now (an entry's ranks, its folder, a relation).
+   Every chip that was standing in for a tab, a mode, a filter or an action has moved to the
+   control that says what it is — see Tabs, Segmented, and the checkbox rows in the layers
+   panel. What is left is the one job the shape was right for. --- */
 .tag-chip {
   display: inline-flex;
   align-items: center;
@@ -3169,12 +3151,6 @@ a {
 
 .map-search .layers-panel {
   cursor: default;
-}
-
-/* Katman panelindeki pin tipi filtre chip'leri */
-.pin-type-row {
-  padding: 0 8px 6px;
-  margin-bottom: 0;
 }
 
 /* Maps popover: inline name editing and new-map form. */
@@ -3547,6 +3523,81 @@ a {
 
 .tab.active::after {
   transform: scaleX(1);
+}
+
+/* A tab strip with an action that belongs to the OPEN tab beside it — deleting a government
+   form or a template. The × used to ride on each chip, which put "switch to this" and "destroy
+   this and everything under it" a few pixels apart on the same object. */
+.tabs-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+}
+
+.tabs-row .tabs {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.tabs-row .icon-btn {
+  flex: none;
+  margin-bottom: var(--sp-1);
+}
+
+/* --- segmented: mutually exclusive view modes in one track ---------------------------------
+   The visual argument against chips, made in CSS: a chip is a free-standing rounded object, so a
+   row of them reads as a list of THINGS. These share a track and touch each other, which reads as
+   one control with several positions — which is what they are. Wrapping is expected (a ladder can
+   be five ranks in a 260px panel) and the track wraps with them. */
+.seg-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.seg-label {
+  color: var(--text-faint);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  background: var(--control);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-m);
+}
+
+.seg-item {
+  flex: 1 1 auto;
+  min-height: var(--h-sm);
+  padding: 0 var(--sp-2);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-s);
+  color: var(--text-muted);
+  font-size: var(--fs-2);
+}
+
+.seg-item:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
+  color: var(--text);
+}
+
+/* The pressed one is the app's "active" language, the same the sidebar's current workspace and
+   the pressed tool button wear — at glyph scale, where the accent works. */
+.seg-item.on {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* --- section: a labelled group. Does the job a border used to do — heading,

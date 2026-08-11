@@ -439,6 +439,9 @@ const TR: Record<string, string> = {
 
   // HierarchyPanel.tsx
   All: 'Tümü',
+  // The two mode groups in the hierarchy panel finally say what they are asking.
+  'Rank view': 'Kademe görünümü',
+  'Paint by': 'Şuna göre boya',
   'No ladder yet. Write a government form on entries, then order the ranks from Settings.':
     "Henüz merdiven yok. Maddelere yönetim biçimi yaz, Ayarlar'dan kademeleri sırala.",
   Conquest: 'Fetih',

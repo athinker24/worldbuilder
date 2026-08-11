@@ -13,7 +13,7 @@ import {
 import ColorPicker from './ColorPicker'
 import Icon from './icons'
 import { useT } from './i18n'
-import { IconButton } from './ui'
+import { IconButton, Segmented, Tabs } from './ui'
 
 // The map's active mode: rank (paint base polygons by their ancestor at that rank — the CK3
 // realm view) or paint (color by a dimension like religion/language)
@@ -120,59 +120,47 @@ export default function HierarchyPanel({
         <b>{t('Hierarchy')}</b>
         <IconButton icon="x" label={t('Close')} small onClick={() => setOpen(false)} />
       </div>
+      {/* Government forms are places to LOOK, not modes — switching one changes which ladder is
+          on screen and nothing about the map. That is navigation, so it is a tab strip. */}
       {cfg.govs.length > 1 && (
-        <div className="hier-tabs">
-          {cfg.govs.map((g) => (
-            <button
-              key={g.name}
-              className={`tag-chip clickable ${activeGov === g.name ? 'active' : ''}`}
-              onClick={() => setActiveGov(g.name)}
-            >
-              {g.name}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          tabs={cfg.govs.map((g) => ({ key: g.name, label: g.name }))}
+          active={activeGov ?? ''}
+          onChange={setActiveGov}
+        />
       )}
-      <div className="hier-tags">
-        <button
-          className={`tag-chip clickable ${active === null ? 'active' : ''}`}
-          onClick={() => onMode(null)}
-        >
-          {t('All')}
-        </button>
-        {(gov?.tags ?? []).map((tag) => (
-          <button
-            key={tag}
-            className={`tag-chip clickable ${rungTag === tag ? 'active' : ''}`}
-            onClick={() => onMode(tag === rungTag ? null : { kind: 'rank', key: tag })}
-          >
-            {tag}
-          </button>
-        ))}
-        {cfg.govs.length === 0 && (
-          <p className="hint">
-            {t(
-              'No ladder yet. Write a government form on entries, then order the ranks from Settings.'
-            )}
-          </p>
-        )}
-      </div>
+      {/* One state (ActiveMode) shown across two groups, because the two questions are different
+          — a ladder is ordered, dimensions are a flat set — while the answer is exclusive. When
+          a dimension is painting, nothing in the rank group is pressed, which is true. */}
+      <Segmented
+        label={t('Rank view')}
+        options={[
+          { key: '', label: t('All') },
+          ...(gov?.tags ?? []).map((tag) => ({ key: tag, label: tag }))
+        ]}
+        value={active === null ? '' : active.kind === 'rank' ? active.key : null}
+        onChange={(key) => onMode(key && key !== rungTag ? { kind: 'rank', key } : null)}
+      />
+      {cfg.govs.length === 0 && (
+        <p className="hint">
+          {t(
+            'No ladder yet. Write a government form on entries, then order the ranks from Settings.'
+          )}
+        </p>
+      )}
       {modes.dims.length > 0 && (
-        <div className="hier-tags hier-modes">
-          {modes.dims.map((d) => (
-            <button
-              key={d}
-              className={`tag-chip clickable ${paintDim === d ? 'active' : ''}`}
-              onClick={() => onMode(d === paintDim ? null : { kind: 'paint', key: d })}
-            >
-              <Icon name="palette" size={12} /> {d}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label={t('Paint by')}
+          options={modes.dims.map((d) => ({ key: d, label: d, icon: 'palette' as const }))}
+          value={paintDim}
+          onChange={(key) => onMode(key === paintDim ? null : { kind: 'paint', key })}
+        />
       )}
       {rungTag && (
         <>
-          <button className="tag-chip clickable" onClick={onConquest}>
+          {/* An ACTION, and the one thing in this panel that is: it starts a two-step flow that
+              takes over the map's clicks. It wore the same chip as the view modes around it. */}
+          <button className="mini" onClick={onConquest}>
             <Icon name="conquest" size={12} /> {t('Conquest')}
           </button>
           <div className="hier-list">

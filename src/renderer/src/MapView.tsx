@@ -5370,17 +5370,26 @@ export default function MapView({
                 {pinTypes.length > 1 && (
                   <>
                     <div className="layers-panel-head">{t('Pin folders')}</div>
-                    <div className="tag-row pin-type-row">
-                      {pinTypes.map((ty) => (
-                        <span
-                          key={ty}
-                          className={`tag-chip clickable ${pinHidden.has(ty) ? '' : 'active'}`}
-                          onClick={() => togglePinType(ty)}
-                        >
-                          {folders.find((x) => x.id === ty)?.name || t('(no folder)')}
+                    {/* Shown/hidden, which is the question the four rows above this one already
+                        answer with checkboxes — these were chips, in the same panel, for the same
+                        job. A chip cannot say "ticked" and these have to. */}
+                    {pinTypes.map((ty) => (
+                      <label key={ty} className="layers-row">
+                        <input
+                          type="checkbox"
+                          checked={!pinHidden.has(ty)}
+                          onChange={() => togglePinType(ty)}
+                        />
+                        <span className="layers-icon">
+                          <Icon name="map-pin" size={14} />
                         </span>
-                      ))}
-                    </div>
+                        <span className="layers-text">
+                          <span className="layers-name">
+                            {folders.find((x) => x.id === ty)?.name || t('(no folder)')}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
                   </>
                 )}
               </div>

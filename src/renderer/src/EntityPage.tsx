@@ -1231,8 +1231,9 @@ export default function EntityPage({
                   ? t('always')
                   : `${s.from ?? '…'} – ${s.to ?? '…'}`
               return (
+                /* A place you can GO, not a tag on this entry — it takes you to another map. */
                 <button
-                  className="tag-chip clickable"
+                  className="mini"
                   key={f.id}
                   title={t('Show on map')}
                   onClick={() => onLocateFeature(f.map_id, f.id)}
