@@ -801,15 +801,51 @@ const mainApi = {
  *   are a third door and are shut here too.
  */
 function hardenWebContents(): void {
+  // In DEV the renderer is served over http by electron-vite, which makes the app's OWN address
+  // look to this guard exactly like a link leading out of it. So Vite's full reload — what its HMR
+  // client falls back to for any edit it cannot apply hot, which is most edits to a module that
+  // does not export a component — was preventDefault()ed and handed to the real browser: a tab in
+  // the user's default browser per edit, each one the renderer with no preload behind it, i.e. the
+  // "This world could not be opened" screen. The comment on `openWorldFile`'s reload records half
+  // of this (a renderer-side `location.reload()` going out the same door, worked around there by
+  // reloading from main) without noticing that HMR knocks on it too.
+  //
+  // `ELECTRON_RENDERER_URL` is set by electron-vite in dev and is UNDEFINED in a packaged build,
+  // where the renderer is `file://` and every http(s) URL really is external. So the allowance
+  // does not exist in the shipped app rather than being switched off there — the rule the dev-only
+  // CSP widening follows with `apply: 'serve'`, and the reason this is written as an origin taken
+  // from the environment instead of a `localhost` pattern.
+  const devOrigin = ((): string | null => {
+    const raw = process.env['ELECTRON_RENDERER_URL']
+    if (!raw) return null
+    try {
+      return new URL(raw).origin
+    } catch {
+      return null
+    }
+  })()
+  const isOwnDevOrigin = (url: string): boolean => {
+    if (!devOrigin) return false
+    try {
+      return new URL(url).origin === devOrigin
+    } catch {
+      return false
+    }
+  }
   const openSafe = (url: string): void => {
+    if (isOwnDevOrigin(url)) return // never hand our own dev server to the browser
     if (/^https?:\/\//i.test(url)) shell.openExternal(url)
   }
   app.on('web-contents-created', (_e, wc) => {
+    // window.open stays denied for the dev origin too: a reload is a navigation, not a new window.
     wc.setWindowOpenHandler((details) => {
       openSafe(details.url)
       return { action: 'deny' }
     })
     wc.on('will-navigate', (e, url) => {
+      // Reloading ourselves is not leaving the app, so it is allowed to proceed. Everything else
+      // is stopped exactly as before — the window still can never navigate away.
+      if (isOwnDevOrigin(url)) return
       e.preventDefault()
       openSafe(url)
     })

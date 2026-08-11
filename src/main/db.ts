@@ -4437,9 +4437,40 @@ if (process.argv[1]?.replace(/\\/g, '/').endsWith('src/main/db.ts')) {
       assert.ok(main.includes(line), `main must keep ${line}`)
     // shell.openExternal takes whatever it is given — file:, and on Windows anything the shell
     // knows how to launch. The scheme test is the only thing between a link in a note and that.
+    //
+    // COMMENTS STRIPPED FIRST, and the assertion is "nothing reaches openExternal before the
+    // scheme test" rather than an exact spelling of the function. The old version pinned the whole
+    // shape (`openSafe = (url: string): void => {` immediately followed by the regex) and broke the
+    // moment the body gained a line, while proving nothing the looser form does not — and the
+    // prose around it quotes `shell.openExternal`, which is the trap the Vite assertion below
+    // already documents.
+    const code = main.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    assert.equal(
+      code.split('shell.openExternal').length - 1,
+      1,
+      'exactly one call may reach the external browser, or the guard below covers only one of them'
+    )
     assert.ok(
-      /openSafe = \(url: string\): void => \{\s*if \(\/\^https\?:/.test(main),
+      code
+        .slice(code.indexOf('const openSafe ='), code.indexOf('shell.openExternal'))
+        .includes('if (/^https?:'),
       'only http(s) may reach the external browser'
+    )
+    // The dev-server allowance. Without it, electron-vite serving the renderer over http makes the
+    // app's own address read as external to the guard above, so Vite's HMR full reload — the
+    // fallback for any edit it cannot apply hot — was posted to the user's default browser: one
+    // tab per edit, each the renderer with no preload behind it. What must hold is that the
+    // allowance is derived from the ENVIRONMENT, so it does not exist in a packaged build rather
+    // than being switched off there; `ELECTRON_RENDERER_URL` is set by electron-vite in dev and is
+    // undefined in the shipped app, where every http(s) URL really is external. A hardcoded host
+    // would ship, and a shipped build would then follow a link into a local server.
+    assert.ok(
+      code.includes("process.env['ELECTRON_RENDERER_URL']"),
+      'the dev-origin allowance must come from the environment'
+    )
+    assert.ok(
+      !/localhost|127\.0\.0\.1/.test(code),
+      'no hardcoded host belongs in main — the dev origin is read from the environment'
     )
     // The instance that LOSES the lock must die before it can touch anything. app.quit() returns
     // and lets whenReady run, which walks the startup sequence — schema exec and migration UPDATEs
