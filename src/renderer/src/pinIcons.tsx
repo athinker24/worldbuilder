@@ -20,37 +20,39 @@ export function ImageStrip({
   const t = useT()
   return (
     <>
-      <div className="pin-picker-grid">
-        {images.map((p) => (
-          <div key={p.path} className="pin-img-opt">
-            <button
-              type="button"
-              className={`pin-opt ${img === p.path ? 'selected' : ''}`}
-              onClick={() => onImg(p.path, p.ar)}
-            >
-              <img src={assetUrl(p.path)} alt="" />
-            </button>
-            <button
-              type="button"
-              className="pin-img-x"
-              title={t('Remove from library')}
-              aria-label={t('Remove from library')}
-              onClick={() => onRemoveImg(p.path)}
-            >
-              <Icon name="x" size={11} />
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          className="pin-opt pin-upload"
-          title={t('Upload image')}
-          aria-label={t('Upload image')}
-          onClick={onUpload}
-        >
-          <Icon name="plus" size={20} />
-        </button>
-      </div>
+      {/* Images only. Upload used to be a cell IN this grid, and no amount of styling fixed it:
+          every other cell is a picture filling its box, so the odd one out read as a broken
+          thumbnail whether it was drawn with a +, an icon, or a dashed outline. It is not a
+          picture — it is an action — so it leaves the grid and becomes a labelled button, which
+          also lets it say what it does instead of relying on a tooltip. With no images yet the
+          grid does not render at all, and the button is the whole control. */}
+      {images.length > 0 && (
+        <div className="pin-picker-grid">
+          {images.map((p) => (
+            <div key={p.path} className="pin-img-opt">
+              <button
+                type="button"
+                className={`pin-opt ${img === p.path ? 'selected' : ''}`}
+                onClick={() => onImg(p.path, p.ar)}
+              >
+                <img src={assetUrl(p.path)} alt="" />
+              </button>
+              <button
+                type="button"
+                className="pin-img-x"
+                title={t('Remove from library')}
+                aria-label={t('Remove from library')}
+                onClick={() => onRemoveImg(p.path)}
+              >
+                <Icon name="x" size={11} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button type="button" className="mini pin-upload" onClick={onUpload}>
+        <Icon name="plus" size={12} /> {t('Upload image…')}
+      </button>
       {images.length > 0 && (
         <p className="hint">{t('Removed from the list only; the file stays in assets.')}</p>
       )}

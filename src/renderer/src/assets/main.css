@@ -65,25 +65,28 @@
      Warm gold = the WORLD's own content (rulers, eras, year marks, templates) —
      the family tree already used gold for rulers; this formalises that.
      Neither ever paints user data: that stays autoColor(), theme-exempt. */
-  /* Toned down for the dark themes, and the two roles SPLIT — they were one colour doing two
-     jobs and only one of them was working.
+  /* Toned down for the dark themes, and no longer a FILL at all.
 
-     As text and icons the teal was fine but hot: L* aside, it measured 7.73:1 against the
-     workspace and 6.21:1 on a popover, well past what a UI accent needs. It is 6.29:1 / 5.06:1
-     now — a 21% cut in luminance (0.435 → 0.345), still clear of 4.5:1 on EVERY surface it
-     lands on, and --surface-float is the one that binds, not the workspace.
+     As text and icons the teal was not wrong, it was hot: 7.73:1 against the workspace and
+     6.21:1 on a popover, past what a UI accent needs. It is 6.29:1 / 5.06:1 now — a 21% cut in
+     luminance (0.435 → 0.345), still clear of 4.5:1 on every surface it lands on, and
+     --surface-float is the one that binds, not the workspace.
 
-     As a FILL the same colour was a lamp: a whole button at luminance 0.435 on a UI whose page
-     is 0.012. Area is the difference — the thing that reads as "one emphasised control" in a
-     12px glyph reads as glare across 120px of button. The fill is its own token now at 0.169,
-     which is 3.49:1 against the page (unmistakably a distinct object) with white text at
-     4.80:1. Dark ink no longer works on it — 3.55:1 — which is why --accent-contrast flips to
-     white and the danger fill, still a LIGHT red, gets --danger-contrast of its own rather than
-     borrowing a token whose meaning just changed under it. */
+     Filling a BUTTON with it was the real problem and no value fixed it. Area is why: what
+     reads as "the one emphasised control" in a 12px glyph reads as a lamp across a button, and
+     a deeper teal only traded glare for mud. The emphasised button is grey now — see
+     --emphasis — which is what the rest of this file already says out loud: chrome is grey,
+     colour is for meaning. The accent stays what it was for, an accent. */
   --accent: #3ab0a0; /* active/selected text and icons */
   --accent-soft: rgba(58, 176, 160, 0.14); /* active/selected backgrounds */
-  --accent-strong: #2a7f72; /* the one high-emphasis fill per view */
-  --accent-contrast: #ffffff; /* text ON --accent-strong — 4.80:1 */
+  /* The one high-emphasis fill per view — and NOT the accent, in either hue or job. This app's
+     own rule is that chrome is grey and colour is for meaning; a filled teal button was the one
+     place colour became a SURFACE, and at that size it read as glare whatever the value. So the
+     emphasised button is the Photoshop/Krita default button: the grey ramp continued one step
+     past --surface-float, which is what makes it a distinct block on the page (2.33:1) AND
+     inside a floating card (1.87:1) — it appears in both. Text on it 5.63:1. */
+  --emphasis: #565856;
+  --emphasis-contrast: var(--text);
   --danger: #e06c75;
   --danger-contrast: #08201c; /* text ON a --danger fill — 5.33:1; white would be 3.20:1 */
   --danger-soft: rgba(224, 108, 117, 0.14);
@@ -208,8 +211,10 @@
      Now 3.33:1 and 4.51:1 — where they were before the ramp moved. */
   --accent: #0c8b80;
   --accent-soft: rgba(12, 139, 128, 0.13);
-  --accent-strong: #0c8b80;
-  --accent-contrast: #ffffff;
+  /* The same step, mirrored: one past --surface-float, which here means DARKER than the page
+     rather than lighter. 1.73:1 against the page, 2.17:1 inside a white card, text 7.61:1. */
+  --emphasis: #a8b2b2;
+  --emphasis-contrast: var(--text);
   --danger: #b63b45;
   /* The light theme's danger is a DARK red, so here the two contrasts agree — the token exists
      because the dark theme's does not, not because this one needed splitting. 5.67:1. */
@@ -1620,19 +1625,11 @@ kbd {
   color: var(--danger);
   border-color: var(--danger);
 }
-/* The empty slot at the end of the strip. Every other cell in that grid is an image filling its
-   box edge to edge, so a thin solid-bordered cell with a small cross in it read as a broken
-   thumbnail rather than an invitation. Dashed says "nothing here yet" — the one place in this app
-   a dashed border earns itself, because it sits in a row of things that are not dashed. */
+/* Out of the grid and onto its own line: it is an action, not a picture. Left-aligned rather
+   than stretched, because the button is as wide as its own label and the strip above it is the
+   full width — a full-bleed button would read as a seventh cell all over again. */
 .pin-upload {
-  color: var(--text-faint);
-  border-style: dashed;
-}
-
-.pin-upload:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--surface-hover);
+  align-self: flex-start;
 }
 
 /* Free-text label: color and rotation are inline per feature; font scales with zoom. */
@@ -2211,18 +2208,20 @@ button.mini {
   font-size: var(--fs-2);
 }
 
-/* The one high-emphasis fill per view. */
+/* The one high-emphasis fill per view. Weight and elevation say "this is the action", not hue —
+   see --emphasis. The border is the strong one rather than none: on a grey fill an edge is what
+   keeps it a button instead of a patch of lighter background. */
 button.primary {
-  background: var(--accent-strong);
-  border-color: transparent;
-  color: var(--accent-contrast);
+  background: var(--emphasis);
+  border-color: var(--border-strong);
+  color: var(--emphasis-contrast);
   font-weight: 600;
 }
 
 button.primary:hover {
-  background: var(--accent-strong);
-  border-color: transparent;
-  filter: brightness(1.08);
+  background: var(--emphasis);
+  border-color: var(--border-strong);
+  filter: brightness(1.12);
 }
 
 button.danger:hover {
@@ -3382,9 +3381,9 @@ a {
    reads as an invitation to delete things, which is the same rule .row-action follows — but in a
    dialog that button IS the view's one action, and left at rest it was indistinguishable from
    Cancel. Scoped here rather than changed globally so the hover-only rule keeps holding in the
-   lists. Text is --danger-contrast and not --accent-contrast: the dark theme's danger is a LIGHT
-   red wanting dark ink (5.33:1, where white would be 3.20:1) while its accent fill is a deep
-   teal wanting white — one "contrast" token cannot answer both. 5.67:1 in the light theme. */
+   lists. Its ink is --danger-contrast and not --emphasis-contrast: the dark theme's danger is a
+   LIGHT red and wants dark ink (5.33:1; white on it would be 3.20:1), where the emphasis fill is
+   a mid grey wanting the ordinary text colour. 5.67:1 in the light theme. */
 .dialog-actions .danger {
   background: var(--danger);
   border-color: transparent;

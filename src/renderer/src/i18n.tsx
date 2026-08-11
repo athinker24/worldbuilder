@@ -262,7 +262,8 @@ const TR: Record<string, string> = {
   Color: 'Renk',
   Icon: 'İkon',
   // Özel pin görselleri
-  'Upload image': 'Görsel yükle',
+  // Ellipsis because it opens a file dialog, like Open… — it was a tooltip on an icon before.
+  'Upload image…': 'Görsel yükle…',
   'Remove from library': 'Kütüphaneden çıkar',
   'Image style': 'Görsel biçimi',
   Badge: 'Rozet',
