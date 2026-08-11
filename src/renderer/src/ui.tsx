@@ -81,6 +81,10 @@ interface SegmentedProps<T extends string> {
   onChange: (key: T) => void
   /** The group's own name. These controls answer a question and it should be on screen. */
   label?: string
+  /** Loose pills in a wrapping row instead of one track. A track says "either/or" and is right
+      for two fixed options; a list the user writes themselves (a rank ladder, the map-mode
+      dimensions) is any length, and boxing a wrapping row makes a wall out of it. */
+  flow?: boolean
 }
 
 /** A set of mutually exclusive view modes sharing one track.
@@ -97,12 +101,13 @@ export function Segmented<T extends string>({
   options,
   value,
   onChange,
-  label
+  label,
+  flow
 }: SegmentedProps<T>): React.JSX.Element {
   return (
     <div className="seg-group">
       {label && <div className="seg-label">{label}</div>}
-      <div className="seg">
+      <div className={flow ? 'seg flow' : 'seg'}>
         {options.map((o) => (
           <button
             key={o.key}

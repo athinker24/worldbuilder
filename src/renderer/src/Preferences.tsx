@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react'
-import { api, getDebugLog, Lang, saveDebugLog, saveLanguage, saveTheme, Theme } from './api'
+import {
+  api,
+  getDebugLog,
+  Lang,
+  saveDebugLog,
+  saveLanguage,
+  saveTheme,
+  Theme,
+  UI_SCALES
+} from './api'
 import Select from './Select'
 import { useT } from './i18n'
 import { logEvent, setDebugLog } from './log'
@@ -23,11 +32,16 @@ export default function Preferences({
 }: Props): React.JSX.Element {
   const t = useT()
   const [debug, setDebug] = useState(false)
+  // Read on mount rather than held in App: it is applied by MAIN, so nothing in the renderer
+  // needs it except this one dropdown. The View menu's Ctrl+= writes the same file, so a value
+  // set from the keyboard while this page is open is picked up the next time it is opened.
+  const [uiScale, setUiScale] = useState(100)
   useEffect(() => {
     void getDebugLog().then((on) => {
       setDebug(on)
       setDebugLog(on) // the renderer's own filter, so a DEBUG line costs a boolean test when off
     })
+    void api.getPrefs().then((p) => setUiScale(p.uiScale ?? 100))
   }, [])
   return (
     <div className="page">
@@ -49,6 +63,23 @@ export default function Preferences({
               { value: 'en', label: 'English' },
               { value: 'tr', label: 'Turkish' }
             ]}
+          />
+        </Row>
+        {/* The 2K-monitor answer, and the one every desktop app of this kind has: the interface
+            is drawn in CSS pixels, so on a high-resolution display at 100% system scaling it is
+            physically small. Main applies it to the window itself, so it moves the map and its
+            labels with the chrome rather than only the type. Ctrl+= / Ctrl+- / Ctrl+0 walk the
+            same list from the View menu. */}
+        <Row label={t('Interface scale')}>
+          <Select
+            value={String(uiScale)}
+            onChange={(v) => {
+              const n = Number(v)
+              setUiScale(n)
+              void api.savePrefs({ uiScale: n })
+              logEvent('INFO', 'settings.changed', { what: 'uiScale', value: n })
+            }}
+            options={UI_SCALES.map((n) => ({ value: String(n), label: `${n}%` }))}
           />
         </Row>
         <Row label={t('Theme')}>

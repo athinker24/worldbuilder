@@ -16,6 +16,8 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['Ctrl+O', 'Open world'],
       ['Ctrl+Z / Ctrl+Y', 'Undo / Redo'],
       ['Alt+← / Alt+→', 'Back / Forward in history'],
+      ['Ctrl++ / Ctrl+-', 'Make the interface bigger / smaller'],
+      ['Ctrl+0', 'Interface back to 100%'],
       ['F1', 'This page'],
       ['Del', 'Delete selected entries (in the list)']
     ]

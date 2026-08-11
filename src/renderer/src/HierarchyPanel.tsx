@@ -13,8 +13,7 @@ import {
 import ColorPicker from './ColorPicker'
 import Icon from './icons'
 import { useT } from './i18n'
-import Select from './Select'
-import { IconButton, Row, Tabs } from './ui'
+import { IconButton, Segmented, Tabs } from './ui'
 
 // The map's active mode: rank (paint base polygons by their ancestor at that rank — the CK3
 // realm view) or paint (color by a dimension like religion/language)
@@ -130,25 +129,23 @@ export default function HierarchyPanel({
           onChange={setActiveGov}
         />
       )}
-      {/* Two dropdowns rather than two rows of buttons, and the panel's width is the whole
-          argument: these lists are the user's own vocabulary — a ladder can be five ranks and
-          the dimensions any number — so a control laid out in a row has to wrap, and two
-          wrapping tracks with headings turned a 260px panel into a wall of buttons. A dropdown
-          is a fixed two lines whatever the world contains.
+      {/* The layout this panel started with: a row of pills you read left to right, a hairline,
+          then the paint dimensions. It was right and a boxed grid of labelled tracks was not —
+          a ladder is a sequence and 260px has no width to make a form out of it. What changed is
+          the pill itself (see .seg.flow) and what it MEANS: these are toggle buttons carrying
+          aria-pressed, not chips, so nothing here shares a shape with a tag on an entry.
 
-          One state (ActiveMode) across two controls, and '' is honest in both: painting by
-          religion really does place no rank filter, and standing on a rank really is painting by
-          nothing. Choosing in either clears the other, because there is only ever one mode. */}
-      <Row label={t('Rank view')}>
-        <Select
-          value={active?.kind === 'rank' ? active.key : ''}
-          onChange={(v) => onMode(v ? { kind: 'rank', key: v } : null)}
-          options={[
-            { value: '', label: t('All') },
-            ...(gov?.tags ?? []).map((tag) => ({ value: tag, label: tag }))
-          ]}
-        />
-      </Row>
+          One state across both rows. When a dimension is painting, no rank pill is lit — not
+          even All, because "all ranks" is not what is on screen. */}
+      <Segmented
+        flow
+        options={[
+          { key: '', label: t('All') },
+          ...(gov?.tags ?? []).map((tag) => ({ key: tag, label: tag }))
+        ]}
+        value={active === null ? '' : active.kind === 'rank' ? active.key : null}
+        onChange={(key) => onMode(key && key !== rungTag ? { kind: 'rank', key } : null)}
+      />
       {cfg.govs.length === 0 && (
         <p className="hint">
           {t(
@@ -157,16 +154,14 @@ export default function HierarchyPanel({
         </p>
       )}
       {modes.dims.length > 0 && (
-        <Row label={t('Paint by')}>
-          <Select
-            value={active?.kind === 'paint' ? active.key : ''}
-            onChange={(v) => onMode(v ? { kind: 'paint', key: v } : null)}
-            options={[
-              { value: '', label: t('Nothing') },
-              ...modes.dims.map((d) => ({ value: d, label: d }))
-            ]}
+        <div className="hier-paint">
+          <Segmented
+            flow
+            options={modes.dims.map((d) => ({ key: d, label: d, icon: 'palette' as const }))}
+            value={paintDim}
+            onChange={(key) => onMode(key === paintDim ? null : { kind: 'paint', key })}
           />
-        </Row>
+        </div>
       )}
       {rungTag && (
         <>

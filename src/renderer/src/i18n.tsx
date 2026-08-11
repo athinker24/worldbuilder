@@ -104,6 +104,8 @@ const TR: Record<string, string> = {
   'Open world': 'Dünya aç',
   'Undo / Redo': 'Geri al / Yinele',
   'Back / Forward in history': 'Geçmişte geri / ileri',
+  'Make the interface bigger / smaller': 'Arayüzü büyüt / küçült',
+  'Interface back to 100%': 'Arayüzü %100’e döndür',
   'This page': 'Bu sayfa',
   'Delete selected entries (in the list)': 'Seçili maddeleri sil (listede)',
   Click: 'Tık',
@@ -193,6 +195,7 @@ const TR: Record<string, string> = {
   Save: 'Kaydet',
   Language: 'Dil',
   'Interface language': 'Arayüz dili',
+  'Interface scale': 'Arayüz ölçeği',
   Theme: 'Tema',
   // History panel (Overview ▸ History) — the labels come from pushUndo call sites, so the English
   // text there IS the key here.

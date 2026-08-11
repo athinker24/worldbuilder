@@ -3102,13 +3102,11 @@ a {
   gap: 6px;
 }
 
-/* Label over control, like the map inspector and the identity rail: at 260px a label column
-   would leave the dropdown too narrow to read a rank name in. */
-.hier-panel .row {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-  min-height: 0;
+/* The paint dimensions are a different question from the ranks above them, and a hairline says
+   so without spending a heading on it — which is what this panel had originally. */
+.hier-paint {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--sp-2);
 }
 
 .hier-list {
@@ -3639,6 +3637,34 @@ a {
   border-color: transparent;
   color: var(--accent);
   font-weight: 600;
+}
+
+/* The loose variant: pills in a wrapping row, no track around them.
+   This is the layout the hierarchy panel had before any of this and it was right — a ladder is
+   read left to right and a 260px panel has no width for a boxed grid. What was wrong with it was
+   the PILL, not the row: every chip carried a full border at rest, so a row of five outlined
+   boxes shouted before you had chosen anything. Here only the pressed one is filled and the rest
+   are quiet surfaces, which is what makes a row of them calm. */
+.seg.flow {
+  background: none;
+  border: none;
+  padding: 0;
+  gap: var(--sp-1);
+}
+
+.seg.flow .seg-item {
+  flex: 0 0 auto;
+  background: var(--control);
+  border-radius: 999px;
+  padding: 0 var(--sp-3);
+}
+
+.seg.flow .seg-item:hover {
+  background: var(--control-hover);
+}
+
+.seg.flow .seg-item.on {
+  background: var(--accent-soft);
 }
 
 /* --- section: a labelled group. Does the job a border used to do — heading,
