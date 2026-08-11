@@ -1144,7 +1144,7 @@ kbd {
 }
 
 .page {
-  padding: 16px 24px;
+  padding: var(--sp-5) var(--sp-6);
   overflow-y: auto;
   overflow-x: hidden; /* clip horizontal overflow rather than showing a scrollbar, including embedded pages */
   flex: 1;
@@ -1168,8 +1168,36 @@ kbd {
 }
 
 .page.compact {
-  padding: 8px;
+  padding: var(--sp-2);
   max-width: none;
+}
+
+/* --- room to read ---------------------------------------------------------------------------
+   A workspace page and a 380px docked panel are not the same problem, and until now they shared
+   one set of numbers — which meant the panel's density, chosen because it has no room, was also
+   what Preferences and Project Preferences got on a 900px column. Sections sat 4px apart, rows
+   4px apart, headings 12px above their content: readable, but nothing had any air and every
+   screen read as one continuous list.
+
+   So the loosening is scoped to the page and never reaches the inspector (`.compact`), where the
+   tightness is deliberate. Nothing here changes a font or a colour — only the space between. */
+.page:not(.compact) .section-head {
+  padding: var(--sp-5) 0 var(--sp-2);
+}
+
+.page:not(.compact) .section-body {
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-4);
+}
+
+.page:not(.compact) .field-row {
+  margin-bottom: var(--sp-2);
+}
+
+/* A hint explains the control under it, so it belongs to what follows rather than floating
+   equidistant between two groups. */
+.page:not(.compact) .section-body > .hint {
+  margin: 0 0 var(--sp-1);
 }
 
 /* Data views, not prose. The 900px cap above is a MEASURE cap — right for reading pages
@@ -2899,11 +2927,11 @@ a {
   min-width: 0;
 }
 
-.measure-btns {
-  display: flex;
-  gap: 4px;
-}
-.measure-btns .mini.active,
+/* What is left of this rule is ONE button: the routing session's start/clear toggle, whose label
+   changes with its state. The pairs it used to serve — Badge/Free, Distance/Area — are Segmented
+   now, which says "one of these" in the control itself instead of in a class name.
+   Gold, not the accent, because a running measurement is the WORLD being measured rather than
+   the application talking. */
 .tool-settings .mini.active {
   border-color: var(--gold);
   color: var(--gold);
@@ -3072,6 +3100,15 @@ a {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+/* Label over control, like the map inspector and the identity rail: at 260px a label column
+   would leave the dropdown too narrow to read a rank name in. */
+.hier-panel .row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  min-height: 0;
 }
 
 .hier-list {
@@ -3534,10 +3571,14 @@ a {
   gap: var(--sp-2);
 }
 
+/* WRAPS, and deliberately does not scroll. `overflow-x: auto` here bought a vertical scrollbar
+   for free: once one axis is not `visible` the other computes to `auto` too, and .tab::after
+   sits at bottom:-1px, so the underline overflowed the box and something had to scroll to reach
+   it. On a settings page a second row of tabs is also simply better than a hidden first one. */
 .tabs-row .tabs {
   flex: 1;
   min-width: 0;
-  overflow-x: auto;
+  flex-wrap: wrap;
 }
 
 .tabs-row .icon-btn {

@@ -58,7 +58,7 @@ import { alertDialog, confirmDialog } from './dialog'
 import History from './History'
 import Icon from './icons'
 import Select from './Select'
-import { EmptyState, IconButton } from './ui'
+import { EmptyState, IconButton, Segmented } from './ui'
 import { useT } from './i18n'
 import Timeline from './Timeline'
 import MapToolbar from './MapToolbar'
@@ -6165,21 +6165,17 @@ export default function MapView({
                       <>
                         {/* See the same line in ToolPanel: the strip is its own remove button. */}
                         <p className="hint">{t('Click an image again to remove it.')}</p>
-                        <label>{t('Image style')}</label>
-                        <div className="measure-btns">
-                          <button
-                            className={`mini ${!selStyle.imgFree ? 'active' : ''}`}
-                            onClick={() => editSelectedStyle({ imgFree: false })}
-                          >
-                            {t('Badge')}
-                          </button>
-                          <button
-                            className={`mini ${selStyle.imgFree ? 'active' : ''}`}
-                            onClick={() => editSelectedStyle({ imgFree: true })}
-                          >
-                            {t('Free')}
-                          </button>
-                        </div>
+                        {/* The tool panel's twin — same control for the same choice, and it has
+                            to stay the twin: one shows the default, this shows one drawing. */}
+                        <Segmented
+                          label={t('Image style')}
+                          options={[
+                            { key: 'badge', label: t('Badge') },
+                            { key: 'free', label: t('Free') }
+                          ]}
+                          value={selStyle.imgFree ? 'free' : 'badge'}
+                          onChange={(k) => editSelectedStyle({ imgFree: k === 'free' })}
+                        />
                       </>
                     )}
                     <label className="cap">

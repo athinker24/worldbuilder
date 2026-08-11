@@ -13,7 +13,8 @@ import {
 import ColorPicker from './ColorPicker'
 import Icon from './icons'
 import { useT } from './i18n'
-import { IconButton, Segmented, Tabs } from './ui'
+import Select from './Select'
+import { IconButton, Row, Tabs } from './ui'
 
 // The map's active mode: rank (paint base polygons by their ancestor at that rank — the CK3
 // realm view) or paint (color by a dimension like religion/language)
@@ -129,18 +130,25 @@ export default function HierarchyPanel({
           onChange={setActiveGov}
         />
       )}
-      {/* One state (ActiveMode) shown across two groups, because the two questions are different
-          — a ladder is ordered, dimensions are a flat set — while the answer is exclusive. When
-          a dimension is painting, nothing in the rank group is pressed, which is true. */}
-      <Segmented
-        label={t('Rank view')}
-        options={[
-          { key: '', label: t('All') },
-          ...(gov?.tags ?? []).map((tag) => ({ key: tag, label: tag }))
-        ]}
-        value={active === null ? '' : active.kind === 'rank' ? active.key : null}
-        onChange={(key) => onMode(key && key !== rungTag ? { kind: 'rank', key } : null)}
-      />
+      {/* Two dropdowns rather than two rows of buttons, and the panel's width is the whole
+          argument: these lists are the user's own vocabulary — a ladder can be five ranks and
+          the dimensions any number — so a control laid out in a row has to wrap, and two
+          wrapping tracks with headings turned a 260px panel into a wall of buttons. A dropdown
+          is a fixed two lines whatever the world contains.
+
+          One state (ActiveMode) across two controls, and '' is honest in both: painting by
+          religion really does place no rank filter, and standing on a rank really is painting by
+          nothing. Choosing in either clears the other, because there is only ever one mode. */}
+      <Row label={t('Rank view')}>
+        <Select
+          value={active?.kind === 'rank' ? active.key : ''}
+          onChange={(v) => onMode(v ? { kind: 'rank', key: v } : null)}
+          options={[
+            { value: '', label: t('All') },
+            ...(gov?.tags ?? []).map((tag) => ({ value: tag, label: tag }))
+          ]}
+        />
+      </Row>
       {cfg.govs.length === 0 && (
         <p className="hint">
           {t(
@@ -149,12 +157,16 @@ export default function HierarchyPanel({
         </p>
       )}
       {modes.dims.length > 0 && (
-        <Segmented
-          label={t('Paint by')}
-          options={modes.dims.map((d) => ({ key: d, label: d, icon: 'palette' as const }))}
-          value={paintDim}
-          onChange={(key) => onMode(key === paintDim ? null : { kind: 'paint', key })}
-        />
+        <Row label={t('Paint by')}>
+          <Select
+            value={active?.kind === 'paint' ? active.key : ''}
+            onChange={(v) => onMode(v ? { kind: 'paint', key: v } : null)}
+            options={[
+              { value: '', label: t('Nothing') },
+              ...modes.dims.map((d) => ({ value: d, label: d }))
+            ]}
+          />
+        </Row>
       )}
       {rungTag && (
         <>
