@@ -65,20 +65,19 @@
      Warm gold = the WORLD's own content (rulers, eras, year marks, templates) —
      the family tree already used gold for rulers; this formalises that.
      Neither ever paints user data: that stays autoColor(), theme-exempt. */
-  /* Toned down for the dark themes, and it is no longer a FILL anywhere.
+  /* Toned down for the dark themes, and it no longer paints a BUTTON at all.
 
      As text and icons the teal was not wrong, it was hot: 7.73:1 against the workspace and
      6.21:1 on a popover, past what a UI accent needs. It is 6.29:1 / 5.06:1 now — a 21% cut in
      luminance (0.435 → 0.345), still clear of 4.5:1 on every surface it lands on, and
      --surface-float is the one that binds, not the workspace.
 
-     Filling a BUTTON with it was the real problem, and no value fixed it — a deeper teal only
-     traded glare for mud. AREA was always the variable: what reads as "the one emphasised
-     control" in a 12px glyph reads as a lamp across a button. Two greys were then tried in its
-     place and both were wrong in the other direction, which is what settled it — the emphasised
-     button is teal again, TINTED rather than filled, at 14% behind an --accent edge. See
-     button.primary. Colour still means something and nothing is lit up. */
-  --accent: #3ab0a0; /* active/selected text and icons, and the emphasised button's edge */
+     What it is NOT for: the emphasised button. Five attempts went through bright teal, deep
+     teal, two greys and a teal tint, and the honest conclusion is that the accent works at glyph
+     scale and stops working at button scale — the same colour that means "this is active" in a
+     12px chevron is a lamp across 120px of surface. Emphasis is elevation and weight now (see
+     button.primary), and the accent keeps the job it is good at. */
+  --accent: #3ab0a0; /* active/selected text and icons */
   --accent-soft: rgba(58, 176, 160, 0.14); /* active/selected backgrounds */
   --danger: #e06c75;
   --danger-contrast: #08201c; /* text ON a --danger fill — 5.33:1; white would be 3.20:1 */
@@ -2201,33 +2200,43 @@ button.mini {
   font-size: var(--fs-2);
 }
 
-/* The one high-emphasis action per view: teal, but TINTED rather than filled.
-
-   This is the app's own "the active thing" idiom — --accent-soft behind, --accent on the edge —
-   the one the sidebar's current workspace and the pressed tool button already wear. A grey
-   emphasis was tried and was wrong for a reason worth keeping: the colour was never the problem,
-   the AREA was. At 14% the tint is 1.24:1 against whatever it sits on, so it tells you where the
-   button is without lighting anything up, and the edge does the work at 6.29:1 on the page and
-   5.06:1 on the float card this also appears on.
-
-   The LABEL is --text and not --accent, which is the one thing measurement decided rather than
-   taste: accent on the tint is 4.05:1 on that float card and 2.87:1 in the light theme, both
-   under the floor for text. Teal on the edge, ordinary ink in the middle. */
+/* The one high-emphasis action per view.
+ *
+ * RELATIVE TO ITS BACKDROP, and that is the whole idea — four earlier attempts each picked a
+ * fixed colour (bright teal, deep teal, two greys, a teal tint) and every one of them was right
+ * in one of the two places this button appears and wrong in the other. That was the actual bug,
+ * not the values: `Open…` sits on --surface while `Add base image` sits inside a --surface-float
+ * card, so any absolute fill is a different distance from its background in each.
+ *
+ * So it is made of the same translucent material as every other button, one notch up in each
+ * dimension — which is the reason the ordinary controls are translucent in the first place (see
+ * the form-elements block). Measured, the relationship is identical on both: an ordinary button
+ * is 1.15:1 above its backdrop and this is 1.30:1 above the same backdrop and 1.13:1 above an
+ * ordinary button, on the page AND in the float card. In L* that is a step of ~4.2, which is the
+ * surface ramp's own step size — the button is one elevation above whatever it is standing on,
+ * wherever that is.
+ *
+ * Brightness is not what makes it read, because brightness is what glared every previous time.
+ * Four quiet signals do: the step up, a firmer edge (--border-strong where the others wear
+ * --border-subtle), a semibold label, and --shadow-1 — the only one of the four that costs no
+ * light at all. Flat buttons and one raised one; that is a hierarchy you see before you read. */
 button.primary {
-  background: var(--accent-soft);
-  border-color: var(--accent);
+  background: var(--surface-active);
+  border-color: var(--border-strong);
   color: var(--text);
   font-weight: 600;
+  box-shadow: var(--shadow-1);
 }
 
 button.primary:hover {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  filter: brightness(1.2);
+  background: var(--surface-active);
+  border-color: var(--text-faint);
+  box-shadow: var(--shadow-2);
 }
 
+/* Pressed: the shadow goes, so the button sits back down onto the surface. */
 button.primary:active {
-  filter: brightness(0.95);
+  box-shadow: none;
 }
 
 button.danger:hover {
@@ -3387,9 +3396,10 @@ a {
    reads as an invitation to delete things, which is the same rule .row-action follows — but in a
    dialog that button IS the view's one action, and left at rest it was indistinguishable from
    Cancel. Scoped here rather than changed globally so the hover-only rule keeps holding in the
-   lists. It is the one FILLED button left in the app — the emphasised button next to it is a
-   tint behind an edge — and it needs its own ink: the dark theme's danger is a LIGHT red wanting
-   dark ink at 5.33:1, where white on it would be 3.20:1. 5.67:1 in the light theme. */
+   lists. It is the ONLY filled button left in the app, and that is the point of it: this is the
+   one moment where a colour across a whole button is the message. It needs its own ink — the
+   dark theme's danger is a LIGHT red wanting dark ink at 5.33:1, where white on it would be
+   3.20:1. 5.67:1 in the light theme. */
 .dialog-actions .danger {
   background: var(--danger);
   border-color: transparent;
