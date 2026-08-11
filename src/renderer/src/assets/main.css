@@ -79,13 +79,22 @@
      colour is for meaning. The accent stays what it was for, an accent. */
   --accent: #3ab0a0; /* active/selected text and icons */
   --accent-soft: rgba(58, 176, 160, 0.14); /* active/selected backgrounds */
-  /* The one high-emphasis fill per view — and NOT the accent, in either hue or job. This app's
-     own rule is that chrome is grey and colour is for meaning; a filled teal button was the one
-     place colour became a SURFACE, and at that size it read as glare whatever the value. So the
-     emphasised button is the Photoshop/Krita default button: the grey ramp continued one step
-     past --surface-float, which is what makes it a distinct block on the page (2.33:1) AND
-     inside a floating card (1.87:1) — it appears in both. Text on it 5.63:1. */
-  --emphasis: #565856;
+  /* The one high-emphasis fill per view — and NOT the accent, in either hue or job. Chrome is
+     grey and colour is for meaning; a filled teal button was the one place colour became a
+     SURFACE, and at that size it read as glare whatever the value.
+
+     ON THE RAMP, and that is the whole of it: the surfaces run L* 4.2 / 9.1 / 11.1 / 14.5 /
+     19.3, so the emphasised button is the next step, 24.3. The first attempt at this was picked
+     by eye at L* 37 — nearly double the top of the ramp — and read as a light block borrowed
+     from another interface, which is exactly what the note above the surfaces warns against:
+     move the ramp, never re-tint it by eye. It applies to a value ADDED to the ramp too.
+
+     One step is only 1.18:1 against --surface-float, and this button appears on a float (the
+     empty-map card) as well as on the page, so the fill alone cannot carry it — which is true
+     of every real desktop default button and is why they all have an edge. It takes a visible
+     border (--text-faint, 4.42:1 against the float it sits on) and the top highlight a physical
+     button has. Fill, edge, weight: emphasis without brightness. Text on it 8.96:1. */
+  --emphasis: #393a39;
   --emphasis-contrast: var(--text);
   --danger: #e06c75;
   --danger-contrast: #08201c; /* text ON a --danger fill — 5.33:1; white would be 3.20:1 */
@@ -211,9 +220,11 @@
      Now 3.33:1 and 4.51:1 — where they were before the ramp moved. */
   --accent: #0c8b80;
   --accent-soft: rgba(12, 139, 128, 0.13);
-  /* The same step, mirrored: one past --surface-float, which here means DARKER than the page
-     rather than lighter. 1.73:1 against the page, 2.17:1 inside a white card, text 7.61:1. */
-  --emphasis: #a8b2b2;
+  /* The same step, mirrored — and the mirror is not "one past float", because float here IS
+     white and elevation has nowhere left to go. A light theme's default button is DARKER than
+     its page, so this is one step the other way, between --surface-sunken (L* 87) and
+     --surface-canvas (78) at 83. Same edge, same weight; text on it 10.55:1. */
+  --emphasis: #c9d0d0;
   --emphasis-contrast: var(--text);
   --danger: #b63b45;
   /* The light theme's danger is a DARK red, so here the two contrasts agree — the token exists
@@ -2208,20 +2219,31 @@ button.mini {
   font-size: var(--fs-2);
 }
 
-/* The one high-emphasis fill per view. Weight and elevation say "this is the action", not hue —
-   see --emphasis. The border is the strong one rather than none: on a grey fill an edge is what
-   keeps it a button instead of a patch of lighter background. */
+/* The one high-emphasis action per view, and it is a DESKTOP default button: one step up the
+   grey ramp, a real edge, a top highlight and a semibold label. Three quiet signals rather than
+   one loud one — which is what lets it stay on the ramp (see --emphasis) and still read on both
+   the page and a floating card, where a fill one step from its backdrop cannot carry alone.
+   The border is --text-faint, not --border-strong: at 4.42:1 it is an edge you can see, where a
+   7%-white hairline on a grey fill is the same nothing the ordinary buttons wear (1.07:1). */
 button.primary {
   background: var(--emphasis);
-  border-color: var(--border-strong);
+  border-color: var(--text-faint);
   color: var(--emphasis-contrast);
   font-weight: 600;
+  box-shadow: inset 0 1px 0 var(--tint-2);
 }
 
 button.primary:hover {
   background: var(--emphasis);
-  border-color: var(--border-strong);
-  filter: brightness(1.12);
+  border-color: var(--text-muted);
+  filter: brightness(1.15);
+}
+
+/* Pressed: the highlight is on the underside instead, which is the whole of what a physical
+   button does when you push it in. */
+button.primary:active {
+  box-shadow: inset 0 -1px 0 var(--tint-2);
+  filter: brightness(0.95);
 }
 
 button.danger:hover {
