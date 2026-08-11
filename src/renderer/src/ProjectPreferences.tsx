@@ -150,7 +150,7 @@ export default function ProjectPreferences(): React.JSX.Element {
                   if (activeGov === g.name) setActiveGov(next.govs[0]?.name ?? null)
                 }}
               >
-                ×
+                <Icon name="x" size={11} />
               </button>
             </span>
           ))}
@@ -170,8 +170,8 @@ export default function ProjectPreferences(): React.JSX.Element {
               value={govInput}
               onChange={(e) => setGovInput(e.target.value)}
             />
-            <button className="mini" type="submit">
-              +
+            <button className="mini" type="submit" title={t('Add')} aria-label={t('Add')}>
+              <Icon name="plus" size={12} />
             </button>
           </form>
         </div>
@@ -218,8 +218,8 @@ export default function ProjectPreferences(): React.JSX.Element {
                 value={tagInput}
                 onChange={(e) => setTagInput(e.target.value)}
               />
-              <button className="mini" type="submit">
-                +
+              <button className="mini" type="submit" title={t('Add')} aria-label={t('Add')}>
+                <Icon name="plus" size={12} />
               </button>
             </form>
           </>
@@ -249,7 +249,7 @@ export default function ProjectPreferences(): React.JSX.Element {
                 className="tag-x"
                 onClick={() => updateModes({ ...modes, dims: modes.dims.filter((x) => x !== d) })}
               >
-                ×
+                <Icon name="x" size={11} />
               </button>
             </span>
           ))}
@@ -267,8 +267,8 @@ export default function ProjectPreferences(): React.JSX.Element {
               value={dimInput}
               onChange={(e) => setDimInput(e.target.value)}
             />
-            <button className="mini" type="submit">
-              +
+            <button className="mini" type="submit" title={t('Add')} aria-label={t('Add')}>
+              <Icon name="plus" size={12} />
             </button>
           </form>
         </div>
@@ -298,7 +298,7 @@ export default function ProjectPreferences(): React.JSX.Element {
                   if (activeTpl === x.name) setActiveTpl(next[0]?.name ?? null)
                 }}
               >
-                ×
+                <Icon name="x" size={11} />
               </button>
             </span>
           ))}
@@ -318,8 +318,8 @@ export default function ProjectPreferences(): React.JSX.Element {
               value={tplInput}
               onChange={(e) => setTplInput(e.target.value)}
             />
-            <button className="mini" type="submit">
-              +
+            <button className="mini" type="submit" title={t('Add')} aria-label={t('Add')}>
+              <Icon name="plus" size={12} />
             </button>
           </form>
         </div>
@@ -336,16 +336,19 @@ export default function ProjectPreferences(): React.JSX.Element {
                     patchTpl({ fields: { ...tpl.fields, [k]: e.target.value } })
                   }
                 />
-                <button
-                  className="mini danger"
+                {/* The same control the rank ladder above uses for the same job — this row
+                    was a .mini danger while that one was an IconButton, in one screen. */}
+                <IconButton
+                  icon="x"
+                  label={t('Remove')}
+                  small
+                  danger
                   onClick={() => {
                     const f = { ...tpl.fields }
                     delete f[k]
                     patchTpl({ fields: f })
                   }}
-                >
-                  ×
-                </button>
+                />
               </div>
             ))}
             <form
@@ -362,8 +365,8 @@ export default function ProjectPreferences(): React.JSX.Element {
             >
               <input name="key" placeholder={t('new field')} />
               <input name="value" placeholder={t('default value (optional)')} />
-              <button className="mini" type="submit">
-                +
+              <button className="mini" type="submit" title={t('Add')} aria-label={t('Add')}>
+                <Icon name="plus" size={12} />
               </button>
             </form>
           </>

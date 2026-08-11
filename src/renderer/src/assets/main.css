@@ -357,7 +357,6 @@ h4 {
   border-radius: 0;
   background: var(--bg2);
   color: var(--muted);
-  font-size: 11px;
   cursor: pointer;
 }
 
@@ -446,11 +445,20 @@ h4 {
 .side-folder:hover {
   background: var(--surface-hover);
 }
+/* The same caret the Section primitive uses: one glyph, TURNED, rather than two
+   glyphs swapped — which is also why it can carry a transition at all. */
 .tree-caret {
   width: 12px;
   flex: 0 0 auto;
-  color: var(--muted);
-  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  transition: transform var(--dur) var(--ease-out);
+}
+
+.tree-caret.open {
+  transform: rotate(90deg);
 }
 /* the folder's color swatch (replaces the old entity-type color) */
 /* Both classes are on the same button, so this must out-specify .cp-trigger's --h-md
@@ -1577,7 +1585,6 @@ kbd {
   height: 15px;
   padding: 0;
   line-height: 1;
-  font-size: 11px;
   border-radius: 50%;
   background: var(--bg2);
   border: 1px solid var(--border);
@@ -1593,7 +1600,6 @@ kbd {
   border-color: var(--danger);
 }
 .pin-upload {
-  font-size: 18px;
   color: var(--muted);
 }
 

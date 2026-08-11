@@ -303,12 +303,14 @@ export default function Timeline({
           </button>
           <button
             className="mini"
+            title={t('Close')}
+            aria-label={t('Close')}
             onClick={() => {
               stopPlay()
               setOpen(false)
             }}
           >
-            ×
+            <Icon name="x" size={13} />
           </button>
         </div>
       </div>
@@ -417,9 +419,11 @@ export default function Timeline({
               </span>
               <button
                 className="mini danger"
+                title={t('Remove')}
+                aria-label={t('Remove')}
                 onClick={() => update({ ...cfg, periods: cfg.periods.filter((_, j) => j !== i) })}
               >
-                ×
+                <Icon name="x" size={12} />
               </button>
             </div>
           ))}
@@ -456,8 +460,8 @@ export default function Timeline({
               value={periodTo}
               onChange={(e) => setPeriodTo(e.target.value)}
             />
-            <button className="mini" type="submit">
-              +
+            <button className="mini" type="submit" title={t('Add')} aria-label={t('Add')}>
+              <Icon name="plus" size={12} />
             </button>
           </form>
           {cfg.events.map((e, i) => (
@@ -468,14 +472,16 @@ export default function Timeline({
               </span>
               {e.fid !== undefined && (
                 <button className="mini" title={t('Show on map')} onClick={() => jumpEvent(e)}>
-                  →
+                  <Icon name="arrow-right" size={12} />
                 </button>
               )}
               <button
                 className="mini danger"
+                title={t('Remove')}
+                aria-label={t('Remove')}
                 onClick={() => update({ ...cfg, events: cfg.events.filter((_, j) => j !== i) })}
               >
-                ×
+                <Icon name="x" size={12} />
               </button>
             </div>
           ))}
@@ -503,8 +509,8 @@ export default function Timeline({
               value={eventYear}
               onChange={(e) => setEventYear(e.target.value)}
             />
-            <button className="mini" type="submit">
-              +
+            <button className="mini" type="submit" title={t('Add')} aria-label={t('Add')}>
+              <Icon name="plus" size={12} />
             </button>
           </form>
         </div>

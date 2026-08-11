@@ -140,7 +140,6 @@ const TR: Record<string, string> = {
   'This will discard unsaved changes. Continue?':
     'Kaydedilmemiş değişiklikler kaybolacak. Devam edilsin mi?',
   // Başlangıç ekranı (son kullanılan .world dosyaları)
-  '＋ New world': '＋ Yeni dünya',
   Recent: 'Son kullanılanlar',
   Presets: 'Hazır renkler', // renk seçicideki sabit altılı şerit (son kullanılanlardan ayrı)
   'No recent worlds yet. Save one with Ctrl+S.':
@@ -385,7 +384,6 @@ const TR: Record<string, string> = {
   'This region has no owner at that rank in this year.':
     'Bu bölgenin o yıl o kademede bir sahibi yok.',
   '(no folder)': '(klasörsüz)',
-  '＋ Entry': '＋ Madde',
   'Not on a map': 'Haritada değil',
   Favorites: 'Favoriler',
   'Add to favorites': 'Favorilere ekle',
@@ -404,7 +402,6 @@ const TR: Record<string, string> = {
   Cross: 'Haç',
   'Nothing drawn on this map yet.': 'Bu haritada henüz bir çizim yok.',
   'Every entry is on a map.': 'Bütün maddeler bir haritada.',
-  '＋ Folder': '＋ Klasör',
   'Delete folder "{name}"? (entries are kept)': '"{name}" klasörü silinsin mi? (maddeler korunur)',
   'Add banner': 'Sancak ekle',
   'Replace banner': 'Sancağı değiştir',

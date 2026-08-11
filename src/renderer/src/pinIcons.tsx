@@ -1,4 +1,5 @@
 import { assetUrl, PinImage } from './api'
+import Icon from './icons'
 import { useT } from './i18n'
 
 // Image library strip (settings 'pinImages' — shared by pins and polygon fills):
@@ -33,9 +34,10 @@ export function ImageStrip({
               type="button"
               className="pin-img-x"
               title={t('Remove from library')}
+              aria-label={t('Remove from library')}
               onClick={() => onRemoveImg(p.path)}
             >
-              ×
+              <Icon name="x" size={11} />
             </button>
           </div>
         ))}
@@ -43,9 +45,10 @@ export function ImageStrip({
           type="button"
           className="pin-opt pin-upload"
           title={t('Upload image')}
+          aria-label={t('Upload image')}
           onClick={onUpload}
         >
-          +
+          <Icon name="plus" size={16} />
         </button>
       </div>
       {images.length > 0 && (

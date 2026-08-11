@@ -731,9 +731,10 @@ export default function ToolPanel({
                   <button
                     className="mini"
                     title={t('Delete')}
+                    aria-label={t('Delete')}
                     onClick={() => onTravelModes(travelModes.filter((_, j) => j !== i))}
                   >
-                    ×
+                    <Icon name="x" size={12} />
                   </button>
                 </div>
               ))}

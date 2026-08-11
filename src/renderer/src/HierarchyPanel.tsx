@@ -13,6 +13,7 @@ import {
 import ColorPicker from './ColorPicker'
 import Icon from './icons'
 import { useT } from './i18n'
+import { IconButton } from './ui'
 
 // The map's active mode: rank (paint base polygons by their ancestor at that rank — the CK3
 // realm view) or paint (color by a dimension like religion/language)
@@ -117,9 +118,7 @@ export default function HierarchyPanel({
     <div className="hier-panel">
       <div className="hier-head">
         <b>{t('Hierarchy')}</b>
-        <button className="mini" onClick={() => setOpen(false)}>
-          ×
-        </button>
+        <IconButton icon="x" label={t('Close')} small onClick={() => setOpen(false)} />
       </div>
       {cfg.govs.length > 1 && (
         <div className="hier-tabs">

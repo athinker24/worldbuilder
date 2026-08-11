@@ -1029,7 +1029,9 @@ export default function App(): React.JSX.Element {
           onClick={() => toggleCollapse(folder.id)}
           onContextMenu={(ev) => folderMenu(ev, folder)}
         >
-          <span className="tree-caret">{open ? '▾' : '▸'}</span>
+          <span className={`tree-caret ${open ? 'open' : ''}`}>
+            <Icon name="chevron-right" size={12} />
+          </span>
           {/* The folder's color (the old entity-type color, re-homed): also the default color of
               map drawings whose article lives in this folder. */}
           {/* stopPropagation: the row itself toggles the folder open, and the picker sits inside it */}
@@ -1096,7 +1098,9 @@ export default function App(): React.JSX.Element {
           className="side-group-head"
           onClick={() => setClosedBoards((prev) => toggle(prev, b.id))}
         >
-          <span className="tree-caret">{open ? '▾' : '▸'}</span>
+          <span className={`tree-caret ${open ? 'open' : ''}`}>
+            <Icon name="chevron-right" size={12} />
+          </span>
           <Icon name="board" size={12} />
           <span className="side-label">{b.name}</span>
           <span className="side-group-count">{allow.size}</span>
@@ -1120,7 +1124,9 @@ export default function App(): React.JSX.Element {
           className="side-group-head"
           onClick={() => setOpenGroups((prev) => toggle(prev, g.key))}
         >
-          <span className="tree-caret">{open ? '▾' : '▸'}</span>
+          <span className={`tree-caret ${open ? 'open' : ''}`}>
+            <Icon name="chevron-right" size={12} />
+          </span>
           <Icon
             name={g.kind === 'map' ? 'map' : g.kind === 'fav' ? 'star' : 'file-text'}
             size={13}
@@ -1179,7 +1185,7 @@ export default function App(): React.JSX.Element {
             aria-label={t('Show panels (Tab)')}
             onClick={() => togglePanels(false)}
           >
-            ▸
+            <Icon name="chevron-right" size={12} />
           </button>
         )}
         {/* Hidden rather than unmounted: collapsing must not throw away the tree's collapsed
@@ -1240,14 +1246,14 @@ export default function App(): React.JSX.Element {
                 </>
               )}
             </div>
-            {/* Create + sort at the bottom of the column (Obsidian) */}
+            {/* Create + sort at the bottom of the column (Obsidian).
+                Icon-only, and that is a width decision rather than a style one: this is the
+                tightest row in the app — two labelled buttons plus the sort control already
+                overflowed a sidebar dragged down to its 180px minimum, and the Turkish labels
+                are longer still. The name lives in the tooltip, as it does on the map toolbar. */}
             <div className="side-foot">
-              <button className="mini" title={t('New Entry')} onClick={() => addEntity()}>
-                {t('＋ Entry')}
-              </button>
-              <button className="mini" title={t('New folder')} onClick={() => addFolder()}>
-                {t('＋ Folder')}
-              </button>
+              <IconButton icon="plus" label={t('New Entry')} onClick={() => addEntity()} />
+              <IconButton icon="folder" label={t('New folder')} onClick={() => addFolder()} />
               <span className="side-foot-spacer" />
               <Select
                 className="side-sort"
@@ -1349,9 +1355,10 @@ export default function App(): React.JSX.Element {
                           <button
                             className="recent-x"
                             title={t('Remove from list')}
+                            aria-label={t('Remove from list')}
                             onClick={() => forgetRecent(r.path)}
                           >
-                            ×
+                            <Icon name="x" size={14} />
                           </button>
                         </li>
                       ))}

@@ -3604,9 +3604,10 @@ export default function MapView({
           <button
             className="mini danger map-row-btn"
             title={t('Remove')}
+            aria-label={t('Remove')}
             onClick={(e) => (e.stopPropagation(), deleteMapWithUndo(m.id))}
           >
-            ×
+            <Icon name="trash" size={12} />
           </button>
         )}
       </div>
@@ -5218,7 +5219,7 @@ export default function MapView({
                 )}
                 {newMapName === null && (
                   <button className="mini base-add" onClick={() => setNewMapName('')}>
-                    ＋ {t('New map')}
+                    <Icon name="plus" size={12} /> {t('New map')}
                   </button>
                 )}
               </div>
@@ -5273,7 +5274,12 @@ export default function MapView({
                     </div>
                   ) : (
                     <div key={b.id} className="layers-row" onClick={() => switchBoard(b.id)}>
-                      <span className="layers-icon">{b.id === boards.active ? '◉' : '○'}</span>
+                      {/* A tick when it is the one being drawn on, and nothing when it is not —
+                          the row already says which by its weight and colour. The ◉/○ pair it
+                          replaces was the only place in the app drawing a control out of text. */}
+                      <span className="layers-icon">
+                        {b.id === boards.active && <Icon name="check" size={13} />}
+                      </span>
                       <span
                         className="layers-name"
                         style={
@@ -5294,9 +5300,10 @@ export default function MapView({
                       <button
                         className="mini danger map-row-btn"
                         title={t('Remove')}
+                        aria-label={t('Remove')}
                         onClick={(e) => (e.stopPropagation(), removeBoard(b.id))}
                       >
-                        ×
+                        <Icon name="x" size={12} />
                       </button>
                     </div>
                   )
@@ -5320,7 +5327,7 @@ export default function MapView({
                   </form>
                 ) : (
                   <button className="mini base-add" onClick={() => setNewBoardName('')}>
-                    ＋ {t('New board')}
+                    <Icon name="plus" size={12} /> {t('New board')}
                   </button>
                 )}
               </div>
