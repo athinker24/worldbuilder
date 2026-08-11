@@ -1092,15 +1092,10 @@ kbd {
   gap: var(--sp-2);
 }
 
-/* Natural width, not stretched. `flex: 1` was written for the two buttons this row used to
-   hold; with one button left it made a 520px-wide bar out of the primary.
-   Height comes from the control scale now rather than a bespoke 10px of padding: at 42px tall
-   this button had a silhouette nothing else on the screen shared, which is its own kind of not
-   belonging — the recent-file rows beside it are what it has to sit with. */
-.start-actions button {
-  min-height: var(--h-lg);
-  padding: 0 var(--sp-4);
-}
+/* Natural width, not stretched: `flex: 1` was written for the two buttons this row used to hold,
+   and with one left it made a 520px-wide bar out of the primary. The height that replaced its
+   bespoke 10px of padding moved onto button.primary, where it reaches both of the screens this
+   button appears on instead of only this one. */
 .recent-list {
   list-style: none;
   margin: 0;
@@ -2221,6 +2216,12 @@ button.mini {
  * --border-subtle), a semibold label, and --shadow-1 — the only one of the four that costs no
  * light at all. Flat buttons and one raised one; that is a hierarchy you see before you read. */
 button.primary {
+  /* SIZE is the fifth signal and the only one that costs nothing at all — not light, not
+     colour, not contrast. It belongs on the class rather than on one screen: the emphasised
+     action is the same size wherever it is, and it was --h-md on the map card, i.e. the height
+     of any toolbar button. */
+  min-height: var(--h-lg);
+  padding: 0 var(--sp-4);
   background: var(--surface-active);
   border-color: var(--border-strong);
   color: var(--text);
@@ -4055,6 +4056,14 @@ a {
   padding: var(--sp-5) var(--sp-6);
   background: var(--surface-float);
   border-radius: var(--r-l);
+  box-shadow: var(--shadow-2);
+}
+
+/* The one place the emphasised button stands INSIDE a float. The card itself already carries
+   --shadow-2, so the button's --shadow-1 was being read as part of the card rather than as the
+   button lifting off it. One step up, for the same reason its fill is relative rather than
+   fixed: what has to stay constant is the distance from whatever it is standing on. */
+.map-empty .primary {
   box-shadow: var(--shadow-2);
 }
 
