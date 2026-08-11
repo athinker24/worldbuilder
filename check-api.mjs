@@ -32,7 +32,13 @@ const HOSTILE = [
   '{"list":"x","active":9}',
   JSON.stringify(Array.from({ length: 50_000 }, (_, i) => 'x' + i)),
   '{"__proto__":{"pwned":true}}',
-  '[{"__proto__":{"pwned":true}}]'
+  '[{"__proto__":{"pwned":true}}]',
+  // Keyed by map id 1, which is the id every per-map loader below is asked for. Without these the
+  // per-map cases are vacuous: nothing else in this list has a "1" key, so the loader would answer
+  // "absent" every time and pass no matter what it did with a value it FOUND.
+  '{"1":"not a number"}',
+  '{"1":[1,2,3]}',
+  '{"1":{"perUnit":"x","list":7,"active":[]}}'
 ]
 
 const LOADERS = [
@@ -56,7 +62,14 @@ const LOADERS = [
     'mapBoards',
     () => A.getMapBoards(1),
     (r) => Array.isArray(r.list) && typeof r.active === 'string'
-  ]
+  ],
+  // Per-map keys. `mapYears` feeds the year slider and yearRef, so anything but a finite number is
+  // NaN spreading through every date comparison on the map — undefined is the honest answer, and
+  // the caller falls back to the world's year.
+  ['mapYears', () => A.getMapYear(1), (r) => r === undefined || Number.isFinite(r)],
+  // perMapEntry is what every per-map read goes through, including the legacy fallbacks in MapView
+  // that hand it the WHOLE value. It must survive being pointed at a list, a string or a number.
+  ['mapScales', async () => A.perMapEntry(await A.perMapRaw('mapScales'), 1), () => true]
 ]
 
 let fails = 0
@@ -102,6 +115,34 @@ const ROUNDTRIP = [
     (v) => {
       const l = JSON.parse(v)
       return Array.isArray(l) && l.length <= 12 && l.every((c) => /^#[0-9a-fA-F]{3,8}$/.test(c))
+    }
+  ],
+  // savePerMap is the sharpest read-modify-write in the file: it reads the whole `{[mapId]: value}`
+  // object, changes ONE entry and writes it all back, so a hostile value under any of the five
+  // per-map keys would be re-persisted into the user's own world. What must hold is that the
+  // result is always an object keyed by map id — a list or a string there is replaced, not merged.
+  [
+    'mapYears',
+    () => A.saveMapYear(1, 1200),
+    (v) => {
+      const o = JSON.parse(v)
+      return o && typeof o === 'object' && !Array.isArray(o) && o['1'] === 1200
+    }
+  ],
+  // Delete-a-map and undo it: the entry must be gone after the take and back after the restore,
+  // whatever was in the key to begin with. This is what stops a recycled map id inheriting it.
+  [
+    'mapScales',
+    async () => {
+      await A.savePerMap('mapScales', 1, { perUnit: 2, unit: 'km' })
+      const saved = await A.takeMapSettings(1)
+      if (A.perMapEntry(await A.perMapRaw('mapScales'), 1) !== undefined)
+        throw new Error('takeMapSettings left the entry behind')
+      await A.restoreMapSettings(1, saved)
+    },
+    (v) => {
+      const o = JSON.parse(v)
+      return o && typeof o === 'object' && !Array.isArray(o) && o['1'].unit === 'km'
     }
   ]
 ]

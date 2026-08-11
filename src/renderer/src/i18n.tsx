@@ -445,9 +445,8 @@ const TR: Record<string, string> = {
   'No ladder yet. Write a government form on entries, then order the ranks from Settings.':
     "Henüz merdiven yok. Maddelere yönetim biçimi yaz, Ayarlar'dan kademeleri sırala.",
   Conquest: 'Fetih',
-  'No entries in this rank.': 'Bu kademede madde yok.',
-  'No values in this dimension. Write a "{dim}" field on entries.':
-    'Bu boyutta değer yok. Maddelere "{dim}" alanı yaz.',
+  'Nothing in this rank on this map.': 'Bu haritada bu kademede bir şey yok.',
+  'No values in this dimension on this map.': 'Bu haritada bu boyutta değer yok.',
 
   // Timeline.tsx
   Pause: 'Duraklat',

@@ -20,6 +20,10 @@ export type ActiveMode = { kind: 'rank' | 'paint'; key: string } | null
 
 interface Props {
   active: ActiveMode
+  // Entries this map is about (drawn here, or ruling land drawn here — built in MapView's
+  // reloadFeatures). The lists below are filtered to it: the ladder itself is project structure
+  // and every rank chip stays pressable, but WHAT IS UNDER one is a question about this map.
+  scope: Set<number>
   reloadToken: number // to refresh when tags change (undo included)
   onMode: (m: ActiveMode) => void
   onConquest: () => void // start the ⚔ Conquest flow (visible only in rank mode)
@@ -30,6 +34,7 @@ interface Props {
 /** CK3-style bottom-right hierarchy panel: government tabs + rank views + map modes. */
 export default function HierarchyPanel({
   active,
+  scope,
   reloadToken,
   onMode,
   onConquest,
@@ -66,13 +71,16 @@ export default function HierarchyPanel({
   const gov = cfg.govs.find((g) => g.name === activeGov)
   const rungTag = active?.kind === 'rank' ? active.key : null
   const paintDim = active?.kind === 'paint' ? active.key : null
-  const list = rungTag ? hier.entities.filter((e) => e.tags.includes(rungTag)) : []
+  // One filter, both lists: the rank list and the paint legend were each showing the whole world,
+  // so a religion practised only on another map still took a colour row here.
+  const here = hier.entities.filter((e) => scope.has(e.id))
+  const list = rungTag ? here.filter((e) => e.tags.includes(rungTag)) : []
 
   // Paint legend: unique values present in the active dimension
   const dimValues = paintDim
     ? [
         ...new Set(
-          hier.entities
+          here
             .map((e) => (JSON.parse(e.fields || '{}') as Record<string, string>)[paintDim])
             .filter(Boolean)
         )
@@ -190,7 +198,7 @@ export default function HierarchyPanel({
                 </button>
               </div>
             ))}
-            {list.length === 0 && <p className="hint">{t('No entries in this rank.')}</p>}
+            {list.length === 0 && <p className="hint">{t('Nothing in this rank on this map.')}</p>}
           </div>
         </>
       )}
@@ -208,11 +216,7 @@ export default function HierarchyPanel({
             </div>
           ))}
           {dimValues.length === 0 && (
-            <p className="hint">
-              {t('No values in this dimension. Write a "{dim}" field on entries.', {
-                dim: paintDim
-              })}
-            </p>
+            <p className="hint">{t('No values in this dimension on this map.')}</p>
           )}
         </div>
       )}

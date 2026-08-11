@@ -369,7 +369,12 @@ export default function App(): React.JSX.Element {
   // Jump to the entity's first drawing on a map
   const locateEntity = useCallback(
     async (entityId: number): Promise<void> => {
-      const feats = await api.featuresByEntity(entityId)
+      const all = await api.featuresByEntity(entityId)
+      // An entry drawn on two maps used to send you to whichever drawing came back first, so
+      // locating from the hierarchy panel could throw you off the map you were reading. The one
+      // in front of you wins; anywhere else, the old behaviour (its first drawing) stands.
+      const here = all.filter((f) => f.map_id === mapIdRef.current)
+      const feats = here.length ? here : all
       // The action itself, which had no line of its own — so eleven of these read as eleven map
       // switches, and with map.changed now silent on an unchanged map they would have read as
       // nothing at all. This is the one that says what the user actually did, and the one the
@@ -383,7 +388,9 @@ export default function App(): React.JSX.Element {
         name: entitiesRef.current.find((e) => e.id === entityId)?.name,
         feature: feats[0]?.id,
         map: feats[0]?.map_name,
-        drawings: feats.length
+        // The entry's whole count, not the filtered one: "it went to the wrong map" is answered by
+        // knowing how many drawings there were to choose between.
+        drawings: all.length
       })
       if (!feats.length) {
         alertDialog(translate(lang, 'This entry is not marked on any map yet.'))

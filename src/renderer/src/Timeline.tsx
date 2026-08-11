@@ -1,9 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import { autoColor, formatYear, getTimeline, saveTimeline, TimelineConfig } from './api'
+import {
+  autoColor,
+  formatYear,
+  getMapYear,
+  getTimeline,
+  saveMapYear,
+  saveTimeline,
+  TimelineConfig
+} from './api'
 import Icon from './icons'
 import { useT } from './i18n'
 
 interface Props {
+  mapId: number // the year the slider stands at is this map's (settings 'mapYears'); the calendar is the world's
   changeYears: number[] // years features start/end/change hands (shown as ticks on the rail)
   eventsToken: number // bumped when MapView adds an event from the map → config reloads
   onYear: (year: number) => void // on every year change — DB-free, smooth
@@ -14,6 +23,7 @@ const SPEEDS = [1, 5, 20] // playback speeds (years/sec)
 
 /** Date strip above the map: playback + slider + era bands + events + ⚙ calendar settings. */
 export default function Timeline({
+  mapId,
   changeYears,
   eventsToken,
   onYear,
@@ -40,10 +50,13 @@ export default function Timeline({
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
-    getTimeline().then((t) => {
+    // The calendar is the world's, the position on it is this map's — so two reads, and only the
+    // first time. MapView remounts on a map switch, which is what makes this the whole of the
+    // per-map wiring: a switch re-runs this effect against the new id.
+    Promise.all([getTimeline(), getMapYear(mapId)]).then(([t, mine]) => {
       const first = !cfgRef.current
       // Reloaded when an event is added from the map; the user's slider position is kept
-      const next = first ? t : { ...t, year: cfgRef.current!.year }
+      const next = first ? { ...t, year: mine ?? t.year } : { ...t, year: cfgRef.current!.year }
       setCfg(next)
       cfgRef.current = next
       if (first) onYear(next.year) // apply the saved position to the map (on startup)
@@ -59,7 +72,13 @@ export default function Timeline({
     cfgRef.current = next
     if (!prev || next.year !== prev.year) onYear(next.year)
     clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => saveTimeline(next), 400)
+    // Both writes are debounced together: dragging the slider changes the year, and the calendar
+    // around it is unchanged in that case, but they arrive through the same door. `timeline.year`
+    // is still written and is what a map with no entry of its own opens at — see getMapYear.
+    saveTimer.current = setTimeout(() => {
+      saveTimeline(next)
+      saveMapYear(mapId, next.year)
+    }, 400)
   }
 
   const setYear = (y: number): void => update({ ...cfgRef.current!, year: y })
@@ -158,7 +177,12 @@ export default function Timeline({
   const ticks = [
     ...new Set([...changeYears, ...cfg.periods.flatMap((p) => [p.from, p.to + 1])])
   ].filter((y) => y >= cfg.min && y <= cfg.max)
-  const todayEvents = cfg.events.filter((e) => e.year === cfg.year)
+  // Everything ON the strip — the rail dots and the "this year" chips — is this map's events plus
+  // the ones with no place at all (added from the ⚙ panel: they belong to the world's history, not
+  // to a drawing). An event pinned to a drawing on another map is still in the ⚙ list below, which
+  // is the editor and deliberately shows all of them.
+  const railEvents = cfg.events.filter((e) => e.mid === undefined || e.mid === mapId)
+  const todayEvents = railEvents.filter((e) => e.year === cfg.year)
 
   // Jump to an event: set the year; with a linked feature, fly + flash on the map (StoryMap pattern)
   const jumpEvent = (e: { year: number; fid?: number; mid?: number }): void => {
@@ -290,7 +314,7 @@ export default function Timeline({
       </div>
       <div className="timeline-rail">
         <div className="timeline-events">
-          {cfg.events.map((e, i) => {
+          {railEvents.map((e, i) => {
             if (e.year < cfg.min || e.year > cfg.max) return null
             return (
               <div

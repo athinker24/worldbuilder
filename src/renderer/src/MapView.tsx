@@ -9,8 +9,15 @@ import shadowUrl from 'leaflet/dist/images/marker-shadow.png'
 import {
   api,
   assetUrl,
+  asArray,
+  asObject,
   settingObject,
   settingArray,
+  perMapRaw,
+  perMapEntry,
+  savePerMap,
+  takeMapSettings,
+  restoreMapSettings,
   autoColor,
   EntityRow,
   Feature,
@@ -19,6 +26,7 @@ import {
   getMapBoards,
   getParents,
   getPinImages,
+  getMapYear,
   getTimeline,
   inYearRange,
   lowestRungSet,
@@ -1261,6 +1269,10 @@ export default function MapView({
     setConquestState(c)
   }
   const [ladderTags, setLadderTags] = useState<string[]>([])
+  // Which entries this map is about — the hierarchy panel's rank list and paint legend are
+  // filtered to it, so a realm drawn only on another map stops appearing under a rank chip here.
+  // Filled in reloadFeatures beside mosaicManaged; see the comment there for what it contains.
+  const [mapScope, setMapScope] = useState<Set<number>>(new Set())
   // Climb the parent chain to the ancestor carrying `level` (null level = the entity itself).
   // Returns null when that year's chain has no such ancestor. Cycle-guarded.
   const levelAncestor = (eid: number, level: string | null, year: number): number | null => {
@@ -1314,10 +1326,7 @@ export default function MapView({
   }
   // Single writer: save/delete the scale (settings 'mapScales', per map)
   const persistScale = async (sc: MapScale | null): Promise<void> => {
-    const all = settingObject<Record<number, MapScale>>(await api.getSetting('mapScales'), {})
-    if (sc) all[id] = sc
-    else delete all[id]
-    await api.setSetting('mapScales', JSON.stringify(all))
+    await savePerMap('mapScales', id, sc)
     setMapScale(sc)
   }
   const saveCalib = async (val: number, unit: string): Promise<void> => {
@@ -1389,13 +1398,16 @@ export default function MapView({
     im.src = assetUrl(path)
   }
 
-  // Travel modes (settings 'travelModes', global — the mapScales pattern). Speed = units/day.
+  // Travel modes (settings 'travelModes', PER MAP — the mapScales pattern, and per map for the
+  // same reason it is): speed is units/day, and the unit is whatever this map was calibrated in.
+  // One project-wide list meant "horse: 60" read as 60 km/day on a continent measured in km and
+  // 60 m/day on a city measured in metres — the same number saying two different things.
   const [travelModes, setTravelModesState] = useState<TravelMode[]>([])
   const [travelModeIdx, setTravelModeIdx] = useState(0)
   const saveTravelModes = async (list: TravelMode[]): Promise<void> => {
     setTravelModesState(list)
     if (travelModeIdx >= list.length) setTravelModeIdx(0)
-    await api.setSetting('travelModes', JSON.stringify(list))
+    await savePerMap('travelModes', id, list)
   }
 
   // Route computation: build a graph from that year's visible pins and paths → Dijkstra →
@@ -2273,6 +2285,18 @@ export default function MapView({
           }
         }
       }
+    }
+    // The hierarchy panel's scope. Two sources, and the second is the one that is easy to miss:
+    // an entry DRAWN here, plus every entry that RULES land here without a drawing of its own —
+    // a duchy whose counties are on this map is exactly what the duchy view paints, so it belongs
+    // in the duchy list even though it has no polygon anywhere. That second set is mosaicManaged,
+    // which is already "something below points at me", built per map just above.
+    // Entities are world data on purpose (a county belongs to its duchy whichever map draws it,
+    // which is what lets a chain resolve across maps) — so this scopes the VIEW, not the query.
+    {
+      const scope = new Set<number>(mosaicManaged.current)
+      for (const f of wm.features) if (f.entity_id !== null) scope.add(f.entity_id)
+      setMapScope(scope)
     }
     // A parent's own polygon is hidden in a derived view because the mosaic of what lies UNDER it
     // already draws that land, and two images of the same region is the thing the mosaic exists to
@@ -3398,11 +3422,21 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selIds.join(','), tool])
 
-  // Load the layers panel from settings (persisted); toggles apply instantly, DB-free
+  // Load the layers panel from settings (PER MAP, persisted); toggles apply instantly, DB-free.
+  // Per map because the kinds themselves are: a city plan has no realm polygons to hide, so the
+  // toggles set there used to follow you back to the continent and hide things you had not hidden.
   useEffect(() => {
-    api.getSetting('mapLayers').then((raw) => {
-      if (!raw) return
-      const v = { ...layersRef.current, ...settingObject<Partial<typeof layersOn>>(raw, {}) }
+    perMapRaw('mapLayers').then((whole) => {
+      // The value before this key was per map is one flat set of toggles, which is why the filter
+      // is on the VALUE being a boolean: it recognises the old shape, ignores the new shape's
+      // per-map objects when this map has no entry of its own, and drops anything a shared world
+      // put there that is neither.
+      const stored = asObject<Record<string, unknown>>(perMapEntry<object>(whole, id) ?? whole, {})
+      const on = Object.fromEntries(
+        Object.entries(stored).filter(([, x]) => typeof x === 'boolean')
+      ) as Partial<typeof layersOn>
+      if (!Object.keys(on).length) return
+      const v = { ...layersRef.current, ...on }
       setLayersOn(v)
       layersRef.current = v
       applyYear(yearRef.current)
@@ -3414,7 +3448,7 @@ export default function MapView({
     const v = { ...layersRef.current, [k]: !layersRef.current[k] }
     layersRef.current = v
     setLayersOn(v)
-    api.setSetting('mapLayers', JSON.stringify(v))
+    savePerMap('mapLayers', id, v)
     applyYear(yearRef.current)
   }
 
@@ -3640,13 +3674,29 @@ export default function MapView({
       style: f.style
     }))
     const childIds = maps.filter((x) => x.parent_map_id === mapId).map((x) => x.id)
+    await api.deleteMap(mapId)
+    // The map's scale, boards, year, travel modes and layer toggles go with it — see
+    // takeMapSettings for why leaving them behind is a data bug and not untidiness. AFTER the
+    // delete: a refused delete must not strip the settings off a map that is still there.
+    const savedSettings = await takeMapSettings(mapId)
+    // After the write, not before it: a failed delete must not leave a step in the history for
+    // something that did not happen (the rule the batch methods in db.ts already follow).
     pushUndo({
       label: 'Delete map "{name}"',
       params: { name: mapRow.name },
-      undo: () => api.restoreMap(mapRow, feats, childIds).then(onChanged),
-      redo: () => api.deleteMap(mapId).then(onChanged)
+      undo: () =>
+        api
+          .restoreMap(mapRow, feats, childIds)
+          .then(() => restoreMapSettings(mapId, savedSettings))
+          .then(onChanged),
+      // The id comes back the same (restoreMap writes it), so the settings are the same ones to
+      // lift again; the snapshot above stays the one undo replays.
+      redo: () =>
+        api
+          .deleteMap(mapId)
+          .then(() => takeMapSettings(mapId))
+          .then(() => onChanged())
     })
-    await api.deleteMap(mapId)
     onChanged()
   }
 
@@ -4566,19 +4616,25 @@ export default function MapView({
     // feature's `from` is the year actually shown — not a stale 0 (yearRef starts at 0 and only
     // syncs once Timeline's async onYear resolves). Otherwise a polygon drawn at a BC year could
     // be saved as from:0 and vanish from that year's view.
-    getTimeline().then((tl) => {
-      yearRef.current = tl.year
-      applyYear(tl.year)
+    // The same fallback rule as Timeline's own load, and it has to be: seeding from the project
+    // year while the strip shows this map's would put the two a century apart for one round trip,
+    // which is exactly the window this seed exists to cover.
+    Promise.all([getTimeline(), getMapYear(id)]).then(([tl, mine]) => {
+      const year = mine ?? tl.year
+      yearRef.current = year
+      applyYear(year)
     })
     api.listEntities().then(setAllEntities)
-    api.getSetting('mapScales').then((raw) => {
-      const sc = settingObject<Record<number, MapScale>>(raw, {})[id] ?? null
-      setMapScale(sc)
-    })
+    perMapRaw('mapScales').then((whole) => setMapScale(perMapEntry<MapScale>(whole, id) ?? null))
     api.getSetting('hideMapHint').then((raw) => {
       setHintOff(settingArray<number>(raw).includes(id))
     })
-    api.getSetting('travelModes').then((raw) => setTravelModesState(settingArray<TravelMode>(raw)))
+    // A bare array under this key is the value from before it was per map. It becomes THIS map's
+    // starting point rather than disappearing on upgrade; the first edit here writes it back in
+    // the new shape and the old one stops being read.
+    perMapRaw('travelModes').then((whole) =>
+      setTravelModesState(asArray<TravelMode>(perMapEntry<TravelMode[]>(whole, id) ?? whole))
+    )
     getMapBoards(id).then((b) => {
       boardsRef.current = b
       setBoards(b)
@@ -5438,6 +5494,7 @@ export default function MapView({
           {!exporting && (
             <>
               <Timeline
+                mapId={id}
                 changeYears={changeYears}
                 eventsToken={eventsToken}
                 // Changing the year stales the route (it may run over roads that do not exist
@@ -5633,6 +5690,7 @@ export default function MapView({
               )}
               <HierarchyPanel
                 active={activeMode}
+                scope={mapScope}
                 reloadToken={reloadToken}
                 onMode={(m) => {
                   activeModeRef.current = m

@@ -567,11 +567,14 @@ const MAX_LIST_ITEMS = 5000
 // Nullish elements are dropped as well as the array being bounded. Almost every consumer reads a
 // field off each item (`p.name`, `f.id`, `r.from`), so one `null` in a shared world's list is a
 // throw during render — and none of these lists has ever legitimately held one.
-const asArray = <T>(v: unknown): T[] =>
+// Exported as well as used below: a per-map value arrives through `perMapRaw`, which has already
+// parsed, so those call sites need the coercion WITHOUT the parse in front of it. Same two rules,
+// one copy — `settingArray`/`settingObject` further down are these with a JSON.parse bolted on.
+export const asArray = <T>(v: unknown): T[] =>
   Array.isArray(v)
     ? (v.slice(0, MAX_LIST_ITEMS).filter((x) => x !== null && x !== undefined) as T[])
     : []
-const asObject = <T extends object>(v: unknown, fallback: T): T =>
+export const asObject = <T extends object>(v: unknown, fallback: T): T =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as T) : fallback
 const asNumber = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback
@@ -692,6 +695,78 @@ export const getPinImages = async (): Promise<PinImage[]> =>
 export const savePinImages = (list: PinImage[]): Promise<void> =>
   api.setSetting('pinImages', JSON.stringify(list))
 
+/**
+ * Per-map settings: one `{ [mapId]: value }` row rather than a row per map — the shape `mapScales`
+ * and `mapBoards` have always used, written down here because there are now five of them.
+ *
+ * The line for which side a setting falls on: **anything measured in a map's own terms belongs to
+ * that map**, because the ruler itself does. `mapScales` is per map, so a continent calibrated in
+ * km and a city in metres share no unit — which makes a project-wide travel speed in units/day
+ * wrong on at least one of them. The same reasoning puts the year the slider sits on here, while
+ * the calendar it sits on stays project-wide: a world has one history, one rank ladder and one
+ * religion list however many maps draw it.
+ *
+ * `perMapRaw` hands back the WHOLE parsed value, not just this map's entry, because a key that used
+ * to be project-wide is recognised by the shape of the whole thing — see the two callers in MapView
+ * that fall back to it, so an upgrade re-uses the old value instead of silently dropping it.
+ */
+export const perMapRaw = async (key: string): Promise<unknown> =>
+  parseSetting(await api.getSetting(key), {})
+
+export const perMapEntry = <T>(whole: unknown, mapId: number): T | undefined =>
+  asObject<Record<string, T>>(whole, {})[mapId]
+
+/** Write one map's entry, or drop it with `null`. Read-modify-write: other maps' entries survive.
+ *  asObject on the way IN as well, for the reason saveMapBoards gives below. */
+export async function savePerMap<T>(key: string, mapId: number, value: T | null): Promise<void> {
+  const all = asObject<Record<string, T>>(await perMapRaw(key), {})
+  if (value === null) delete all[mapId]
+  else all[mapId] = value
+  await api.setSetting(key, JSON.stringify(all))
+}
+
+/**
+ * Every per-map key, so that deleting a map can take its entries with it.
+ *
+ * This is not tidiness. `maps.id` is a plain rowid and SQLite HANDS IT BACK: delete the most
+ * recently created map, make a new one, and it is born holding the dead map's scale, its board
+ * list and its year — a map you never calibrated, already calibrated, in a unit you did not
+ * choose. Leaving the entries behind was survivable while there were two of these; there are five.
+ * A key added above and not added here re-opens it silently.
+ */
+const PER_MAP_KEYS = ['mapScales', 'mapBoards', 'mapYears', 'travelModes', 'mapLayers']
+
+/** Lift one map's per-map settings out, handing them back so undo can put them back. */
+export async function takeMapSettings(mapId: number): Promise<Record<string, unknown>> {
+  const out: Record<string, unknown> = {}
+  for (const k of PER_MAP_KEYS) {
+    const v = perMapEntry<unknown>(await perMapRaw(k), mapId)
+    if (v === undefined) continue
+    out[k] = v
+    await savePerMap(k, mapId, null)
+  }
+  // `hideMapHint` is a LIST of map ids rather than an object keyed by one — the single per-map
+  // setting with a different shape, so it is handled beside the loop instead of bent into it.
+  const hint = settingArray<number>(await api.getSetting('hideMapHint'))
+  if (hint.includes(mapId)) {
+    out.hideMapHint = true
+    await api.setSetting('hideMapHint', JSON.stringify(hint.filter((x) => x !== mapId)))
+  }
+  return out
+}
+
+/** Put back what `takeMapSettings` lifted — deleting a map is undoable, so this has to be too. */
+export async function restoreMapSettings(
+  mapId: number,
+  saved: Record<string, unknown>
+): Promise<void> {
+  for (const k of PER_MAP_KEYS) if (k in saved) await savePerMap(k, mapId, saved[k])
+  if (saved.hideMapHint) {
+    const hint = settingArray<number>(await api.getSetting('hideMapHint'))
+    if (!hint.includes(mapId)) await api.setSetting('hideMapHint', JSON.stringify([...hint, mapId]))
+  }
+}
+
 // Boards (settings 'mapBoards', per map): multiple drawing layers on the same map (Photoshop
 // mental model). Each feature is tied to the board (id) it was drawn on via `style.board`;
 // switching boards hides the others'. NO external images — this only groups drawings over the
@@ -771,6 +846,27 @@ export async function getTimeline(): Promise<TimelineConfig> {
 
 export const saveTimeline = (t: TimelineConfig): Promise<void> =>
   api.setSetting('timeline', JSON.stringify(t))
+
+/**
+ * The year each map is being LOOKED at (settings 'mapYears', per map).
+ *
+ * The calendar above stays project-wide — one world, one set of eras, and the events and ruler
+ * histories that hang off it are world data. What is per map is where the slider stands, because
+ * that is a reading position and not a fact about the world: a campaign map parked at the empire's
+ * founding and a city map parked three centuries later are two questions being asked at once, and
+ * sharing one number meant switching maps silently moved the other one's borders.
+ *
+ * Undefined rather than a fallback when the map has no entry, because the caller's fallback is
+ * `timeline.year` and it is read in the same breath: a newly created map opens where you were
+ * rather than at zero, and from the first drag it keeps its own.
+ */
+export async function getMapYear(mapId: number): Promise<number | undefined> {
+  const v = perMapEntry<unknown>(await perMapRaw('mapYears'), mapId)
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+}
+
+export const saveMapYear = (mapId: number, year: number): Promise<void> =>
+  savePerMap('mapYears', mapId, Math.round(year))
 
 export const formatYear = (y: number, cfg: TimelineConfig): string =>
   y < 0 ? `${-y} ${cfg.before}` : `${y} ${cfg.after}`
