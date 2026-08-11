@@ -860,6 +860,14 @@ function createWindow(): void {
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
+    // The map's chrome does not reflow, and below roughly this it stops being a map. The floats
+    // are absolutely positioned inside the map host and cost a fixed 480px (the timeline strip's
+    // own min-width) + 260 (the hierarchy panel) + 252 (the tool popover) + 46 (the toolbar)
+    // against a 280px inspector and a 180px sidebar. The entity page is the one screen that DOES
+    // reflow — it drops to a single column at 1100 — so this floor is set by the map, which is
+    // where the work happens. 640 tall keeps the timeline strip and the zoom HUD off each other.
+    minWidth: 1024,
+    minHeight: 640,
     show: false,
     autoHideMenuBar: false, // the File/Edit/View/Help menu is the app's command surface
     ...(process.platform === 'linux' ? { icon } : {}),
