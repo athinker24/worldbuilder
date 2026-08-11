@@ -5911,7 +5911,7 @@ export default function MapView({
                       {t('Show the name on the map')}
                     </label>
                     {selStyle.hideName ? (
-                      <p className="hint">{t('Name it with the 🏷 Label tool instead.')}</p>
+                      <p className="hint">{t('Name it with the Label tool instead.')}</p>
                     ) : (
                       <>
                         <label>{t('Label font')}</label>

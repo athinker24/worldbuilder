@@ -12,9 +12,11 @@
 //     which is what makes hover/active/disabled a single shared CSS rule
 //   · circles are written as arc subpaths so every entry is one `d` string
 //
-// Emoji deliberately survive in exactly two places: map CONTENT (the pin image
-// library is user data) and the 🎲 random-name buttons, which are a playful
-// affordance rather than chrome.
+// No emoji in the interface at all any more. The exception this note used to
+// carve out — the random-name buttons, "a playful affordance rather than chrome"
+// — outlived the rest of them, and one of a kind is worse than a rule: a single
+// emoji among 33 icons reads as something nobody got round to. It is `dice` now,
+// tinted by gender. Map CONTENT is a different matter and still user data.
 
 export type IconName =
   // structure / navigation
@@ -65,6 +67,7 @@ export type IconName =
   | 'settings'
   | 'conquest'
   | 'check'
+  | 'dice'
 
 // One `d` per icon. Circles are arc pairs: M{cx+r} {cy} a{r} {r} 0 1 1 {-2r} 0 …
 const PATHS: Record<IconName, string> = {
@@ -142,7 +145,10 @@ const PATHS: Record<IconName, string> = {
     'M14.5 17.5L3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2M14.5 6.5L18 3h3v3l-3.5 3.5M9 11L5 15M8 16l-4 4M5 21l-2-2',
   check: 'M20 6L9 17l-5-5',
   palette:
-    'M12 22a10 10 0 1 1 10-10 4 4 0 0 1-4 4h-1.5a2 2 0 0 0-1.5 3.3 2 2 0 0 1-1.5 3.3zM8 8.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M12 6.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M16.5 9.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0'
+    'M12 22a10 10 0 1 1 10-10 4 4 0 0 1-4 4h-1.5a2 2 0 0 0-1.5 3.3 2 2 0 0 1-1.5 3.3zM8 8.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M12 6.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M16.5 9.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0',
+  // The 🎲 on the random-name buttons was the last emoji left in the interface — one of a kind
+  // is worse than a rule, so it becomes an icon. Pips use the same dot idiom as `palette`.
+  dice: 'M8 3h8a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5V8a5 5 0 0 1 5-5zM9 8.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M12.5 12a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M16 15.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0'
 }
 
 interface Props {

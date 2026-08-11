@@ -1812,6 +1812,17 @@ kbd {
   color: var(--female);
 }
 
+/* The two random-name buttons are the same control twice over — same icon, same job — and the
+   only thing between them is which name comes out, so the glyph carries the gender in colour.
+   The same two tokens the family tree's badges use, so one thing means one thing. */
+.dice-m {
+  color: var(--male);
+}
+
+.dice-f {
+  color: var(--female);
+}
+
 /* --- relations --- */
 .relation {
   color: var(--muted);

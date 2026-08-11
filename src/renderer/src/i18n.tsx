@@ -85,7 +85,6 @@ const TR: Record<string, string> = {
   'Saved: {name}': 'Kaydedildi: {name}',
   'Auto-saved': 'Otomatik kaydedildi',
   // Kısayol yardımı (Shortcuts.tsx)
-  '⌨ Shortcuts': '⌨ Kısayollar',
   Shortcuts: 'Kısayollar',
   General: 'Genel',
   'Map: selection': 'Harita: seçim',
@@ -214,7 +213,7 @@ const TR: Record<string, string> = {
   Bold: 'Kalın',
   Italic: 'Eğik',
   'Show the name on the map': 'Adı haritada göster',
-  'Name it with the 🏷 Label tool instead.': 'Bunun yerine 🏷 Etiket aletiyle adlandır.',
+  'Name it with the Label tool instead.': 'Bunun yerine Etiket aletiyle adlandır.',
   'Move to another entry': 'Başka maddeye taşı',
   'Remove the emptied entry': 'Boşalan madde silindi',
   'new entry each time': 'her seferinde yeni madde',
@@ -283,7 +282,6 @@ const TR: Record<string, string> = {
   Solid: 'Düz',
   Dashed: 'Kesikli',
   Dotted: 'Noktalı',
-  '〰 Draw path': '〰 Yol çiz',
   Curviness: 'Eğrilik',
   'Curve appears after drawing; the live preview stays straight.':
     'Eğri çizim bittikten sonra belirir; canlı önizleme düz kalır.',
@@ -434,8 +432,8 @@ const TR: Record<string, string> = {
   'birth year': 'doğum yılı',
   'death year': 'ölüm yılı',
   'child…': 'çocuk…',
-  '🎲 Random male name': '🎲 Rastgele erkek ismi',
-  '🎲 Random female name': '🎲 Rastgele kadın ismi',
+  'Random male name': 'Rastgele erkek ismi',
+  'Random female name': 'Rastgele kadın ismi',
   'in content': 'içerikte',
 
   // HierarchyPanel.tsx
@@ -481,8 +479,6 @@ const TR: Record<string, string> = {
   // MapView.tsx
   'The slider must be within the year range the drawing exists (after its start).':
     'Slider, çizimin var olduğu yıl aralığının içinde (başlangıcından sonra) olmalı.',
-  '⏳ Change border from this year': '⏳ Sınırı bu yıldan itibaren değiştir',
-  '⬠ Draw polygon': '⬠ Poligon çiz',
   'Could not load image. The file may be corrupt or in an unsupported format.':
     'Görsel yüklenemedi. Dosya bozuk ya da desteklenmeyen bir biçimde olabilir.',
   'Add base image': 'Zemin görseli ekle',
