@@ -65,11 +65,27 @@
      Warm gold = the WORLD's own content (rulers, eras, year marks, templates) —
      the family tree already used gold for rulers; this formalises that.
      Neither ever paints user data: that stays autoColor(), theme-exempt. */
-  --accent: #3ec4ad; /* active/selected text and icons */
-  --accent-soft: rgba(62, 196, 173, 0.14); /* active/selected backgrounds */
-  --accent-strong: #3ec4ad; /* the one high-emphasis fill per view */
-  --accent-contrast: #08201c; /* text ON --accent-strong */
+  /* Toned down for the dark themes, and the two roles SPLIT — they were one colour doing two
+     jobs and only one of them was working.
+
+     As text and icons the teal was fine but hot: L* aside, it measured 7.73:1 against the
+     workspace and 6.21:1 on a popover, well past what a UI accent needs. It is 6.29:1 / 5.06:1
+     now — a 21% cut in luminance (0.435 → 0.345), still clear of 4.5:1 on EVERY surface it
+     lands on, and --surface-float is the one that binds, not the workspace.
+
+     As a FILL the same colour was a lamp: a whole button at luminance 0.435 on a UI whose page
+     is 0.012. Area is the difference — the thing that reads as "one emphasised control" in a
+     12px glyph reads as glare across 120px of button. The fill is its own token now at 0.169,
+     which is 3.49:1 against the page (unmistakably a distinct object) with white text at
+     4.80:1. Dark ink no longer works on it — 3.55:1 — which is why --accent-contrast flips to
+     white and the danger fill, still a LIGHT red, gets --danger-contrast of its own rather than
+     borrowing a token whose meaning just changed under it. */
+  --accent: #3ab0a0; /* active/selected text and icons */
+  --accent-soft: rgba(58, 176, 160, 0.14); /* active/selected backgrounds */
+  --accent-strong: #2a7f72; /* the one high-emphasis fill per view */
+  --accent-contrast: #ffffff; /* text ON --accent-strong — 4.80:1 */
   --danger: #e06c75;
+  --danger-contrast: #08201c; /* text ON a --danger fill — 5.33:1; white would be 3.20:1 */
   --danger-soft: rgba(224, 108, 117, 0.14);
   --male: #5b8fd6;
   --female: #d67ba8;
@@ -195,6 +211,9 @@
   --accent-strong: #0c8b80;
   --accent-contrast: #ffffff;
   --danger: #b63b45;
+  /* The light theme's danger is a DARK red, so here the two contrasts agree — the token exists
+     because the dark theme's does not, not because this one needed splitting. 5.67:1. */
+  --danger-contrast: #ffffff;
   --danger-soft: rgba(182, 59, 69, 0.13);
   --male: #3c6cb4;
   --female: #b85583;
@@ -1601,8 +1620,19 @@ kbd {
   color: var(--danger);
   border-color: var(--danger);
 }
+/* The empty slot at the end of the strip. Every other cell in that grid is an image filling its
+   box edge to edge, so a thin solid-bordered cell with a small cross in it read as a broken
+   thumbnail rather than an invitation. Dashed says "nothing here yet" — the one place in this app
+   a dashed border earns itself, because it sits in a row of things that are not dashed. */
 .pin-upload {
-  color: var(--muted);
+  color: var(--text-faint);
+  border-style: dashed;
+}
+
+.pin-upload:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--surface-hover);
 }
 
 /* Free-text label: color and rotation are inline per feature; font scales with zoom. */
@@ -3352,19 +3382,20 @@ a {
    reads as an invitation to delete things, which is the same rule .row-action follows — but in a
    dialog that button IS the view's one action, and left at rest it was indistinguishable from
    Cancel. Scoped here rather than changed globally so the hover-only rule keeps holding in the
-   lists. Text is --accent-contrast, which happens to be right for both fills: measured 6.1:1 on
-   the dark theme's #e06c75 and 5.7:1 on the light theme's #b63b45. */
+   lists. Text is --danger-contrast and not --accent-contrast: the dark theme's danger is a LIGHT
+   red wanting dark ink (5.33:1, where white would be 3.20:1) while its accent fill is a deep
+   teal wanting white — one "contrast" token cannot answer both. 5.67:1 in the light theme. */
 .dialog-actions .danger {
   background: var(--danger);
   border-color: transparent;
-  color: var(--accent-contrast);
+  color: var(--danger-contrast);
   font-weight: 600;
 }
 
 .dialog-actions .danger:hover {
   background: var(--danger);
   border-color: transparent;
-  color: var(--accent-contrast);
+  color: var(--danger-contrast);
   filter: brightness(1.08);
 }
 

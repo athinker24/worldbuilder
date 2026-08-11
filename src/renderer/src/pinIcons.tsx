@@ -48,7 +48,7 @@ export function ImageStrip({
           aria-label={t('Upload image')}
           onClick={onUpload}
         >
-          <Icon name="plus" size={16} />
+          <Icon name="plus" size={20} />
         </button>
       </div>
       {images.length > 0 && (
