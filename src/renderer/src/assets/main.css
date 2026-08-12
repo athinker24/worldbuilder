@@ -1000,6 +1000,19 @@ button.side-label:hover {
   cursor: grab;
 }
 
+/* The grab target: invisible, and wider than the dot. Its radius is rewritten with the zoom so
+   it stays the same size under the cursor however far out the view is — a node drawn two pixels
+   across is still something you can take hold of. */
+.diplo-hit {
+  fill: transparent;
+}
+
+/* Zoomed far enough out that a name is a smudge: drop the text and keep the shape of the web,
+   which is what you are looking at from out there. The map's labels have the same rule. */
+.diplo-host.far .diplo-node text {
+  display: none;
+}
+
 .diplo-node text {
   fill: var(--text);
   font-size: 13px;

@@ -236,8 +236,8 @@ const { ForceLayout } = await import('./src/renderer/src/graphLayout.ts')
 const settle = (ids, edges) => {
   const g = new ForceLayout()
   g.seed(ids, edges, 900, 600)
-  g.heat(50)
-  for (let i = 0; i < 400; i++) g.step()
+  g.heat(1)
+  for (let i = 0; i < 600; i++) g.tick()
   return g.nodes
 }
 const ids = Array.from({ length: 24 }, (_, i) => i + 1)
@@ -259,16 +259,42 @@ const stacked = () => {
     n.x = 400
     n.y = 300
   }
-  g.heat(50)
-  for (let i = 0; i < 200; i++) g.step()
+  g.heat(1)
+  for (let i = 0; i < 400; i++) g.tick()
   return g.nodes
 }
 const s1 = stacked()
 const s2 = stacked()
 
+/* What the SPRINGS are for, asked as a COMPARISON — the same nodes with and without their links,
+   which is the only form of the question that isolates the link force.
+   Two earlier forms of this check were wrong and break-testing found both. "Linked pairs sit
+   closer than the average pair" passed with the springs turned off when measured on a chain,
+   because a chain links 1–2–3… and the seed puts those side by side on the circle: the seed was
+   doing the work the springs were credited for. Measured on pairs across the circle it then
+   FAILED with the springs on — correctly, because each node there has one link and twenty-two
+   other nodes pushing it away, so a linked pair genuinely does sit further apart than average.
+   That is the physics being right, not the force being absent. */
+const acrossEdges = ids.slice(0, 12).map((id) => ({ from: id, to: id + 12 }))
+const mean = (l) => l.reduce((s, v) => s + v, 0) / l.length
+const gapAcross = (nodes) =>
+  mean(
+    acrossEdges.map((e) =>
+      Math.hypot(nodes[e.from - 1].x - nodes[e.to - 1].x, nodes[e.from - 1].y - nodes[e.to - 1].y)
+    )
+  )
+const withLinks = gapAcross(settle(ids, acrossEdges))
+const withoutLinks = gapAcross(settle(ids, []))
+
+// What the FRICTION is for: it comes to REST. Velocity that survives every tick with nothing to
+// bleed it away is a graph that drifts for ever, and "all finite" does not notice.
+const resting = Math.max(...a.map((n) => Math.hypot(n.vx, n.vy)))
+
 const graph = [
   ['all finite', a.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y))],
   ['no two nodes on top of each other', closest > 16],
+  ['a link pulls its two ends together', withLinks < withoutLinks * 0.75],
+  ['it comes to rest', resting < 0.5],
   ['same world, same layout', a.every((n, i) => Math.abs(n.x - b[i].x) < 1e-9)],
   ['coincident nodes separate', s1.every((n) => Number.isFinite(n.x)) && s1[0].x !== s1[1].x],
   ['…and separate the SAME way twice', s1.every((n, i) => Math.abs(n.x - s2[i].x) < 1e-9)],

@@ -12,6 +12,9 @@ interface Props {
 // Family relations belong to the dynasty system — excluded from the diplomacy web (schema constants)
 const FAMILY = new Set(['mother', 'father', 'spouse'])
 const NODE_R = 8
+/* The grab target's radius in SCREEN pixels, held constant as the view scales. 14 is a little
+   wider than the dot itself, which is what makes a node easy to take hold of rather than exact. */
+const GRAB_PX = 14
 
 // Diplomacy web (World Anvil's "diplomacy web" pattern): non-person entries and the links between
 // them. It used to drop them on a fixed circle, which is readable at eight entries and a cat's
@@ -75,6 +78,7 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
   const edgeEls = useRef(new Map<number, SVGPathElement>())
   const drag = useRef<{ id: number; dx: number; dy: number } | null>(null)
   const view = useRef({ x: 0, y: 0, k: 1 })
+  const lastK = useRef(0) // so the zoom-dependent attributes are rewritten only when it moves
   const shown = useMemo(
     () => web.edges.filter((l) => !hidden.has(l.relation || '—')),
     [web.edges, hidden]
@@ -94,10 +98,23 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
 
   const paint = useCallback((): void => {
     const g = layoutRef.current
+    const k = view.current.k
     rootRef.current?.setAttribute(
       'transform',
-      `translate(${view.current.x} ${view.current.y}) scale(${view.current.k})`
+      `translate(${view.current.x} ${view.current.y}) scale(${k})`
     )
+    // Only when the zoom actually changed, which is a handful of frames per gesture rather than
+    // every frame of a settling layout: the grab targets are sized in SCREEN pixels, so their
+    // world radius is the inverse of the scale, and the names go away once they are too small to
+    // read — the same LOD rule the map's labels follow.
+    if (k !== lastK.current) {
+      lastK.current = k
+      const r = String(GRAB_PX / k)
+      for (const el of nodeEls.current.values()) {
+        ;(el.firstChild as SVGCircleElement | null)?.setAttribute('r', r)
+      }
+      hostRef.current?.classList.toggle('far', k < 0.55)
+    }
     for (const p of g.nodes) {
       nodeEls.current.get(p.id)?.setAttribute('transform', `translate(${p.x} ${p.y})`)
     }
@@ -133,9 +150,12 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
     )
     view.current = { x: 0, y: 0, k: 1 }
     framed.current = false
-    // Opening temperature scales with the host, so a big window spreads as confidently as a
-    // small one rather than crawling.
-    g.heat(Math.min(w, h) / 12)
+    lastK.current = 0
+    // A full-strength start: alpha runs 1 → 0 over about three hundred ticks, which is the five
+    // seconds of settling the whole thing is built around. It is not a distance or a speed —
+    // scaling it by the window, as the temperature it replaced was, would only make the forces
+    // enormous for a moment.
+    g.heat(1)
     return () => g.stop()
   }, [web.nodes, web.edges])
 
@@ -146,7 +166,7 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
     if (!host) return
     const ro = new ResizeObserver(() => {
       g.resize(host.clientWidth, host.clientHeight)
-      g.heat(2)
+      g.heat(0.3) // a nudge, not a re-layout: the shape it found is still the right one
     })
     ro.observe(host)
     return () => ro.disconnect()
@@ -171,13 +191,11 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
       const held = drag.current
       if (held) {
         const p = toWorld(m)
-        const n = layoutRef.current.at(held.id)
-        if (n) {
-          n.x = p.x + held.dx
-          n.y = p.y + held.dy
-        }
-        // Re-heat so the neighbours follow what you pull. This is the whole feel of the thing.
-        layoutRef.current.heat(6)
+        // `hold` puts the node where the pointer is AND keeps the simulation awake (it raises
+        // alphaTarget), which is what tows the cluster: every spring on this node goes on
+        // pulling, and each neighbour follows with the lag its own velocity and friction give
+        // it. Setting the position alone would move one dot and leave the web behind.
+        layoutRef.current.hold(held.id, p.x + held.dx, p.y + held.dy)
       } else {
         view.current.x = from.vx + (m.clientX - from.x)
         view.current.y = from.vy + (m.clientY - from.y)
@@ -186,7 +204,8 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
     }
     const end = (): void => {
       drag.current = null
-      layoutRef.current.pinned = null
+      // Let go: alphaTarget falls back to 0 and everything coasts to rest instead of stopping.
+      layoutRef.current.release()
       el.removeEventListener('pointermove', move)
       el.removeEventListener('pointerup', end)
       el.removeEventListener('pointercancel', end)
@@ -323,11 +342,16 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
                     if (!me) return
                     // Grab it where it was grabbed, so it does not jump to the cursor.
                     drag.current = { id: n.id, dx: me.x - p.x, dy: me.y - p.y }
-                    layoutRef.current.pinned = n.id
                     startGesture(e)
                   }}
                   onClick={() => onOpenEntity(n.id)}
                 >
+                  {/* The GRAB target, invisible and sized in screen pixels rather than world
+                      ones: the visible dot is 8 units across, so zoomed out to a quarter it is
+                      two pixels and there is nothing left to take hold of. Its radius is
+                      rewritten with the zoom (see paint), which keeps it the same size under the
+                      cursor at every scale. It is first so it sits UNDER the dot and the name. */}
+                  <circle className="diplo-hit" r={NODE_R} />
                   {/* The drift lives on an INNER group: the outer one carries the position the
                       simulation writes, and a CSS animation on the same element would overwrite
                       it. CSS rather than more physics, so a settled graph costs no frames — and
