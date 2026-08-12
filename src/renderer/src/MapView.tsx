@@ -5131,7 +5131,9 @@ export default function MapView({
           {searchMatches.length > 0 && (
             <div className="layers-panel">
               {searchMatches.map(({ f, kind, name }) => (
-                <div
+                // A result list you could not Tab into: typing a name and then having to reach
+                // for the mouse is the one thing a search box must not ask for.
+                <button
                   key={f.id}
                   className="layers-row"
                   onClick={() => {
@@ -5162,7 +5164,7 @@ export default function MapView({
                       </span>
                     )}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -5273,23 +5275,22 @@ export default function MapView({
                       />
                     </div>
                   ) : (
-                    <div key={b.id} className="layers-row" onClick={() => switchBoard(b.id)}>
+                    <div key={b.id} className="layers-row">
                       {/* A tick when it is the one being drawn on, and nothing when it is not —
                           the row already says which by its weight and colour. The ◉/○ pair it
                           replaces was the only place in the app drawing a control out of text. */}
                       <span className="layers-icon">
                         {b.id === boards.active && <Icon name="check" size={13} />}
                       </span>
-                      <span
-                        className="layers-name"
-                        style={
-                          b.id === boards.active
-                            ? { color: 'var(--accent)', fontWeight: 600 }
-                            : undefined
-                        }
+                      {/* The name switches boards; rename and remove sit beside it. The row was
+                          the click target and held two buttons, which is the one arrangement
+                          that cannot become a button itself. */}
+                      <button
+                        className={`layers-name board-pick ${b.id === boards.active ? 'on' : ''}`}
+                        onClick={() => switchBoard(b.id)}
                       >
                         {b.name}
-                      </span>
+                      </button>
                       <button
                         className="mini map-row-btn"
                         title={t('Rename')}

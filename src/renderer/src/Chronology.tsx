@@ -99,9 +99,15 @@ export default function Kronoloji({ onOpenEntity, onLocateFeature }: Props): Rea
                 className="kron-dot"
                 style={{ background: p ? autoColor(p.name) : 'var(--muted)' }}
               />
-              <div className={`kron-text ${m.onClick ? 'clickable' : ''}`} onClick={m.onClick}>
-                {m.text}
-              </div>
+              {/* An event pinned to a drawing goes somewhere; a reign that is only a date does
+                  not. Two different things, and they were the same div with a different cursor. */}
+              {m.onClick ? (
+                <button className="kron-text clickable" onClick={m.onClick}>
+                  {m.text}
+                </button>
+              ) : (
+                <div className="kron-text">{m.text}</div>
+              )}
               {/* Always rendered, empty or not: an omitted cell would shift the grid and the
                   era column would stop lining up down the page. */}
               <span className="kron-period">{p?.name ?? ''}</span>

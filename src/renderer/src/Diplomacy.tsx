@@ -90,9 +90,12 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
       {web.relations.length > 0 && (
         <div className="diplo-legend">
           {web.relations.map((rel) => (
-            <span
+            // A legend entry that filters the graph is a toggle, so it says so: a button with
+            // aria-pressed rather than a span you have to discover is clickable.
+            <button
               key={rel}
               className={`diplo-chip ${hidden.has(rel) ? 'off' : ''}`}
+              aria-pressed={!hidden.has(rel)}
               style={{ borderColor: relColor(rel) }}
               onClick={() =>
                 setHidden((prev) => {
@@ -105,7 +108,7 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
             >
               <span className="dot" style={{ background: relColor(rel) }} />
               {rel}
-            </span>
+            </button>
           ))}
         </div>
       )}

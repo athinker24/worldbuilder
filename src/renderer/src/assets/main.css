@@ -604,6 +604,26 @@ h4 {
   text-overflow: ellipsis;
 }
 
+/* The label of a row is the row's keyboard target (see App's renderEntityRow), so it is a real
+   button and has to stop looking like one: no box, no height of its own, the row's own text. */
+button.side-label {
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-s);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  display: block;
+}
+
+button.side-label:hover {
+  background: none;
+  border-color: transparent;
+}
+
 /* Row actions live in a fixed slot so revealing them never shifts the label. */
 .side-item .locate,
 .side-item .fav-star {
@@ -756,11 +776,24 @@ h4 {
   justify-self: center;
 }
 
+/* Same as .atlas-name.clickable: a button that has to keep looking like the sentence it is. */
 .kron-text.clickable {
   cursor: pointer;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  display: block;
 }
 
-.kron-text.clickable:hover {
+.kron-text.clickable:hover,
+.kron-text.clickable:focus-visible {
+  background: none;
+  border-color: transparent;
   color: var(--accent);
 }
 
@@ -834,11 +867,23 @@ h4 {
   white-space: nowrap;
 }
 
+/* The clickable variant is a real button (see Atlas), so the shared control box is undone and
+   what is left is the pointer and the hover colour — what the row looked like all along. */
 .atlas-name.clickable {
   cursor: pointer;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 
-.atlas-name.clickable:hover {
+.atlas-name.clickable:hover,
+.atlas-name.clickable:focus-visible {
+  background: none;
+  border-color: transparent;
   color: var(--accent);
 }
 
@@ -870,16 +915,25 @@ h4 {
   margin-bottom: 10px;
 }
 
+/* A button, so it keeps its own border colour (set inline per relation) and takes nothing from
+   the shared control styling. */
 .diplo-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  min-height: 0;
   padding: 2px 10px;
+  background: none;
   border: 1px solid;
   border-radius: 12px;
+  color: var(--text);
   font-size: 12px;
   cursor: pointer;
   user-select: none;
+}
+
+.diplo-chip:hover {
+  background: var(--surface-hover);
 }
 
 .diplo-chip.off {
@@ -2316,14 +2370,21 @@ a {
   overflow-y: auto;
 }
 
+/* A button now, so the shared control styling is undone: a result is a row, not a box. */
 .palette-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  justify-content: flex-start;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 0;
+  padding: 6px var(--sp-2);
+  background: none;
+  border: 1px solid transparent;
   border-radius: var(--r-s);
+  text-align: left;
   cursor: pointer;
-  transition: background-color 0.1s;
+  transition: background-color var(--dur-fast);
 }
 
 .palette-item.selected {
@@ -3305,14 +3366,29 @@ a {
   padding: 4px 8px 6px;
 }
 
+/* A row is a <label> around a checkbox, a <button> (map search results), or a <div> holding
+   several buttons (the board list) — so the control reset lives here rather than in three
+   places, and the row looks the same whichever of the three it is. */
 .layers-row {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 10px;
+  width: 100%;
+  min-height: 0;
   padding: 7px 8px;
+  background: none;
+  border: 1px solid transparent;
   border-radius: var(--r-s);
+  color: var(--text);
+  text-align: left;
   cursor: pointer;
-  transition: background-color 0.1s;
+  transition: background-color var(--dur-fast);
+}
+
+.layers-row:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
 }
 
 .layers-row:hover {
@@ -3342,6 +3418,28 @@ a {
 .layers-name {
   font-size: 13px;
   color: var(--text);
+}
+
+/* The board name is the switch. Flat like the row it sits in; the active one keeps the accent
+   it already had, moved out of an inline style into the class where it belongs. */
+.board-pick {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  text-align: left;
+}
+
+.board-pick:hover {
+  background: none;
+  border-color: transparent;
+  color: var(--accent);
+}
+
+.board-pick.on {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .layers-desc {
@@ -3430,22 +3528,32 @@ a {
   filter: brightness(1.08);
 }
 
+/* A button now (see ContextMenu), so the shared button styling has to be undone: a menu item is
+   a row, not a control with a box of its own. */
 .ctx-item {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: var(--sp-2);
+  width: 100%;
+  min-height: 0;
   color: var(--text-muted);
   padding: 6px 10px;
+  background: none;
+  border: 1px solid transparent;
   border-radius: var(--r-s);
   cursor: pointer;
+  text-align: left;
   white-space: nowrap;
   transition:
-    background-color 0.1s,
-    color 0.1s;
+    background-color var(--dur-fast),
+    color var(--dur-fast);
 }
 
-.ctx-item:hover {
+.ctx-item:hover,
+.ctx-item:focus-visible {
   background: var(--surface-hover);
+  border-color: transparent;
   color: var(--text);
 }
 

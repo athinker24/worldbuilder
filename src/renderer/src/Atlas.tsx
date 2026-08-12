@@ -163,13 +163,20 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
     <div className="atlas-rows">
       {rows.map((r) => (
         <div key={r.key} className="atlas-row">
-          <span
-            className={`atlas-name ${r.eid !== undefined ? 'clickable' : ''}`}
-            onClick={r.eid !== undefined ? () => onOpenEntity(r.eid!) : undefined}
-          >
-            <span className="dot" style={{ background: r.color }} />
-            {r.label}
-          </span>
+          {/* A realm row opens its entry and a religion row does not, and until now the only
+              thing saying so was the cursor — and neither could be reached by keyboard. The one
+              that acts is a button; the one that does not stays text. */}
+          {r.eid !== undefined ? (
+            <button className="atlas-name clickable" onClick={() => onOpenEntity(r.eid!)}>
+              <span className="dot" style={{ background: r.color }} />
+              {r.label}
+            </button>
+          ) : (
+            <span className="atlas-name">
+              <span className="dot" style={{ background: r.color }} />
+              {r.label}
+            </span>
+          )}
           <div className="atlas-bar-track">
             <div
               className="atlas-bar"

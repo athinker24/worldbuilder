@@ -179,7 +179,11 @@ export default function HierarchyPanel({
                     onChange={(hex) => setEntityColor(e.id, hex)}
                   />
                 </span>
-                <span className="side-label">{e.name}</span>
+                {/* Same shape as the sidebar's rows, same reason: the row holds a colour picker
+                    and a locate button, so the LABEL is what the keyboard can reach. */}
+                <button className="side-label" onClick={() => onOpenEntity(e.id)}>
+                  {e.name}
+                </button>
                 <button
                   className="locate"
                   title={t('Show on map')}

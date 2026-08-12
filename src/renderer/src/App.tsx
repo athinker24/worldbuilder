@@ -976,7 +976,13 @@ export default function App(): React.JSX.Element {
           title={folders.find((f) => f.id === e.folder)?.name ?? ''}
         />
       )}
-      <span className="side-label">{e.name}</span>
+      {/* The LABEL is the button, not the row. A row wrapping a checkbox, a star and a locate
+          button cannot itself be a button — that is a button inside a button — and role=button
+          on the div would only claim otherwise. This way the mouse keeps the whole row and the
+          keyboard gets a real target, with the row's own controls following it in tab order. */}
+      <button className="side-label" onClick={() => openEntity(e.id)}>
+        {e.name}
+      </button>
       {/* Outside `.locate`: that group hides when the pointer leaves, and a star that is ON has
           to keep saying so. `.on` is the whole difference — same button, two states. */}
       <span className={`fav-star ${favorites.has(e.id) ? 'on' : ''}`}>
@@ -1064,9 +1070,14 @@ export default function App(): React.JSX.Element {
               }}
             />
           ) : (
-            <span className="side-label" onDoubleClick={() => setRenamingFolder(folder.id)}>
+            <button
+              className="side-label"
+              aria-expanded={open}
+              onClick={() => toggleCollapse(folder.id)}
+              onDoubleClick={() => setRenamingFolder(folder.id)}
+            >
               {folder.name}
-            </span>
+            </button>
           )}
         </div>
         {/* Indent guide. The wrapper only draws a line via ::before, so rows keep
