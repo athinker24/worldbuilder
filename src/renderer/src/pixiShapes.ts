@@ -35,9 +35,15 @@ export type ShapeSpec = {
   fillAlpha: number
   stroke: number
   strokeAlpha: number
-  /** Stroke width in SCREEN pixels — polygons deliberately do not thicken as you zoom in. */
+  /**
+   * Stroke width. The UNIT depends on `closed`, and deliberately: a polygon's is screen pixels
+   * (a border is a pen stroke and stays the same width at every zoom, as on a paper map), a
+   * path's is map pixels (a road has a real width on the ground and grows with the terrain).
+   * The same split lives on the Leaflet side as `--w * --mz` with polygons setting `--mz: 1`;
+   * the two have to agree, because a selected shape is drawn by Leaflet and every other one here.
+   */
   weight: number
-  /** Dash pattern in screen pixels, empty for solid. */
+  /** Dash pattern, in whatever unit `weight` is — it is derived from the weight. Empty = solid. */
   dash: number[]
   /** Draw a direction arrowhead at the last point (open paths only). */
   arrow?: boolean
@@ -51,7 +57,8 @@ export type ShapeSpec = {
  * Pixi has no dashed stroke, and the alternative — leaving paths solid — loses the distinction
  * between a road, a border and a route, which the map uses to mean different things. Cutting the
  * geometry is the standard answer and it is cheap here because it happens when shapes are built,
- * not per frame. Lengths are in screen pixels, so they are divided by the scale like stroke widths.
+ * not per frame. `scale` is what the pattern's unit is divided by: the caller passes the current
+ * scale for a screen-sized pattern and 1 for one already in map units (see the weight split).
  */
 const dashRing = (
   ring: number[][],
@@ -148,14 +155,20 @@ export const hexNum = (css: string | undefined, fallback = 0x888888): number => 
 /**
  * How far the zoom may drift before stroke widths are redrawn.
  *
- * Strokes are the one thing that cannot simply ride the container's scale. Their width is in
- * screen pixels by design — a border that fattens as you zoom in reads as a mistake — so it has to
- * be divided by the current scale, which bakes the scale into the geometry. Redrawing on every
+ * A POLYGON's stroke is the one thing that cannot simply ride the container's scale. Its width is
+ * in screen pixels by design — a border that fattens as you zoom in reads as a mistake — so it has
+ * to be divided by the current scale, which bakes the scale into the geometry. (A path's width is
+ * in map units and needs none of this; it rides the scale like the geometry does.) Redrawing on every
  * frame would be the very cost this layer exists to remove, so it happens on the same cadence the
  * map already rebuilds at: strokes stretch a little mid-gesture, exactly as they do today under
  * the CSS transform, and come back true when it settles.
  */
 const STROKE_REDRAW_SPAN = 0.35
+
+/** The stylesheet's own hairline floor (`max(0.75px, …)`), for the strokes that scale. */
+const MIN_STROKE_PX = 0.75
+/** The selection rim, in screen pixels — it says "this one", so it is interface, not terrain. */
+const SEL_HALO_PX = 6
 
 // Vertex and midpoint dots, in SCREEN pixels, matched to geoman's own handles: a 14 px white
 // circle with a blue rim for a vertex, a smaller and fainter one for the midpoint between two.
@@ -385,22 +398,48 @@ export class ShapeLayer {
         if (tex) g.fill({ texture: tex, alpha: s.fillAlpha })
         else g.fill({ color: s.fill, alpha: s.fillAlpha })
       }
-      // Divided by the scale because the container multiplies by it — this is what keeps a border
-      // the same thickness on screen at every zoom.
-      const w = s.weight / this.strokeScale
+      /* A BORDER is screen-fixed; a PATH is not. The distinction is cartographic and it already
+         existed — the Leaflet side has had it since the stroke-width patch in MapView, where a
+         path's width is weight × 2^zoom and a polygon opts out with --mz:1. It was never carried
+         across when shapes moved to WebGL, so the rule ended up applying to exactly one drawing
+         at a time: the SELECTED one, which is the only one still rendered by Leaflet. Selecting a
+         road made it jump from 3 screen px to 3 map px and back on deselect.
+         A road has a real width on the ground, so its width is in the same unit as its geometry
+         and it simply rides the container's scale — no division, and no redraw when the zoom
+         drifts either, since nothing about it was computed against a scale. A border is a pen
+         stroke describing where one thing stops, so it stays divided.
+         The floor mirrors the stylesheet's `max(0.75px, …)`: zoomed far enough out a road is
+         thinner than a pixel, and a road that disappears is worse than one drawn slightly wide. */
+      const w = s.closed
+        ? s.weight / this.strokeScale
+        : Math.max(s.weight, MIN_STROKE_PX / this.strokeScale)
       // The selection halo goes down FIRST so the feature's own colour draws over the top of it,
       // leaving a rim rather than a repaint. The old SVG did this with a drop-shadow, which is the
       // one thing that must not come back — filters were the single most expensive item on the map.
+      // Screen-sized whatever the stroke under it is doing: a highlight is interface, not terrain.
       if (s.selected) {
         trace(g, s)
-        g.stroke({ width: w + 6 / this.strokeScale, color: 0xffffff, alpha: 0.9, join: 'round' })
+        g.stroke({
+          width: w + SEL_HALO_PX / this.strokeScale,
+          color: 0xffffff,
+          alpha: 0.9,
+          join: 'round'
+        })
       }
       if (s.weight > 0 && s.dash.length) {
         for (const ring of s.rings)
-          dashRing(s.closed ? [...ring, ring[0]] : ring, s.dash, this.strokeScale, (a, b) => {
-            g.moveTo(a[0], a[1])
-            g.lineTo(b[0], b[1])
-          })
+          // A dash pattern is proportional to the weight (lineDashArray), so on a path it belongs
+          // to the same unit the width just moved to — otherwise a scaled road wears screen-sized
+          // dashes and reads as dotted when you zoom in.
+          dashRing(
+            s.closed ? [...ring, ring[0]] : ring,
+            s.dash,
+            s.closed ? this.strokeScale : 1,
+            (a, b) => {
+              g.moveTo(a[0], a[1])
+              g.lineTo(b[0], b[1])
+            }
+          )
         g.stroke({ width: w, color: s.stroke, alpha: s.strokeAlpha, cap: 'butt' })
       } else if (s.weight > 0) {
         trace(g, s)

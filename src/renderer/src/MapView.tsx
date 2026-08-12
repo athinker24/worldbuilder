@@ -6076,7 +6076,7 @@ export default function MapView({
                     />
                     <label className="cap">
                       {t('Thickness')}
-                      <span>{selStyle.weight ?? 3}px</span>
+                      <span>{selStyle.weight ?? 3}</span>
                     </label>
                     <input
                       type="range"

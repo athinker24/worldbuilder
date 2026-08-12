@@ -2124,9 +2124,17 @@ kbd {
    same values. Nothing in CSS can reach it any more. */
 
 /* Selection highlight (single or Ctrl+click multi-select). A filter, not setStyle, preserves a
-   drawing's own color while editing. Applied to SVG paths and divIcons; map content is theme-independent. */
+   drawing's own color while editing. Applied to SVG paths and divIcons; map content is theme-independent.
+
+   WHITE ONLY, and tight. It used to end with `drop-shadow(0 0 5px #000)`, and a 5px black smear
+   around a 3px road is not a highlight, it is a second, darker road — which is what "selecting it
+   makes it thick and dark" was. It also disagreed with the highlight the WebGL layer draws for
+   every OTHER member of a multi-selection (a crisp white rim, no black), so one selection wore
+   two different marks at once. Two tight white shadows stack into something close to that rim;
+   the cost objection in pixiShapes' comment does not apply here, because this filter is on
+   exactly one element rather than on every shape on the map. */
 .sel-feature {
-  filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 5px #000);
+  filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1.5px #fff);
 }
 
 /* The contextual map inspector. RAISED, not floating: it is docked, and it keeps

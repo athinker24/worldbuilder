@@ -348,7 +348,7 @@ export default function ToolPanel({
             />
             <label className="cap">
               {t('Thickness')}
-              <span>{settings.line.weight}px</span>
+              <span>{settings.line.weight}</span>
             </label>
             <input
               type="range"
