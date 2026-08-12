@@ -26,6 +26,8 @@ import {
   getMapBoards,
   getParents,
   getPinImages,
+  getRecentColors,
+  pushRecentColor,
   getMapYear,
   getTimeline,
   inYearRange,
@@ -47,8 +49,8 @@ import {
   personFolderIds,
   WorldMap
 } from './api'
-import ColorPicker from './ColorPicker'
-import ContextMenu, { MenuItem, MenuState } from './ContextMenu'
+import ColorPicker, { PRESETS } from './ColorPicker'
+import ContextMenu, { MenuEntry, MenuState } from './ContextMenu'
 import { ImageStrip, PinShape, PinShapePicker, pinShapeBody } from './pinIcons'
 import { LabelLayer, type LabelSpec } from './pixiLabels'
 import { ShapeLayer, shapeAt, shapeAllAt, pathAt, hexNum, type ShapeSpec } from './pixiShapes'
@@ -2102,6 +2104,33 @@ export default function MapView({
     setClipboard(keep) // Ctrl+D must not clobber the clipboard
   }
 
+  /* The colours offered inside the drawing's own context menu. Whatever this world has actually
+     been painted with, then the picker's six starters to fill the row — a recolour reachable in
+     one gesture is worth nothing if the row is empty in a world nobody has picked a colour in
+     yet. Deduped, because the starters are what a first colour is usually picked FROM. */
+  const quickColors = async (): Promise<string[]> =>
+    [...new Set([...(await getRecentColors()), ...PRESETS])].slice(0, 8)
+
+  /* Recolour ONE drawing — the one that was right-clicked, not the selection.
+     Deliberately not `editSelectedStyle`: that reads `selected`/`selIds` out of render scope, and
+     this runs from a closure built during reloadFeatures, which would have captured whatever the
+     selection was at that reload. Acting on the subject the menu names is also the more honest
+     rule; the panel is still where a selection is restyled together. */
+  const recolorFeature = async (feat: Feature, color: string): Promise<void> => {
+    const orig = feat.style || '{}'
+    const next = JSON.stringify({ ...(JSON.parse(orig) as FeatureStyle), color })
+    // Written first, pushed second: an undo entry for a write that did not land rewrites a row
+    // nothing touched (the rule gate 40 exists for).
+    await api.updateFeature(feat.id, { style: next })
+    pushUndo({
+      label: 'Restyle a drawing',
+      undo: async () => api.updateFeature(feat.id, { style: orig }),
+      redo: async () => api.updateFeature(feat.id, { style: next })
+    })
+    await pushRecentColor(color)
+    await reloadFeatures('recolor')
+  }
+
   // Border evolution: fork the feature into a copy starting at the slider year and close the
   // old one at year-1. The user then nudges only the changed vertices — no redrawing from scratch.
   const createFeatureFork = async (f: Feature): Promise<void> => {
@@ -2870,7 +2899,7 @@ export default function MapView({
           drawLabels()
         })
         layer.on('pm:dragend', (e) => saveGeometry(e, false))
-        layer.on('contextmenu', (e: L.LeafletMouseEvent) => {
+        layer.on('contextmenu', async (e: L.LeafletMouseEvent) => {
           e.originalEvent.preventDefault()
           // While a shape is being drawn, right-click belongs to the drawing — it takes back the
           // last vertex, and the map-level handler does that. Leaflet fires this on the layer AND
@@ -2882,49 +2911,82 @@ export default function MapView({
             const d = drawInst(toolRef.current === 'line' ? 'Line' : 'Polygon')
             if (d?.enabled?.()) return
           }
-          const items: MenuItem[] = []
+          /* Right-clicking a drawing SELECTS it — which is what a file list, a layer panel and
+             every canvas app already do, and what half of these items were doing by hand anyway
+             (Edit and Move both had to select first). Three things fall out of it: the panel is
+             already showing this drawing, so "Show in panel" / "Link to entry…" stopped being an
+             item; the Del hint below is TRUE from here; and the menu and the panel can no longer
+             disagree about what you are working on.
+             Left alone when the drawing is already part of a multi-selection — otherwise
+             right-clicking one of five silently dropped the other four. */
+          if (!selIdsRef.current.includes(f.id)) setSelected(f)
+          const items: MenuEntry[] = []
           if (f.entity_id)
-            items.push({
-              icon: 'file-text',
-              label: t('Open entry'),
-              onClick: () => onOpenEntity(f.entity_id!)
-            })
-          items.push({
-            icon: f.entity_id ? 'search' : 'link',
-            label: f.entity_id ? t('Show in panel') : t('Link to entry…'),
-            onClick: () => setSelected(f)
-          })
+            items.push(
+              {
+                icon: 'file-text',
+                label: t('Open entry'),
+                onClick: () => onOpenEntity(f.entity_id!)
+              },
+              'sep'
+            )
           // Edit and Move are MODIFYING actions on an existing drawing, so they live here rather
           // than in the creation toolbar. Both select the feature first: edit mode applies only to
           // the selection (syncEditMode), and the [selected, tool] effect re-syncs once the state
           // lands. setTool, not activateTool — the latter toggles off when handed the current tool.
-          items.push({
-            icon: 'pencil',
-            label: t('Edit shape'),
-            onClick: () => (setSelected(f), setTool('edit'))
+          items.push(
+            {
+              icon: 'pencil',
+              label: t('Edit shape'),
+              onClick: () => (setSelected(f), setTool('edit'))
+            },
+            {
+              icon: 'maximize',
+              label: t('Move'),
+              onClick: () => (setSelected(f), setTool('drag'))
+            },
+            'sep',
+            {
+              icon: 'clock',
+              label: t('Change border from this year'),
+              onClick: () => createFeatureFork(f)
+            },
+            {
+              icon: 'calendar',
+              label: t('Add event to this drawing'),
+              onClick: () => setEventDraft({ f, year: yearRef.current })
+            },
+            'sep',
+            {
+              icon: 'trash',
+              label: t('Delete'),
+              hint: 'Del',
+              danger: true,
+              onClick: () => removeFeature(f.id)
+            }
+          )
+          setMenu({
+            x: e.originalEvent.clientX,
+            y: e.originalEvent.clientY,
+            /* Which of the overlapping things under the cursor this menu caught. On a crowded
+               border the county and the duchy are one pixel apart, and the seven commands were
+               identical either way — the menu never said whose seven they were. The KIND is on
+               the same line because a region and the free label naming it carry the SAME name,
+               and that is the one pair nothing else distinguishes. */
+            header: {
+              name: f.entity_name || style.text || t('Untitled drawing'),
+              color: style.color,
+              note: isLabel
+                ? t('Label')
+                : isLine
+                  ? t('Path')
+                  : isPolygon
+                    ? t('Region')
+                    : t('Location')
+            },
+            swatches: { colors: await quickColors(), onPick: (c) => recolorFeature(f, c) },
+            items
           })
-          items.push({
-            icon: 'maximize',
-            label: t('Move'),
-            onClick: () => (setSelected(f), setTool('drag'))
-          })
-          items.push({
-            icon: 'clock',
-            label: t('Change border from this year'),
-            onClick: () => createFeatureFork(f)
-          })
-          items.push({
-            icon: 'calendar',
-            label: t('Add event to this drawing'),
-            onClick: () => setEventDraft({ f, year: yearRef.current })
-          })
-          items.push({
-            icon: 'trash',
-            label: t('Delete'),
-            danger: true,
-            onClick: () => removeFeature(f.id)
-          })
-          setMenu({ x: e.originalEvent.clientX, y: e.originalEvent.clientY, items })
         })
         fg.addLayer(layer)
       })
@@ -3550,6 +3612,9 @@ export default function MapView({
           setMenu({
             x: e.clientX,
             y: e.clientY,
+            // Every row below says "Move under …", so without this the menu never names the map
+            // being moved — and the row it was opened from is behind the menu by then.
+            header: { name: m.name, note: t('Move to') },
             items: [
               ...(m.parent_map_id !== null
                 ? [
@@ -3557,7 +3622,8 @@ export default function MapView({
                       icon: 'arrow-up-right' as const,
                       label: t('Move to the top level'),
                       onClick: () => moveMapUnder(m.id, null)
-                    }
+                    },
+                    'sep' as const
                   ]
                 : []),
               ...maps
@@ -4440,31 +4506,62 @@ export default function MapView({
       if (el.classList?.contains('leaflet-interactive') || el.closest?.('.leaflet-marker-icon'))
         return
       e.originalEvent.preventDefault()
-      setMenu({
-        x: e.originalEvent.clientX,
-        y: e.originalEvent.clientY,
-        items: [
-          { icon: 'polygon', label: t('Draw polygon'), onClick: () => activateTool('polygon') },
-          { icon: 'path', label: t('Draw path'), onClick: () => activateTool('line') },
-          { icon: 'map-pin', label: t('Add location'), onClick: () => activateTool('marker') },
-          { icon: 'label', label: t('Add label'), onClick: () => activateTool('label') },
-          { icon: 'pencil', label: t('Edit mode'), onClick: () => activateTool('edit') },
-          { icon: 'maximize', label: t('Move mode'), onClick: () => activateTool('drag') },
-          { icon: 'trash', label: t('Delete mode'), onClick: () => activateTool('remove') }
-        ]
-      })
+      /* THE POINT YOU CLICKED IS PART OF THE COMMAND, and until now none of these seven items
+         used it — every one of them armed a tool and waited for a second click somewhere else,
+         which is the same list the tool panel already shows. A menu whose contents do not change
+         with what it was opened ON is not a context menu, it is a vertical toolbar.
+         A polygon and a path cannot be placed by a point, so those two still arm the tool. A pin
+         and a label CAN, so they land here, once, now. */
+      const at = e.latlng
+      // Also the paste target, so "Paste here" means the point rather than wherever the pointer
+      // last crossed the map (a right-click after a zoom would otherwise paste somewhere else).
+      lastMouse.current = at
+      const point = (): string => JSON.stringify({ type: 'Point', coordinates: [at.lng, at.lat] })
+      const items: MenuEntry[] = [
+        { icon: 'polygon', label: t('Draw polygon'), onClick: () => activateTool('polygon') },
+        { icon: 'path', label: t('Draw path'), onClick: () => activateTool('line') },
+        'sep',
+        {
+          icon: 'map-pin',
+          label: t('Add location here'),
+          onClick: () => placeDrawing(point(), 'Marker', false)
+        },
+        {
+          icon: 'label',
+          label: t('Add label here'),
+          onClick: () => placeDrawing(point(), 'Marker', true)
+        }
+      ]
+      // Absent rather than greyed: an empty clipboard has nothing to say about this point.
+      if (getClipboard().length)
+        items.push('sep', {
+          icon: 'clipboard',
+          label: t('Paste here'),
+          hint: 'Ctrl+V',
+          onClick: () => pasteClipboard(true)
+        })
+      items.push(
+        'sep',
+        { icon: 'pencil', label: t('Edit mode'), onClick: () => activateTool('edit') },
+        { icon: 'maximize', label: t('Move mode'), onClick: () => activateTool('drag') },
+        { icon: 'trash', label: t('Delete mode'), onClick: () => activateTool('remove') }
+      )
+      setMenu({ x: e.originalEvent.clientX, y: e.originalEvent.clientY, items })
     })
 
-    map.on('pm:create', async (e) => {
-      const geometry = JSON.stringify((e.layer as L.Polygon).toGeoJSON().geometry)
-      map.removeLayer(e.layer)
+    /* Everything that happens once a geometry EXISTS — the style snapshot, joining an article,
+       the board, the two inserts, the undo entry, the log line. Lifted out of the pm:create
+       handler unchanged, so that the context menu can place a pin or a label AT THE POINT YOU
+       CLICKED rather than arming a tool and asking for a second click somewhere else. */
+    const placeDrawing = async (
+      geometry: string,
+      shape: string | undefined,
+      isLabelDraw: boolean
+    ): Promise<void> => {
       // A snapshot of the current tool settings becomes the feature's persistent style.
       // from = the slider year at draw time: the feature is invisible in years it does not
       // exist (changeable/clearable in the selected feature panel's "Time" block).
       const s = drawRef.current
-      const shape = (e as { shape?: string }).shape
-      // Label and pin tools are both 'Marker' to geoman → the active tool disambiguates
-      const isLabelDraw = toolRef.current === 'label'
       // The article the drawing joins, if one was picked. A LABEL may join one as well — that is
       // what replaces a polygon's own name: the name is turned off and a hand-placed label bound
       // to the same article says it instead. It still creates nothing when no target is set.
@@ -4473,7 +4570,11 @@ export default function MapView({
       const styleObj =
         shape === 'Marker' && isLabelDraw
           ? {
-              text: s.label.text,
+              /* A label with no text is not a small label, it is an UNREACHABLE one: the grab box
+                 is measured from the glyphs, so an empty one has no hit area and cannot be
+                 selected, moved or deleted again. The tool's default text is '', so this was one
+                 stray click away on the existing path too. */
+              text: s.label.text || t('New label'),
               color: s.label.color,
               font: s.label.font,
               size: s.label.size,
@@ -4605,6 +4706,13 @@ export default function MapView({
         activateLatest.current(toolRef.current)
       await reloadFeatures('draw')
       if (ent) onChanged() // the new article must appear in the sidebar tree at once
+    }
+
+    map.on('pm:create', async (e) => {
+      const geometry = JSON.stringify((e.layer as L.Polygon).toGeoJSON().geometry)
+      map.removeLayer(e.layer)
+      // Label and pin tools are both 'Marker' to geoman → the active tool disambiguates.
+      await placeDrawing(geometry, (e as { shape?: string }).shape, toolRef.current === 'label')
     })
     map.on('pm:remove', async (e) => {
       const fid = (e.layer as FeatureLayer).featureId

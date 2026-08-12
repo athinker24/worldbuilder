@@ -68,6 +68,7 @@ export type IconName =
   | 'settings'
   | 'conquest'
   | 'check'
+  | 'clipboard'
   | 'grip'
   | 'dice'
 
@@ -149,6 +150,8 @@ const PATHS: Record<IconName, string> = {
   conquest:
     'M14.5 17.5L3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2M14.5 6.5L18 3h3v3l-3.5 3.5M9 11L5 15M8 16l-4 4M5 21l-2-2',
   check: 'M20 6L9 17l-5-5',
+  clipboard:
+    'M9 3h6a1 1 0 0 1 1 1v1H8V4a1 1 0 0 1 1-1M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2',
   // Two columns of dots: the universal "hold here and drag me", drawn with the dot idiom.
   grip: 'M10 6a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M10 12a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M10 18a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M16 6a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M16 12a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M16 18a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0',
   palette:

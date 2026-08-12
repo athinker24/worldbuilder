@@ -43,7 +43,7 @@ function rgbToHsv(r: number, g: number, b: number): { h: number; s: number; v: n
 // Not a theme palette but a starter set that stays readable side by side on a map — hence
 // fixed hex, NOT tokens (map content must look the same in both themes, see CLAUDE.md).
 // The app's own drawing defaults (pin #c0603a, polygon #7bb3ff) are deliberately in the set.
-const PRESETS = ['#c0603a', '#7bb3ff', '#5f9e5f', '#d9a441', '#8e6bbf', '#4fb3a5']
+export const PRESETS = ['#c0603a', '#7bb3ff', '#5f9e5f', '#d9a441', '#8e6bbf', '#4fb3a5']
 
 interface Props {
   value: string // hex, e.g. #7bb3ff

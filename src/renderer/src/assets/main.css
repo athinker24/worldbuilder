@@ -3606,10 +3606,23 @@ a {
 .ctx-menu {
   position: fixed;
   min-width: 170px;
+  max-width: 320px;
   background: var(--surface-float);
   border-radius: var(--r-m);
   padding: 4px;
   box-shadow: var(--shadow-2);
+  /* Grown from the corner nearest the cursor, which is the top-left in every case except a
+     clamped one. Small on purpose: the job is to say WHERE it came from, and a menu that has to
+     finish animating before it can be read is a menu that got slower. */
+  animation: ctx-in var(--dur-fast) var(--ease-out);
+  transform-origin: top left;
+}
+
+@keyframes ctx-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
 }
 
 /* In-app confirm/alert instead of native window.confirm — avoids focus loss. */
@@ -3697,6 +3710,97 @@ a {
 
 .ctx-item.danger:hover {
   color: var(--danger);
+}
+
+/* The shortcut this exact row runs. Right-aligned and quiet: it is an aside, and the menu is
+   still a list of labels — the `margin-left: auto` is what keeps it from being a second column
+   that every other row has to leave room for. */
+.ctx-hint {
+  margin-left: auto;
+  /* A <kbd> for what it means, but NOT the keycap the shortcut page wears: that rule paints
+     --surface-float, which is the menu's own background, so every hint came out as a raised box
+     floating on the same colour. Here the shortcut is an aside on a row, not the subject. */
+  padding: 0 0 0 var(--sp-4);
+  font: inherit;
+  font-size: var(--fs-1);
+  background: none;
+  border: 0;
+  color: var(--text-faint);
+}
+
+.ctx-item:hover .ctx-hint,
+.ctx-item:focus-visible .ctx-hint {
+  color: var(--text-muted);
+}
+
+/* What was right-clicked. Not a title — a menu has no title, it has a subject. */
+.ctx-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px 10px 7px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ctx-head-name {
+  font-weight: 600;
+  color: var(--text);
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The kind, and it earns its place on exactly one case: a region and the free label naming it
+   are two drawings with the SAME name, and this is the only thing that tells them apart. */
+.ctx-head-note {
+  margin-left: auto;
+  padding-left: var(--sp-3);
+  font-size: var(--fs-1);
+  color: var(--text-faint);
+}
+
+.ctx-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.35);
+}
+
+/* A row that ACTS rather than lists. The swatches are map content, so they carry their own
+   colour in both themes — the same exemption the picker's presets have. */
+.ctx-colors {
+  display: flex;
+  gap: 4px;
+  padding: 2px 10px 7px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ctx-color {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  padding: 0;
+  border-radius: var(--r-s);
+  border: 1px solid rgb(0 0 0 / 0.35);
+  cursor: pointer;
+  transition: transform var(--dur-fast);
+}
+
+.ctx-color:hover,
+.ctx-color:focus-visible {
+  transform: scale(1.15);
+  border-color: var(--text);
+}
+
+.ctx-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-subtle);
 }
 
 /* Leaflet dark-theme fit. Double class for the same reason as .leaflet-host
