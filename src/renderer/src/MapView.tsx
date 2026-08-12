@@ -4506,31 +4506,21 @@ export default function MapView({
       if (el.classList?.contains('leaflet-interactive') || el.closest?.('.leaflet-marker-icon'))
         return
       e.originalEvent.preventDefault()
-      /* THE POINT YOU CLICKED IS PART OF THE COMMAND, and until now none of these seven items
-         used it — every one of them armed a tool and waited for a second click somewhere else,
-         which is the same list the tool panel already shows. A menu whose contents do not change
-         with what it was opened ON is not a context menu, it is a vertical toolbar.
-         A polygon and a path cannot be placed by a point, so those two still arm the tool. A pin
-         and a label CAN, so they land here, once, now. */
-      const at = e.latlng
-      // Also the paste target, so "Paste here" means the point rather than wherever the pointer
-      // last crossed the map (a right-click after a zoom would otherwise paste somewhere else).
-      lastMouse.current = at
-      const point = (): string => JSON.stringify({ type: 'Point', coordinates: [at.lng, at.lat] })
+      /* The four drawing tools ARM, they do not place. Placing a pin and a label at the clicked
+         point was tried and taken back out: two of the four then behaved differently from the
+         other two — one opened the tool's panel and waited, the other was already done — and a
+         menu whose neighbouring items work by different rules has to be read every time instead
+         of aimed at. A polygon and a path cannot be placed from a point, so the rule that makes
+         all four the same is the arming one.
+         The click point still matters to the one item that is genuinely about a POSITION. */
+      // The paste target, so "Paste here" means this point rather than wherever the pointer last
+      // crossed the map (a right-click after a zoom would otherwise paste somewhere else).
+      lastMouse.current = e.latlng
       const items: MenuEntry[] = [
         { icon: 'polygon', label: t('Draw polygon'), onClick: () => activateTool('polygon') },
         { icon: 'path', label: t('Draw path'), onClick: () => activateTool('line') },
-        'sep',
-        {
-          icon: 'map-pin',
-          label: t('Add location here'),
-          onClick: () => placeDrawing(point(), 'Marker', false)
-        },
-        {
-          icon: 'label',
-          label: t('Add label here'),
-          onClick: () => placeDrawing(point(), 'Marker', true)
-        }
+        { icon: 'map-pin', label: t('Add location'), onClick: () => activateTool('marker') },
+        { icon: 'label', label: t('Add label'), onClick: () => activateTool('label') }
       ]
       // Absent rather than greyed: an empty clipboard has nothing to say about this point.
       if (getClipboard().length)
@@ -4549,19 +4539,16 @@ export default function MapView({
       setMenu({ x: e.originalEvent.clientX, y: e.originalEvent.clientY, items })
     })
 
-    /* Everything that happens once a geometry EXISTS — the style snapshot, joining an article,
-       the board, the two inserts, the undo entry, the log line. Lifted out of the pm:create
-       handler unchanged, so that the context menu can place a pin or a label AT THE POINT YOU
-       CLICKED rather than arming a tool and asking for a second click somewhere else. */
-    const placeDrawing = async (
-      geometry: string,
-      shape: string | undefined,
-      isLabelDraw: boolean
-    ): Promise<void> => {
+    map.on('pm:create', async (e) => {
+      const geometry = JSON.stringify((e.layer as L.Polygon).toGeoJSON().geometry)
+      map.removeLayer(e.layer)
       // A snapshot of the current tool settings becomes the feature's persistent style.
       // from = the slider year at draw time: the feature is invisible in years it does not
       // exist (changeable/clearable in the selected feature panel's "Time" block).
       const s = drawRef.current
+      const shape = (e as { shape?: string }).shape
+      // Label and pin tools are both 'Marker' to geoman → the active tool disambiguates
+      const isLabelDraw = toolRef.current === 'label'
       // The article the drawing joins, if one was picked. A LABEL may join one as well — that is
       // what replaces a polygon's own name: the name is turned off and a hand-placed label bound
       // to the same article says it instead. It still creates nothing when no target is set.
@@ -4706,13 +4693,6 @@ export default function MapView({
         activateLatest.current(toolRef.current)
       await reloadFeatures('draw')
       if (ent) onChanged() // the new article must appear in the sidebar tree at once
-    }
-
-    map.on('pm:create', async (e) => {
-      const geometry = JSON.stringify((e.layer as L.Polygon).toGeoJSON().geometry)
-      map.removeLayer(e.layer)
-      // Label and pin tools are both 'Marker' to geoman → the active tool disambiguates.
-      await placeDrawing(geometry, (e as { shape?: string }).shape, toolRef.current === 'label')
     })
     map.on('pm:remove', async (e) => {
       const fid = (e.layer as FeatureLayer).featureId

@@ -50,9 +50,9 @@ const TR: Record<string, string> = {
   'Edit shape': 'Şekli düzenle',
   'Draw polygon': 'Poligon çiz',
   'Draw path': 'Yol çiz',
-  'Add label here': 'Buraya etiket ekle',
+  'Add label': 'Etiket ekle',
   'Add event to this drawing': 'Bu çizime olay ekle',
-  'Add location here': 'Buraya konum ekle',
+  'Add location': 'Konum ekle',
   'Paste here': 'Buraya yapıştır',
   'New label': 'Yeni etiket',
   // The context menu's subject line: what was right-clicked, and which KIND it is.
@@ -139,8 +139,8 @@ const TR: Record<string, string> = {
   'Menu: recolour, edit shape, event, fork border, delete…':
     'Menü: rengi değiştir, şekli düzenle, olay, sınırı çatalla, sil…',
   'Right click on the map': 'Haritaya sağ tık',
-  'Menu: place a pin or a label at that point, paste there':
-    'Menü: o noktaya iğne ya da etiket koy, oraya yapıştır',
+  'Menu: pick a drawing tool, or paste at that point':
+    'Menü: bir çizim aracı seç, ya da o noktaya yapıştır',
   'Step one year (while the strip is open)': 'Bir yıl ilerle/geri (şerit açıkken)',
   'Click the year': 'Yıla tıkla',
   'Type a year by hand': 'Elle yıl gir',

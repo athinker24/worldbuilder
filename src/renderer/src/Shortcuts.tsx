@@ -49,7 +49,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['Shift+wheel', 'Size/thickness: of the selection, or of the active tool default'],
       ['Ctrl+drag a vertex', 'Weld: move the neighbouring polygon vertex along with it'],
       ['Right click on a drawing', 'Menu: recolour, edit shape, event, fork border, delete…'],
-      ['Right click on the map', 'Menu: place a pin or a label at that point, paste there']
+      ['Right click on the map', 'Menu: pick a drawing tool, or paste at that point']
     ]
   },
   {
