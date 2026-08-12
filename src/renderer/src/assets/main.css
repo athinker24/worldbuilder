@@ -2842,7 +2842,7 @@ a {
   align-items: center;
   gap: 10px;
   background: var(--surface-float);
-  border-radius: 20px;
+  border-radius: var(--r-m);
   padding: 6px 14px;
   box-shadow: var(--shadow-2);
 }
@@ -2867,7 +2867,9 @@ a {
   padding: 0 var(--sp-3);
   background: var(--surface-float);
   border-color: transparent;
-  border-radius: 16px;
+  /* The same radius as the panel this opens into: a collapsed panel and its open state are one
+     object, and 16px against the strip's 6px meant the corner changed shape on the way out. */
+  border-radius: var(--r-m);
   box-shadow: var(--shadow-2);
 }
 
