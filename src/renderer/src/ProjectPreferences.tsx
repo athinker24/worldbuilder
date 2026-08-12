@@ -35,6 +35,10 @@ export default function ProjectPreferences(): React.JSX.Element {
   const [tpls, setTpls] = useState<EntityTemplate[]>([])
   const [activeTpl, setActiveTpl] = useState<string | null>(null)
   const [tplInput, setTplInput] = useState('')
+  // Which rank is being dragged and which one it is currently over. Session state — an
+  // in-progress gesture is not a preference and must not survive the page.
+  const [dragTag, setDragTag] = useState<string | null>(null)
+  const [overTag, setOverTag] = useState<string | null>(null)
 
   useEffect(() => {
     Promise.all([getHierConfig(), api.hierarchy(), getMapModes(), getTemplates()]).then(
@@ -182,8 +186,41 @@ export default function ProjectPreferences(): React.JSX.Element {
         </form>
         {gov && (
           <>
+            {/* Drag to reorder — a ladder IS an order, and setting one with two buttons cost a
+                click per position per rank: about twenty to lay out eight ranks. The sidebar
+                already moves things by dragging them, so this is the same gesture in the one
+                other place the app has an ordered list.
+
+                The arrows stay. They are not a fallback nobody uses: dragging is the one
+                interaction a keyboard cannot perform at all, and this list had just been made
+                reachable by one. Mouse gets the gesture, keyboard keeps the buttons. */}
             {gov.tags.map((tag, i) => (
-              <div className="field-row" key={tag}>
+              <div
+                className={`field-row ladder-row ${dragTag === tag ? 'dragging' : ''} ${
+                  overTag === tag && dragTag !== tag ? 'over' : ''
+                }`}
+                key={tag}
+                draggable
+                onDragStart={() => setDragTag(tag)}
+                onDragEnd={() => (setDragTag(null), setOverTag(null))}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  if (overTag !== tag) setOverTag(tag)
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  if (dragTag && dragTag !== tag) {
+                    const next = gov.tags.filter((x) => x !== dragTag)
+                    next.splice(next.indexOf(tag), 0, dragTag)
+                    updateGovTags(next)
+                  }
+                  setDragTag(null)
+                  setOverTag(null)
+                }}
+              >
+                <span className="ladder-grip" aria-hidden>
+                  <Icon name="grip" size={13} />
+                </span>
                 <IconButton
                   icon="chevron-up"
                   label={t('Move up')}

@@ -1291,6 +1291,37 @@ kbd {
   font-size: 13px;
 }
 
+/* A rank in a ladder, which can be dragged to reorder. The grip is what says so — hover-revealed
+   like every other row action in this app, because a live handle on every row of a settings page
+   reads as clutter, and the row is draggable from anywhere on it anyway. */
+.ladder-row {
+  border-radius: var(--r-s);
+  cursor: grab;
+}
+
+.ladder-grip {
+  display: flex;
+  align-items: center;
+  color: var(--text-faint);
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+}
+
+.ladder-row:hover .ladder-grip {
+  opacity: 1;
+}
+
+.ladder-row.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+/* Where it would land. A line rather than a highlight: the drop is BETWEEN ranks, and a filled
+   row would say it is going to replace the one under the cursor. */
+.ladder-row.over {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
 /* --- fields and rows --- */
 .field-row {
   display: flex;
