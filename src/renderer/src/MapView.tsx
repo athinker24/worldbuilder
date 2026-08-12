@@ -105,6 +105,33 @@ L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl })
 const EDIT_OPTS = { limitMarkersToCount: 20 }
 
 /**
+ * A key per tool — the answer to "the tool menu is slow" that a desktop app actually has.
+ *
+ * A radial menu was the other candidate and was dropped on two counts. Kurtenbach's own framing
+ * of marking menus is that they accelerate selection WITHOUT a keyboard, and we have one; and
+ * the single real advantage of a ring, that its slices never move, this app already has in the
+ * tool strip — a fixed column of icons at a fixed place on screen. The half that was missing was
+ * never the spatial one.
+ *
+ * Mnemonics in ENGLISH, deliberately, because the keys must not move when the UI language does.
+ * `V` for move and `T` for the text tool are what every drawing application uses (and the label
+ * icon in `icons.tsx` is literally a T). `M` is not free — App has it for "go to the map".
+ *
+ * `scale` and `nav` have no key on purpose: a map is calibrated once and a route is asked for
+ * now and then, so neither is something you reach for in a loop, which is the whole case for a
+ * key. Adding one later is a row here and a row in Shortcuts.
+ */
+const TOOL_KEYS: Record<string, Tool> = {
+  r: 'polygon', // region
+  p: 'line', // path
+  l: 'marker', // location
+  t: 'label', // text
+  e: 'edit',
+  v: 'drag', // move
+  d: 'remove' // delete mode
+}
+
+/**
  * The style fields that are PURE PAINT — the ones `renderStyle` carries and `applyYear` can apply
  * on its own, without the map being rebuilt. Exactly the controls a user drags, which is why this
  * set is where the cost went. Everything absent from it (label text, from/to, minZoom/maxZoom,
@@ -2946,11 +2973,13 @@ export default function MapView({
             items.push({
               icon: 'pencil',
               label: t('Edit shape'),
+              hint: 'E',
               onClick: () => (setSelected(f), setTool('edit'))
             })
           items.push({
             icon: 'maximize',
             label: t('Move'),
+            hint: 'V',
             onClick: () => (setSelected(f), setTool('drag'))
           })
           if (isPolygon)
@@ -3960,6 +3989,16 @@ export default function MapView({
       } else if (e.ctrlKey && k === 'd' && has) {
         e.preventDefault() // the browser's "add bookmark"
         void duplicateSelection()
+      } else if (TOOL_KEYS[k] && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        // A bare letter, so it needs the same two guards App's `M` needs: not while typing (done
+        // above, for every branch here) and no modifier held — otherwise Ctrl+V would arm the move
+        // tool on its way to pasting. Shift is not excluded: a capital R is still R.
+        //
+        // Through activateTool, which means a second press of the same key puts the tool away
+        // again — the same toggle the toolbar button and Escape already do, so the key is the
+        // button and not a third way of saying it.
+        e.preventDefault()
+        activateTool(TOOL_KEYS[k])
       }
     }
     window.addEventListener('keydown', onKey, true) // capture: before App's Del handler
@@ -4528,11 +4567,23 @@ export default function MapView({
       // The paste target, so "Paste here" means this point rather than wherever the pointer last
       // crossed the map (a right-click after a zoom would otherwise paste somewhere else).
       lastMouse.current = e.latlng
+      // Every one of these is a key now (TOOL_KEYS), so every one of them says which — the menu's
+      // job here is to stop being needed.
       const items: MenuEntry[] = [
-        { icon: 'polygon', label: t('Draw polygon'), onClick: () => activateTool('polygon') },
-        { icon: 'path', label: t('Draw path'), onClick: () => activateTool('line') },
-        { icon: 'map-pin', label: t('Add location'), onClick: () => activateTool('marker') },
-        { icon: 'label', label: t('Add label'), onClick: () => activateTool('label') }
+        {
+          icon: 'polygon',
+          label: t('Draw polygon'),
+          hint: 'R',
+          onClick: () => activateTool('polygon')
+        },
+        { icon: 'path', label: t('Draw path'), hint: 'P', onClick: () => activateTool('line') },
+        {
+          icon: 'map-pin',
+          label: t('Add location'),
+          hint: 'L',
+          onClick: () => activateTool('marker')
+        },
+        { icon: 'label', label: t('Add label'), hint: 'T', onClick: () => activateTool('label') }
       ]
       // Absent rather than greyed: an empty clipboard has nothing to say about this point.
       if (getClipboard().length)
@@ -4544,9 +4595,9 @@ export default function MapView({
         })
       items.push(
         'sep',
-        { icon: 'pencil', label: t('Edit mode'), onClick: () => activateTool('edit') },
-        { icon: 'maximize', label: t('Move mode'), onClick: () => activateTool('drag') },
-        { icon: 'trash', label: t('Delete mode'), onClick: () => activateTool('remove') }
+        { icon: 'pencil', label: t('Edit mode'), hint: 'E', onClick: () => activateTool('edit') },
+        { icon: 'maximize', label: t('Move mode'), hint: 'V', onClick: () => activateTool('drag') },
+        { icon: 'trash', label: t('Delete mode'), hint: 'D', onClick: () => activateTool('remove') }
       )
       setMenu({ x: e.originalEvent.clientX, y: e.originalEvent.clientY, items })
     })

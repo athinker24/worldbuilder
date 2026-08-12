@@ -35,6 +35,25 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     ]
   },
   {
+    // Mnemonics in English so the keys do not move when the interface language does. Scale and
+    // Route have none on purpose — a map is calibrated once, a route is asked for now and then,
+    // and a key is for what you reach for in a loop.
+    title: 'Map: tools',
+    rows: [
+      // Named as TOOLS, not as actions: "Draw a path" is already an undo label ("Yol çizildi"),
+      // and in a scheme where the English text IS the translation key that row would have come
+      // out in the past tense.
+      ['R', 'Region tool (polygon)'],
+      ['P', 'Path tool'],
+      ['L', 'Location tool (pin)'],
+      ['T', 'Label tool (text)'],
+      ['E', 'Edit mode (the vertices of the selected drawing)'],
+      ['V', 'Move mode'],
+      ['D', 'Delete mode'],
+      ['The same key again', 'Puts the tool away — as Esc and the toolbar button do']
+    ]
+  },
+  {
     title: 'Map: copy',
     rows: [
       ['Ctrl+C', 'Copy selected drawings'],

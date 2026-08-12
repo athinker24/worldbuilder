@@ -61,6 +61,17 @@ const TR: Record<string, string> = {
   'Move to': 'Taşı',
   // A long menu grows a filter field (ContextMenu) — no full stop, it is a placeholder.
   Filter: 'Süz',
+  // Shortcuts page: the tool keys. The KEYS are not translated (they are physical, and English
+  // mnemonics are what keeps them still when the language changes) — only what they do.
+  'Map: tools': 'Harita: araçlar',
+  'Region tool (polygon)': 'Bölge aracı (poligon)',
+  'Path tool': 'Yol aracı',
+  'Location tool (pin)': 'Konum aracı (iğne)',
+  'Label tool (text)': 'Etiket aracı (metin)',
+  'Edit mode (the vertices of the selected drawing)': 'Düzenle modu (seçili çizimin köşeleri)',
+  'The same key again': 'Aynı tuşa tekrar',
+  'Puts the tool away — as Esc and the toolbar button do':
+    'Aracı bırakır — Esc ve araç düğmesi gibi',
   Open: 'Aç',
   'Delete mode': 'Silme modu',
   // App.tsx
