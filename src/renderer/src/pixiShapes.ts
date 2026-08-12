@@ -186,6 +186,20 @@ const SEL_HALO_PX = 2.5
 const SEL_HALO_COLOR = 0x000000
 const SEL_HALO_ALPHA = 0.55
 
+/**
+ * How much the selected drawing's OWN stroke thickens, in screen pixels.
+ *
+ * The rim alone cannot be right everywhere, because any single colour loses on some terrain:
+ * white disappears over pale ground and a shading disappears over dark. This does not have that
+ * problem — it is the drawing's own colour, so what changes is weight rather than hue, and a
+ * bolder version of a thing is legible wherever the thing was. The rim stays for the edge; this
+ * is what carries the signal.
+ *
+ * A weight of 0 is exempt, by the same rule the stylesheet's hairline floor follows: no outline
+ * is a choice, and selecting something must not draw a line its author turned off.
+ */
+const SEL_BOOST_PX = 2
+
 // Vertex and midpoint dots, in SCREEN pixels, matched to geoman's own handles: a 14 px white
 // circle with a blue rim for a vertex, a smaller and fainter one for the midpoint between two.
 const HANDLE_R = 6
@@ -426,9 +440,13 @@ export class ShapeLayer {
          stroke describing where one thing stops, so it stays divided.
          The floor mirrors the stylesheet's `max(0.75px, …)`: zoomed far enough out a road is
          thinner than a pixel, and a road that disappears is worse than one drawn slightly wide. */
-      const w = s.closed
-        ? s.weight / this.strokeScale
-        : Math.max(s.weight, MIN_STROKE_PX / this.strokeScale)
+      const w =
+        (s.closed
+          ? s.weight / this.strokeScale
+          : Math.max(s.weight, MIN_STROKE_PX / this.strokeScale)) +
+        // Screen pixels either way — the boost says "this one" and belongs to the interface, so it
+        // is the same amount at every zoom whichever unit the stroke under it is in.
+        (s.selected ? SEL_BOOST_PX / this.strokeScale : 0)
       // The selection halo goes down FIRST so the feature's own colour draws over the top of it,
       // leaving a rim rather than a repaint. The old SVG did this with a drop-shadow, which is the
       // one thing that must not come back — filters were the single most expensive item on the map.

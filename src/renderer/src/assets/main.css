@@ -4534,6 +4534,15 @@ a {
   vector-effect: non-scaling-stroke;
 }
 
+/* The selected drawing's own stroke thickens — SEL_BOOST_PX in pixiShapes, which draws whichever
+   members of a multi-selection Leaflet is not holding. Screen pixels either way: the boost is
+   interface, so it is the same amount at every zoom whatever unit the stroke under it uses.
+   A weight of 0 keeps its inline `stroke-width: 0` from the _updateStyle patch, which beats this
+   — no outline is a choice, and selecting something must not draw a line its author turned off. */
+.leaflet-overlay-pane path.sel-feature {
+  stroke-width: max(0.75px, calc(var(--w, 3) * var(--mz, 1) * 1px + 2px));
+}
+
 /* An empty map says so in the middle, where you are already looking, rather than with a button
    at the far end of the toolbar. Absolute inside .map-host-wrap like the other floats, so the
    380px inspector shrinks the box and this recentres with it.
