@@ -5,6 +5,7 @@ import Icon, { IconName } from './icons'
 import { ImageStrip, PinShape, PinShapePicker } from './pinIcons'
 import Select from './Select'
 import { useT } from './i18n'
+import { Segmented } from './ui'
 
 export type Tool =
   'polygon' | 'line' | 'marker' | 'label' | 'scale' | 'nav' | 'edit' | 'drag' | 'remove'
@@ -240,6 +241,16 @@ export default function ToolPanel({
   return (
     <div className="tool-panel-inner">
       <div className="tool-settings">
+        {/* Which tool these settings belong to. The popover floats 62px from a 34px icon-only
+            button, so the only thing saying whose panel this was is that button's accent — and
+            the hint that explains the tool sat at the BOTTOM, after the controls it explains. */}
+        {activeDef && (
+          <div className="tool-head">
+            <Icon name={activeDef.icon} size={14} />
+            <span className="panel-title">{t(activeDef.name)}</span>
+          </div>
+        )}
+        {activeDef?.hint && <p className="hint">{t(activeDef.hint)}</p>}
         {active === 'polygon' && (
           <>
             <label>{t('Color')}</label>
@@ -460,25 +471,22 @@ export default function ToolPanel({
                     itself is the toggle. That used to be said inside the caption above, which is
                     how a caption becomes a sentence. */}
                 <p className="hint">{t('Click an image again to remove it.')}</p>
-                <label>{t('Image style')}</label>
-                <div className="measure-btns">
-                  <button
-                    className={`mini ${!settings.marker.imgFree ? 'active' : ''}`}
-                    onClick={() =>
-                      onSettings({ ...settings, marker: { ...settings.marker, imgFree: false } })
-                    }
-                  >
-                    {t('Badge')}
-                  </button>
-                  <button
-                    className={`mini ${settings.marker.imgFree ? 'active' : ''}`}
-                    onClick={() =>
-                      onSettings({ ...settings, marker: { ...settings.marker, imgFree: true } })
-                    }
-                  >
-                    {t('Free')}
-                  </button>
-                </div>
+                {/* Two exclusive options: a segmented control, which is what this pair of
+                    .mini buttons with an `active` class was imitating by hand. */}
+                <Segmented
+                  label={t('Image style')}
+                  options={[
+                    { key: 'badge', label: t('Badge') },
+                    { key: 'free', label: t('Free') }
+                  ]}
+                  value={settings.marker.imgFree ? 'free' : 'badge'}
+                  onChange={(k) =>
+                    onSettings({
+                      ...settings,
+                      marker: { ...settings.marker, imgFree: k === 'free' }
+                    })
+                  }
+                />
               </>
             )}
             <label className="cap">
@@ -690,21 +698,17 @@ export default function ToolPanel({
                 </button>
               </p>
             )}
-            <label>{t('Measure (not saved)')}</label>
-            <div className="measure-btns">
-              <button
-                className={`mini ${measuring === 'dist' ? 'active' : ''}`}
-                onClick={() => onMeasure('dist')}
-              >
-                <Icon name="ruler" size={12} /> {t('Distance')}
-              </button>
-              <button
-                className={`mini ${measuring === 'area' ? 'active' : ''}`}
-                onClick={() => onMeasure('area')}
-              >
-                <Icon name="polygon" size={12} /> {t('Area')}
-              </button>
-            </div>
+            {/* Same pair, same fix — and here the state is genuinely a mode: one of the two is
+                running until Esc ends it, which is exactly what a pressed segment means. */}
+            <Segmented
+              label={t('Measure (not saved)')}
+              options={[
+                { key: 'dist', label: t('Distance'), icon: 'ruler' },
+                { key: 'area', label: t('Area'), icon: 'polygon' }
+              ]}
+              value={measuring}
+              onChange={(k) => onMeasure(k)}
+            />
             <p className="hint">{t('Click to add points, Esc to finish. Not saved.')}</p>
           </>
         )}
@@ -731,9 +735,10 @@ export default function ToolPanel({
                   <button
                     className="mini"
                     title={t('Delete')}
+                    aria-label={t('Delete')}
                     onClick={() => onTravelModes(travelModes.filter((_, j) => j !== i))}
                   >
-                    ×
+                    <Icon name="x" size={12} />
                   </button>
                 </div>
               ))}
@@ -806,7 +811,6 @@ export default function ToolPanel({
                 })()}
             </>
           ))}
-        {activeDef?.hint && <p className="hint">{t(activeDef.hint)}</p>}
         {!active && <p className="hint">{t('Select a tool; its settings appear here.')}</p>}
       </div>
     </div>

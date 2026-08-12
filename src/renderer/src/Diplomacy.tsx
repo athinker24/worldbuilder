@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, autoColor, FolderDef, personFolderIds } from './api'
+import { ForceLayout } from './graphLayout'
 import { useT } from './i18n'
-import { EmptyState } from './ui'
+import { EmptyState, IconButton } from './ui'
 
 interface Props {
   folders: FolderDef[]
@@ -10,10 +11,17 @@ interface Props {
 
 // Family relations belong to the dynasty system — excluded from the diplomacy web (schema constants)
 const FAMILY = new Set(['mother', 'father', 'spouse'])
+const NODE_R = 8
+/* The grab target's radius in SCREEN pixels, held constant as the view scales. 14 is a little
+   wider than the dot itself, which is what makes a node easy to take hold of rather than exact. */
+const GRAB_PX = 14
 
-// Diplomacy web (World Anvil's "diplomacy web" pattern): non-person entities on a circle,
-// their links drawn as curved lines colored by relation type. No new data — a visual view
-// over the existing links table. Layout is deterministic circular (no physics).
+// Diplomacy web (World Anvil's "diplomacy web" pattern): non-person entries and the links between
+// them. It used to drop them on a fixed circle, which is readable at eight entries and a cat's
+// cradle at forty — the names on the outside ran into each other and there was no way to look
+// closer. It behaves like a map now: force-directed layout (graphLayout.ts), wheel to zoom, drag
+// the background to pan, drag a node to pull it and its neighbours around. Still no new data —
+// a view over the links table.
 export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.Element {
   const t = useT()
   const [ents, setEnts] = useState<{ id: number; name: string; fields: string }[]>([])
@@ -60,20 +68,208 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
     return { nodes, edges, relations }
   }, [ents, links, folders])
 
-  const S = 720 // SVG design space (viewBox — scales responsively)
-  const R = S / 2 - 90 // circle radius (margin outside for name labels)
-  const cx = S / 2
-  const cy = S / 2
-  const pos = useMemo(() => {
-    const m = new Map<number, { x: number; y: number; deg: number }>()
-    web.nodes.forEach((n, i) => {
-      const a = (2 * Math.PI * i) / web.nodes.length - Math.PI / 2 // start from the top
-      m.set(n.id, { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a), deg: (a * 180) / Math.PI })
+  const hostRef = useRef<HTMLDivElement>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
+  const rootRef = useRef<SVGGElement>(null)
+  // Positions are written to the DOM as attributes and never through state: a hundred nodes
+  // re-rendered sixty times a second is the one thing that would make this unusable, and it is
+  // the same call `updateOverlaySizes` makes on the map for the same reason.
+  const nodeEls = useRef(new Map<number, SVGGElement>())
+  const edgeEls = useRef(new Map<number, SVGPathElement>())
+  const drag = useRef<{ id: number; dx: number; dy: number } | null>(null)
+  const view = useRef({ x: 0, y: 0, k: 1 })
+  const lastK = useRef(0) // so the zoom-dependent attributes are rewritten only when it moves
+  const shown = useMemo(
+    () => web.edges.filter((l) => !hidden.has(l.relation || '—')),
+    [web.edges, hidden]
+  )
+  const shownRef = useRef(shown)
+  useEffect(() => {
+    shownRef.current = shown
+  })
+
+  /* The simulation is a ref, and every part of that sentence was argued with by the linter
+     before it settled here. It cannot be state — the component MUTATES it sixty times a second
+     and state is immutable. It cannot be assigned during render, because a render can be thrown
+     away. And its painter cannot be passed to the constructor, because that closure would read
+     a ref while React is rendering. So: a ref holding an instance, and an effect below hands it
+     the current paint(). */
+  const layoutRef = useRef(new ForceLayout())
+
+  const paint = useCallback((): void => {
+    const g = layoutRef.current
+    const k = view.current.k
+    rootRef.current?.setAttribute(
+      'transform',
+      `translate(${view.current.x} ${view.current.y}) scale(${k})`
+    )
+    // Only when the zoom actually changed, which is a handful of frames per gesture rather than
+    // every frame of a settling layout: the grab targets are sized in SCREEN pixels, so their
+    // world radius is the inverse of the scale, and the names go away once they are too small to
+    // read — the same LOD rule the map's labels follow.
+    if (k !== lastK.current) {
+      lastK.current = k
+      const r = String(GRAB_PX / k)
+      for (const el of nodeEls.current.values()) {
+        ;(el.firstChild as SVGCircleElement | null)?.setAttribute('r', r)
+      }
+      hostRef.current?.classList.toggle('far', k < 0.55)
+    }
+    for (const p of g.nodes) {
+      nodeEls.current.get(p.id)?.setAttribute('transform', `translate(${p.x} ${p.y})`)
+    }
+    for (const l of shownRef.current) {
+      const a = g.at(l.from_id)
+      const b = g.at(l.to_id)
+      const el = edgeEls.current.get(l.id)
+      if (!a || !b || !el) continue
+      // The midpoint is pushed aside PERPENDICULAR to the line by a ratio that varies with the
+      // link id, so two relations between the same pair do not draw as one line.
+      const bow = ((l.id % 5) - 2) * 0.12
+      const mx = (a.x + b.x) / 2 - (b.y - a.y) * bow
+      const my = (a.y + b.y) / 2 + (b.x - a.x) * bow
+      el.setAttribute('d', `M ${a.x},${a.y} Q ${mx},${my} ${b.x},${b.y}`)
+    }
+  }, [])
+
+  // Framed once per fresh set of nodes, and the flag is what keeps it to once.
+  const framed = useRef(false)
+
+  // Seed whenever the SET of nodes changes. Not on every filter change: hiding a relation type
+  // should dim the web, not rearrange the world under the cursor.
+  useEffect(() => {
+    const host = hostRef.current
+    const g = layoutRef.current
+    const w = host?.clientWidth || 800
+    const h = host?.clientHeight || 600
+    g.seed(
+      web.nodes.map((n) => n.id),
+      web.edges.map((l) => ({ from: l.from_id, to: l.to_id })),
+      w,
+      h
+    )
+    view.current = { x: 0, y: 0, k: 1 }
+    framed.current = false
+    lastK.current = 0
+    // A full-strength start: alpha runs 1 → 0 over about three hundred ticks, which is the five
+    // seconds of settling the whole thing is built around. It is not a distance or a speed —
+    // scaling it by the window, as the temperature it replaced was, would only make the forces
+    // enormous for a moment.
+    g.heat(1)
+    return () => g.stop()
+  }, [web.nodes, web.edges])
+
+  // The layout is in the host's own pixels, so a resize moves the centre it pulls toward.
+  useEffect(() => {
+    const host = hostRef.current
+    const g = layoutRef.current
+    if (!host) return
+    const ro = new ResizeObserver(() => {
+      g.resize(host.clientWidth, host.clientHeight)
+      g.heat(0.3) // a nudge, not a re-layout: the shape it found is still the right one
     })
-    return m
-  }, [web.nodes, cx, cy, R])
+    ro.observe(host)
+    return () => ro.disconnect()
+  }, [])
+
+  const toWorld = (e: { clientX: number; clientY: number }): { x: number; y: number } => {
+    const r = svgRef.current?.getBoundingClientRect()
+    if (!r) return { x: 0, y: 0 }
+    return {
+      x: (e.clientX - r.left - view.current.x) / view.current.k,
+      y: (e.clientY - r.top - view.current.y) / view.current.k
+    }
+  }
+
+  /** One gesture, two meanings: with a node grabbed it drags that node, otherwise it pans. */
+  const startGesture = (e: React.PointerEvent): void => {
+    const el = svgRef.current
+    if (!el) return
+    const from = { x: e.clientX, y: e.clientY, vx: view.current.x, vy: view.current.y }
+    el.setPointerCapture(e.pointerId)
+    const move = (m: PointerEvent): void => {
+      const held = drag.current
+      if (held) {
+        const p = toWorld(m)
+        // `hold` puts the node where the pointer is AND keeps the simulation awake (it raises
+        // alphaTarget), which is what tows the cluster: every spring on this node goes on
+        // pulling, and each neighbour follows with the lag its own velocity and friction give
+        // it. Setting the position alone would move one dot and leave the web behind.
+        layoutRef.current.hold(held.id, p.x + held.dx, p.y + held.dy)
+      } else {
+        view.current.x = from.vx + (m.clientX - from.x)
+        view.current.y = from.vy + (m.clientY - from.y)
+        paint()
+      }
+    }
+    const end = (): void => {
+      drag.current = null
+      // Let go: alphaTarget falls back to 0 and everything coasts to rest instead of stopping.
+      layoutRef.current.release()
+      el.removeEventListener('pointermove', move)
+      el.removeEventListener('pointerup', end)
+      el.removeEventListener('pointercancel', end)
+    }
+    el.addEventListener('pointermove', move)
+    el.addEventListener('pointerup', end)
+    el.addEventListener('pointercancel', end)
+  }
+
+  const onWheel = (e: React.WheelEvent): void => {
+    const r = svgRef.current?.getBoundingClientRect()
+    if (!r) return
+    const px = e.clientX - r.left
+    const py = e.clientY - r.top
+    const v = view.current
+    const next = Math.min(4, Math.max(0.2, v.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12)))
+    // Keep whatever is under the cursor under the cursor — the same rule the map's wheel handler
+    // follows, and the only zoom that does not feel like the picture jumping away from you.
+    v.x = px - ((px - v.x) / v.k) * next
+    v.y = py - ((py - v.y) / v.k) * next
+    v.k = next
+    paint()
+  }
+
+  /** Frame everything at whatever zoom fits: the way back after a drag has thrown the web off. */
+  const fit = (): void => {
+    const N = layoutRef.current.nodes
+    const host = hostRef.current
+    if (!N.length || !host) return
+    const x0 = Math.min(...N.map((n) => n.x))
+    const x1 = Math.max(...N.map((n) => n.x))
+    const y0 = Math.min(...N.map((n) => n.y))
+    const y1 = Math.max(...N.map((n) => n.y))
+    const pad = 90 // room for the names, which hang off the right of their node
+    const k = Math.min(
+      2,
+      Math.max(
+        0.2,
+        Math.min(host.clientWidth / (x1 - x0 + pad * 2), host.clientHeight / (y1 - y0 + pad * 2))
+      )
+    )
+    view.current = {
+      k,
+      x: host.clientWidth / 2 - ((x0 + x1) / 2) * k,
+      y: host.clientHeight / 2 - ((y0 + y1) / 2) * k
+    }
+    paint()
+  }
+
+  // The layout draws through whatever paint() is current and frames itself the FIRST time a
+  // fresh set of nodes comes to rest. Both are assigned after commit, never during render (see
+  // ForceLayout.draw), and this sits below fit() so it can simply call it.
+  useEffect(() => {
+    const g = layoutRef.current
+    g.draw = paint
+    g.settled = () => {
+      if (framed.current) return
+      framed.current = true
+      fit()
+    }
+  })
 
   const relColor = (rel: string): string => autoColor(rel || '—')
+  const nameOf = (id: number): string => web.nodes.find((n) => n.id === id)?.name ?? ''
 
   return (
     <div className="page wide">
@@ -90,9 +286,12 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
       {web.relations.length > 0 && (
         <div className="diplo-legend">
           {web.relations.map((rel) => (
-            <span
+            // A legend entry that filters the graph is a toggle, so it says so: a button with
+            // aria-pressed rather than a span you have to discover is clickable.
+            <button
               key={rel}
               className={`diplo-chip ${hidden.has(rel) ? 'off' : ''}`}
+              aria-pressed={!hidden.has(rel)}
               style={{ borderColor: relColor(rel) }}
               onClick={() =>
                 setHidden((prev) => {
@@ -105,49 +304,69 @@ export default function Diplomasi({ folders, onOpenEntity }: Props): React.JSX.E
             >
               <span className="dot" style={{ background: relColor(rel) }} />
               {rel}
-            </span>
+            </button>
           ))}
+          <span className="diplo-tools">
+            <IconButton icon="maximize" label={t('Fit to view')} small onClick={fit} />
+          </span>
         </div>
       )}
       {web.nodes.length > 0 && (
-        <svg className="diplo-svg" viewBox={`0 0 ${S} ${S}`}>
-          {web.edges
-            .filter((l) => !hidden.has(l.relation || '—'))
-            .map((l) => {
-              const a = pos.get(l.from_id)!
-              const b = pos.get(l.to_id)!
-              // Curve: the midpoint is pulled toward the center; the pull ratio varies
-              // deterministically by link id so parallel edges do not overlap
-              const k = 0.35 + ((l.id % 5) - 2) * 0.06
-              const qx = (a.x + b.x) / 2 + (cx - (a.x + b.x) / 2) * k
-              const qy = (a.y + b.y) / 2 + (cy - (a.y + b.y) / 2) * k
-              const from = ents.find((e) => e.id === l.from_id)?.name
-              const to = ents.find((e) => e.id === l.to_id)?.name
-              return (
+        <div className="diplo-host" ref={hostRef}>
+          <svg className="diplo-svg" ref={svgRef} onPointerDown={startGesture} onWheel={onWheel}>
+            <g ref={rootRef}>
+              {shown.map((l) => (
                 <path
                   key={l.id}
                   className="diplo-edge"
-                  d={`M ${a.x},${a.y} Q ${qx},${qy} ${b.x},${b.y}`}
+                  ref={(el) => {
+                    if (el) edgeEls.current.set(l.id, el)
+                    else edgeEls.current.delete(l.id)
+                  }}
                   stroke={relColor(l.relation)}
                 >
-                  <title>{`${from} — ${l.relation || '—'} → ${to}`}</title>
+                  <title>{`${nameOf(l.from_id)} — ${l.relation || '—'} → ${nameOf(l.to_id)}`}</title>
                 </path>
-              )
-            })}
-          {web.nodes.map((n) => {
-            const p = pos.get(n.id)!
-            const right = p.x >= cx // label outside the circle, aligned by direction
-            const lx = p.x + (right ? 14 : -14)
-            return (
-              <g key={n.id} className="diplo-node" onClick={() => onOpenEntity(n.id)}>
-                <circle cx={p.x} cy={p.y} r={8} fill={autoColor(n.name)} />
-                <text x={lx} y={p.y} textAnchor={right ? 'start' : 'end'}>
-                  {n.name}
-                </text>
-              </g>
-            )
-          })}
-        </svg>
+              ))}
+              {web.nodes.map((n, i) => (
+                <g
+                  key={n.id}
+                  className="diplo-node"
+                  ref={(el) => {
+                    if (el) nodeEls.current.set(n.id, el)
+                    else nodeEls.current.delete(n.id)
+                  }}
+                  onPointerDown={(e) => {
+                    const p = toWorld(e)
+                    const me = layoutRef.current.at(n.id)
+                    if (!me) return
+                    // Grab it where it was grabbed, so it does not jump to the cursor.
+                    drag.current = { id: n.id, dx: me.x - p.x, dy: me.y - p.y }
+                    startGesture(e)
+                  }}
+                  onClick={() => onOpenEntity(n.id)}
+                >
+                  {/* The GRAB target, invisible and sized in screen pixels rather than world
+                      ones: the visible dot is 8 units across, so zoomed out to a quarter it is
+                      two pixels and there is nothing left to take hold of. Its radius is
+                      rewritten with the zoom (see paint), which keeps it the same size under the
+                      cursor at every scale. It is first so it sits UNDER the dot and the name. */}
+                  <circle className="diplo-hit" r={NODE_R} />
+                  {/* The drift lives on an INNER group: the outer one carries the position the
+                      simulation writes, and a CSS animation on the same element would overwrite
+                      it. CSS rather than more physics, so a settled graph costs no frames — and
+                      so prefers-reduced-motion switches it off along with everything else. */}
+                  <g className="diplo-bob" style={{ animationDelay: `${(i % 7) * 0.7}s` }}>
+                    <circle r={NODE_R} fill={autoColor(n.name)} />
+                    <text x={NODE_R + 6} y={4}>
+                      {n.name}
+                    </text>
+                  </g>
+                </g>
+              ))}
+            </g>
+          </svg>
+        </div>
       )}
     </div>
   )

@@ -9,7 +9,15 @@ export interface UiPrefs {
   sidebarWidth?: number
   mapPanelWidth?: number
   debugLog?: boolean
+  /** Interface scale as a percent; main applies it to the window (see applyUiScale). */
+  uiScale?: number
 }
+
+/** The rungs the scale moves in — the same list main steps through for Zoom In/Out, repeated
+    here because main cannot import the renderer and the renderer cannot import main. If one
+    changes, change both; a mismatch shows up as a dropdown that cannot display the value the
+    keyboard just set. */
+export const UI_SCALES = [75, 90, 100, 110, 125, 150, 175, 200]
 
 export interface EntityRow {
   id: number

@@ -11,6 +11,7 @@ import {
 } from './api'
 import Icon from './icons'
 import { useT } from './i18n'
+import { IconButton } from './ui'
 
 // Dynasty tree (CK3 house-tree style): no separate data structure — derived from the
 // 'mother'/'father'/'spouse' links between person entities. Climb to the founder preferring
@@ -238,9 +239,7 @@ export default function FamilyTree({ rootId, onOpenEntity, onClose }: Props): Re
           <b>
             <Icon name="family-tree" size={15} /> {t('Family tree')} — {names.get(centerId) ?? ''}
           </b>
-          <button className="mini" onClick={onClose}>
-            ×
-          </button>
+          <IconButton icon="x" label={t('Close')} small onClick={onClose} />
         </div>
         <div className="tree-scroll">
           <ul className="tree">{renderNode(treeRoot, new Set())}</ul>

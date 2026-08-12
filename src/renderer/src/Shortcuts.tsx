@@ -16,6 +16,8 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['Ctrl+O', 'Open world'],
       ['Ctrl+Z / Ctrl+Y', 'Undo / Redo'],
       ['Alt+← / Alt+→', 'Back / Forward in history'],
+      ['Ctrl++ / Ctrl+-', 'Make the interface bigger / smaller'],
+      ['Ctrl+0', 'Interface back to 100%'],
       ['F1', 'This page'],
       ['Del', 'Delete selected entries (in the list)']
     ]
@@ -27,7 +29,9 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['Alt+click', 'Select what is underneath (repeat to go further down)'],
       ['Ctrl+click', 'Add/remove from selection (edits apply to all)'],
       ['Del / Backspace', 'Delete selected drawings'],
-      ['Esc', 'Cancel conquest / measure / route session']
+      // One row, not two: Escape does the innermost of these that is running. A second row under
+      // the same key would read as two different bindings.
+      ['Esc', 'Leave the active tool; cancel a conquest / measure / route session']
     ]
   },
   {
@@ -66,8 +70,14 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
 export default function Shortcuts(): React.JSX.Element {
   const t = useT()
   return (
-    <div className="page">
-      <h2 className="page-title">{t('Shortcuts')}</h2>
+    /* `wide`, like the Overview pages: .page's 900px cap is a MEASURE cap for reading, and this
+       page is a table. It also made .sc-grid's own 1100px cap unreachable, so the "as many
+       columns as the window gives us" comment below described a grid that could never be more
+       than two. */
+    <div className="page wide">
+      <div className="page-head">
+        <h2 className="page-title">{t('Shortcuts')}</h2>
+      </div>
       {/* A card per group, laid out in as many columns as the window allows. The whole page used
           to be one narrow stack of 3px table rows: nothing separated a group from the next, and a
           full-width window put a single column of pairs against a metre of empty space. */}

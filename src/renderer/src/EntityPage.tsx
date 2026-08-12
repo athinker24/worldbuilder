@@ -465,17 +465,20 @@ export default function EntityPage({
   }
 
   // One family row: existing ties as chips + an add form (unless a singular slot is filled)
-  // 🎲 random-name buttons next to a person input. `put` fills a controlled input; without it
+  // Random-name buttons next to a person input. `put` fills a controlled input; without it
   // the name goes straight into the sibling <input name="name"> of the same form.
-  // gen null = gender unknown here, so offer both.
+  // gen null = gender unknown here, so offer both — and then the two buttons are identical
+  // except for which name they make, so the gender is the one thing the glyph has to carry.
+  // It does it in colour, with the same two tokens the family tree's badges use.
   const dice = (gen: 'M' | 'F' | null, put?: (n: string) => void): React.JSX.Element => (
     <>
       {(gen ? [gen] : (['M', 'F'] as const)).map((g) => (
         <button
           key={g}
           type="button"
-          className="mini"
-          title={g === 'F' ? t('🎲 Random female name') : t('🎲 Random male name')}
+          className={`mini dice-${g === 'F' ? 'f' : 'm'}`}
+          title={g === 'F' ? t('Random female name') : t('Random male name')}
+          aria-label={g === 'F' ? t('Random female name') : t('Random male name')}
           onClick={(e) => {
             const nm = randomName(g)
             if (put) put(nm)
@@ -485,7 +488,7 @@ export default function EntityPage({
             }
           }}
         >
-          {g === 'F' ? '🎲♀' : '🎲♂'}
+          <Icon name="dice" size={13} />
         </button>
       ))}
     </>
@@ -649,7 +652,8 @@ export default function EntityPage({
     const found = await api.findEntityByName(name)
     if (found) {
       onOpen(found.id)
-    } else if (await confirmDialog(t('No entry named "{name}". Create it?', { name }))) {
+      // The one confirmation in the app that CREATES rather than destroys — see confirmDialog.
+    } else if (await confirmDialog(t('No entry named "{name}". Create it?', { name }), false)) {
       const { id: newId } = await api.createEntity({ name })
       onChanged()
       onOpen(newId)
@@ -1227,8 +1231,9 @@ export default function EntityPage({
                   ? t('always')
                   : `${s.from ?? '…'} – ${s.to ?? '…'}`
               return (
+                /* A place you can GO, not a tag on this entry — it takes you to another map. */
                 <button
-                  className="tag-chip clickable"
+                  className="mini"
                   key={f.id}
                   title={t('Show on map')}
                   onClick={() => onLocateFeature(f.map_id, f.id)}

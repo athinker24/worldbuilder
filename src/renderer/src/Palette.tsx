@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, EntityRow, FolderDef, folderColor, MapRow } from './api'
 import { useT } from './i18n'
 
@@ -33,6 +33,14 @@ export default function Palette({
   const [query, setQuery] = useState('')
   const [sel, setSel] = useState(0)
   const t = useT()
+
+  // The list is 45vh tall and the arrow keys were happily selecting rows below it — the cursor
+  // moved, the view did not, and the selection was simply gone. `nearest` so a visible row is
+  // never scrolled for nothing.
+  const selRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    selRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [sel])
 
   // Full text: content/note hits (light debounce before the IPC call)
   const [contentHits, setContentHits] = useState<
@@ -126,9 +134,15 @@ export default function Palette({
           }}
         />
         <div className="palette-list">
+          {items.length === 0 && <p className="hint">{t('Nothing matches.')}</p>}
           {items.map((it, i) => (
-            <div
+            // A button, not a div: the arrow keys already worked here because the INPUT owns
+            // them, but every result was unreachable by Tab and unusable by a screen reader —
+            // and the stylesheet has carried a .palette-item:focus-visible rule that could
+            // never fire. `sel` stays the keyboard cursor; focus follows the mouse only.
+            <button
               key={it.key}
+              ref={i === sel ? selRef : null}
               className={`palette-item ${i === sel ? 'selected' : ''}`}
               onClick={() => pick(it)}
               onMouseEnter={() => setSel(i)}
@@ -139,7 +153,7 @@ export default function Palette({
                 {it.sub && <span className="palette-sub">{it.sub}</span>}
               </span>
               <span className="palette-badge">{it.badge}</span>
-            </div>
+            </button>
           ))}
         </div>
       </div>

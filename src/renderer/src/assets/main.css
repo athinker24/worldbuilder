@@ -65,11 +65,23 @@
      Warm gold = the WORLD's own content (rulers, eras, year marks, templates) —
      the family tree already used gold for rulers; this formalises that.
      Neither ever paints user data: that stays autoColor(), theme-exempt. */
-  --accent: #3ec4ad; /* active/selected text and icons */
-  --accent-soft: rgba(62, 196, 173, 0.14); /* active/selected backgrounds */
-  --accent-strong: #3ec4ad; /* the one high-emphasis fill per view */
-  --accent-contrast: #08201c; /* text ON --accent-strong */
+  /* Toned down for the dark themes, and it no longer paints a BUTTON at all.
+
+     As text and icons the teal was not wrong, it was hot: 7.73:1 against the workspace and
+     6.21:1 on a popover, past what a UI accent needs. It is 6.29:1 / 5.06:1 now — a 21% cut in
+     luminance (0.435 → 0.345), still clear of 4.5:1 on every surface it lands on, and
+     --surface-float is the one that binds, not the workspace.
+
+     What it is NOT for: the emphasised button. Five attempts went through bright teal, deep
+     teal, two greys and a teal tint, and the honest conclusion is that the accent works at glyph
+     scale and stops working at button scale — the same colour that means "this is active" in a
+     12px chevron is a lamp across 120px of surface. Emphasis is elevation and weight now (see
+     button.primary), and the accent keeps the job it is good at. */
+  --accent: #3ab0a0; /* active/selected text and icons */
+  --accent-soft: rgba(58, 176, 160, 0.14); /* active/selected backgrounds */
+  --accent-ink: #08201c; /* text ON a solid --accent — 6.40:1 (white on it would be 2.66:1) */
   --danger: #e06c75;
+  --danger-contrast: #08201c; /* text ON a --danger fill — 5.33:1; white would be 3.20:1 */
   --danger-soft: rgba(224, 108, 117, 0.14);
   --male: #5b8fd6;
   --female: #d67ba8;
@@ -192,9 +204,13 @@
      Now 3.33:1 and 4.51:1 — where they were before the ramp moved. */
   --accent: #0c8b80;
   --accent-soft: rgba(12, 139, 128, 0.13);
-  --accent-strong: #0c8b80;
-  --accent-contrast: #ffffff;
+  /* The light theme's accent is DARK, so a solid one wants white on it — 4.18:1, and the reason
+     this is a token per theme rather than one shared value. */
+  --accent-ink: #ffffff;
   --danger: #b63b45;
+  /* The light theme's danger is a DARK red, so here the two contrasts agree — the token exists
+     because the dark theme's does not, not because this one needed splitting. 5.67:1. */
+  --danger-contrast: #ffffff;
   --danger-soft: rgba(182, 59, 69, 0.13);
   --male: #3c6cb4;
   --female: #b85583;
@@ -357,7 +373,6 @@ h4 {
   border-radius: 0;
   background: var(--bg2);
   color: var(--muted);
-  font-size: 11px;
   cursor: pointer;
 }
 
@@ -446,11 +461,20 @@ h4 {
 .side-folder:hover {
   background: var(--surface-hover);
 }
+/* The same caret the Section primitive uses: one glyph, TURNED, rather than two
+   glyphs swapped — which is also why it can carry a transition at all. */
 .tree-caret {
   width: 12px;
   flex: 0 0 auto;
-  color: var(--muted);
-  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  transition: transform var(--dur) var(--ease-out);
+}
+
+.tree-caret.open {
+  transform: rotate(90deg);
 }
 /* the folder's color swatch (replaces the old entity-type color) */
 /* Both classes are on the same button, so this must out-specify .cp-trigger's --h-md
@@ -578,6 +602,26 @@ h4 {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* The label of a row is the row's keyboard target (see App's renderEntityRow), so it is a real
+   button and has to stop looking like one: no box, no height of its own, the row's own text. */
+button.side-label {
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-s);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  display: block;
+}
+
+button.side-label:hover {
+  background: none;
+  border-color: transparent;
 }
 
 /* Row actions live in a fixed slot so revealing them never shifts the label. */
@@ -732,11 +776,24 @@ h4 {
   justify-self: center;
 }
 
+/* Same as .atlas-name.clickable: a button that has to keep looking like the sentence it is. */
 .kron-text.clickable {
   cursor: pointer;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  display: block;
 }
 
-.kron-text.clickable:hover {
+.kron-text.clickable:hover,
+.kron-text.clickable:focus-visible {
+  background: none;
+  border-color: transparent;
   color: var(--accent);
 }
 
@@ -758,7 +815,16 @@ h4 {
 }
 
 .atlas-map {
-  margin-bottom: 22px;
+  margin-bottom: var(--sp-6);
+}
+
+.atlas-map h3 {
+  margin-bottom: var(--sp-1);
+}
+
+/* The measurement under the map's name: a fact about it, not part of the heading. */
+.atlas-total {
+  margin: 0 0 var(--sp-3);
 }
 
 .atlas-map h3 {
@@ -810,11 +876,23 @@ h4 {
   white-space: nowrap;
 }
 
+/* The clickable variant is a real button (see Atlas), so the shared control box is undone and
+   what is left is the pointer and the hover colour — what the row looked like all along. */
 .atlas-name.clickable {
   cursor: pointer;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 
-.atlas-name.clickable:hover {
+.atlas-name.clickable:hover,
+.atlas-name.clickable:focus-visible {
+  background: none;
+  border-color: transparent;
   color: var(--accent);
 }
 
@@ -842,20 +920,36 @@ h4 {
 .diplo-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 10px;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-2);
 }
 
+/* Pushed to the far end: the legend on the left says what the colours mean, this is what you do
+   to the view. */
+.diplo-tools {
+  margin-left: auto;
+}
+
+/* A button, so it keeps its own border colour (set inline per relation) and takes nothing from
+   the shared control styling. */
 .diplo-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  min-height: 0;
   padding: 2px 10px;
+  background: none;
   border: 1px solid;
   border-radius: 12px;
+  color: var(--text);
   font-size: 12px;
   cursor: pointer;
   user-select: none;
+}
+
+.diplo-chip:hover {
+  background: var(--surface-hover);
 }
 
 .diplo-chip.off {
@@ -865,11 +959,30 @@ h4 {
 /* The web is a circle, so it wants the largest SQUARE that fits — growing it wider than
    tall would only add empty margins left and right. Bounded by the viewport height so the
    diagram never runs off the bottom, and centred in whatever width is left over. */
+/* The graph is a VIEWPORT now, not a picture: it fills the space it is given and the contents
+   are panned and zoomed inside it, the way the map does. Its own surface, one step below the
+   page, so the edge of the canvas is visible and a node dragged to the rim has somewhere to be. */
+.diplo-host {
+  position: relative;
+  height: calc(100vh - 230px);
+  min-height: 320px;
+  background: var(--surface-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-m);
+  overflow: hidden;
+}
+
 .diplo-svg {
   width: 100%;
-  max-width: min(100%, calc(100vh - 210px));
-  margin-inline: auto;
+  height: 100%;
   display: block;
+  cursor: grab;
+  /* The browser's own pan/zoom must not eat the gestures this handles itself. */
+  touch-action: none;
+}
+
+.diplo-svg:active {
+  cursor: grabbing;
 }
 
 .diplo-edge {
@@ -884,17 +997,61 @@ h4 {
 }
 
 .diplo-node {
-  cursor: pointer;
+  cursor: grab;
+}
+
+/* The grab target: invisible, and wider than the dot. Its radius is rewritten with the zoom so
+   it stays the same size under the cursor however far out the view is — a node drawn two pixels
+   across is still something you can take hold of. */
+.diplo-hit {
+  fill: transparent;
+}
+
+/* Zoomed far enough out that a name is a smudge: drop the text and keep the shape of the web,
+   which is what you are looking at from out there. The map's labels have the same rule. */
+.diplo-host.far .diplo-node text {
+  display: none;
 }
 
 .diplo-node text {
   fill: var(--text);
   font-size: 13px;
   dominant-baseline: central;
+  /* The name must not swallow the grab: you take hold of the node, not the word beside it.
+     The halo is what keeps a name readable where it crosses an edge behind it. */
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--surface-canvas);
+  stroke-width: 3px;
 }
 
 .diplo-node:hover text {
   fill: var(--accent);
+}
+
+.diplo-node circle {
+  transition: r var(--dur-fast) var(--ease-out);
+}
+
+.diplo-node:hover circle {
+  r: 11;
+}
+
+/* The idle drift — what a settled graph does instead of nothing.
+   A CSS animation rather than more physics, so a graph that has found its shape costs no frames
+   at all: the simulation stops the moment it is cool (see graphLayout) and this keeps the
+   picture alive for the price of a compositor transform. Small on purpose — a few pixels over
+   eight seconds is movement you notice only when you are not looking at it. The delay is
+   staggered by index so the whole web does not breathe in unison, which would read as a wobble
+   rather than as life. prefers-reduced-motion switches it off with everything else. */
+@keyframes diplo-drift {
+  50% {
+    transform: translate(2px, -3px);
+  }
+}
+
+.diplo-bob {
+  animation: diplo-drift 8s ease-in-out infinite;
 }
 
 /* --- main area --- */
@@ -1069,12 +1226,13 @@ kbd {
 }
 .start-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
 }
-.start-actions button {
-  flex: 1;
-  padding: 10px;
-}
+
+/* Natural width, not stretched: `flex: 1` was written for the two buttons this row used to hold,
+   and with one left it made a 520px-wide bar out of the primary. The height that replaced its
+   bespoke 10px of padding moved onto button.primary, where it reaches both of the screens this
+   button appears on instead of only this one. */
 .recent-list {
   list-style: none;
   margin: 0;
@@ -1119,7 +1277,7 @@ kbd {
 }
 
 .page {
-  padding: 16px 24px;
+  padding: var(--sp-5) var(--sp-6);
   overflow-y: auto;
   overflow-x: hidden; /* clip horizontal overflow rather than showing a scrollbar, including embedded pages */
   flex: 1;
@@ -1143,8 +1301,36 @@ kbd {
 }
 
 .page.compact {
-  padding: 8px;
+  padding: var(--sp-2);
   max-width: none;
+}
+
+/* --- room to read ---------------------------------------------------------------------------
+   A workspace page and a 380px docked panel are not the same problem, and until now they shared
+   one set of numbers — which meant the panel's density, chosen because it has no room, was also
+   what Preferences and Project Preferences got on a 900px column. Sections sat 4px apart, rows
+   4px apart, headings 12px above their content: readable, but nothing had any air and every
+   screen read as one continuous list.
+
+   So the loosening is scoped to the page and never reaches the inspector (`.compact`), where the
+   tightness is deliberate. Nothing here changes a font or a colour — only the space between. */
+.page:not(.compact) .section-head {
+  padding: var(--sp-5) 0 var(--sp-2);
+}
+
+.page:not(.compact) .section-body {
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-4);
+}
+
+.page:not(.compact) .field-row {
+  margin-bottom: var(--sp-2);
+}
+
+/* A hint explains the control under it, so it belongs to what follows rather than floating
+   equidistant between two groups. */
+.page:not(.compact) .section-body > .hint {
+  margin: 0 0 var(--sp-1);
 }
 
 /* Data views, not prose. The 900px cap above is a MEASURE cap — right for reading pages
@@ -1173,6 +1359,37 @@ kbd {
 .hint {
   color: var(--muted);
   font-size: 13px;
+}
+
+/* A rank in a ladder, which can be dragged to reorder. The grip is what says so — hover-revealed
+   like every other row action in this app, because a live handle on every row of a settings page
+   reads as clutter, and the row is draggable from anywhere on it anyway. */
+.ladder-row {
+  border-radius: var(--r-s);
+  cursor: grab;
+}
+
+.ladder-grip {
+  display: flex;
+  align-items: center;
+  color: var(--text-faint);
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+}
+
+.ladder-row:hover .ladder-grip {
+  opacity: 1;
+}
+
+.ladder-row.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+/* Where it would land. A line rather than a highlight: the drop is BETWEEN ranks, and a filled
+   row would say it is going to replace the one under the cursor. */
+.ladder-row.over {
+  box-shadow: inset 0 2px 0 var(--accent);
 }
 
 /* --- fields and rows --- */
@@ -1577,7 +1794,6 @@ kbd {
   height: 15px;
   padding: 0;
   line-height: 1;
-  font-size: 11px;
   border-radius: 50%;
   background: var(--bg2);
   border: 1px solid var(--border);
@@ -1592,9 +1808,11 @@ kbd {
   color: var(--danger);
   border-color: var(--danger);
 }
+/* Out of the grid and onto its own line: it is an action, not a picture. Left-aligned rather
+   than stretched, because the button is as wide as its own label and the strip above it is the
+   full width — a full-bleed button would read as a seventh cell all over again. */
 .pin-upload {
-  font-size: 18px;
-  color: var(--muted);
+  align-self: flex-start;
 }
 
 /* Free-text label: color and rotation are inline per feature; font scales with zoom. */
@@ -1801,6 +2019,17 @@ kbd {
 }
 
 .tree-chip.female .gender-badge {
+  color: var(--female);
+}
+
+/* The two random-name buttons are the same control twice over — same icon, same job — and the
+   only thing between them is which name comes out, so the glyph carries the gender in colour.
+   The same two tokens the family tree's badges use, so one thing means one thing. */
+.dice-m {
+  color: var(--male);
+}
+
+.dice-f {
   color: var(--female);
 }
 
@@ -2162,18 +2391,49 @@ button.mini {
   font-size: var(--fs-2);
 }
 
-/* The one high-emphasis fill per view. */
+/* The one high-emphasis action per view.
+ *
+ * RELATIVE TO ITS BACKDROP, and that is the whole idea — four earlier attempts each picked a
+ * fixed colour (bright teal, deep teal, two greys, a teal tint) and every one of them was right
+ * in one of the two places this button appears and wrong in the other. That was the actual bug,
+ * not the values: `Open…` sits on --surface while `Add base image` sits inside a --surface-float
+ * card, so any absolute fill is a different distance from its background in each.
+ *
+ * So it is made of the same translucent material as every other button, one notch up in each
+ * dimension — which is the reason the ordinary controls are translucent in the first place (see
+ * the form-elements block). Measured, the relationship is identical on both: an ordinary button
+ * is 1.15:1 above its backdrop and this is 1.30:1 above the same backdrop and 1.13:1 above an
+ * ordinary button, on the page AND in the float card. In L* that is a step of ~4.2, which is the
+ * surface ramp's own step size — the button is one elevation above whatever it is standing on,
+ * wherever that is.
+ *
+ * Brightness is not what makes it read, because brightness is what glared every previous time.
+ * Four quiet signals do: the step up, a firmer edge (--border-strong where the others wear
+ * --border-subtle), a semibold label, and --shadow-1 — the only one of the four that costs no
+ * light at all. Flat buttons and one raised one; that is a hierarchy you see before you read. */
 button.primary {
-  background: var(--accent-strong);
-  border-color: transparent;
-  color: var(--accent-contrast);
+  /* SIZE is the fifth signal and the only one that costs nothing at all — not light, not
+     colour, not contrast. It belongs on the class rather than on one screen: the emphasised
+     action is the same size wherever it is, and it was --h-md on the map card, i.e. the height
+     of any toolbar button. */
+  min-height: var(--h-lg);
+  padding: 0 var(--sp-4);
+  background: var(--surface-active);
+  border-color: var(--border-strong);
+  color: var(--text);
   font-weight: 600;
+  box-shadow: var(--shadow-1);
 }
 
 button.primary:hover {
-  background: var(--accent-strong);
-  border-color: transparent;
-  filter: brightness(1.08);
+  background: var(--surface-active);
+  border-color: var(--text-faint);
+  box-shadow: var(--shadow-2);
+}
+
+/* Pressed: the shadow goes, so the button sits back down onto the surface. */
+button.primary:active {
+  box-shadow: none;
 }
 
 button.danger:hover {
@@ -2220,14 +2480,21 @@ a {
   overflow-y: auto;
 }
 
+/* A button now, so the shared control styling is undone: a result is a row, not a box. */
 .palette-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  justify-content: flex-start;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 0;
+  padding: 6px var(--sp-2);
+  background: none;
+  border: 1px solid transparent;
   border-radius: var(--r-s);
+  text-align: left;
   cursor: pointer;
-  transition: background-color 0.1s;
+  transition: background-color var(--dur-fast);
 }
 
 .palette-item.selected {
@@ -2265,9 +2532,25 @@ a {
 /* No `gap` — the two-gap rhythm up by .panel-block is what spaces this, and a
    gap underneath it would add to every one of those margins. */
 .tool-settings {
-  padding: 12px;
+  padding: var(--sp-3);
   display: flex;
   flex-direction: column;
+}
+
+/* Whose settings these are. It reads as a panel header rather than a caption, so it takes the
+   .panel-title treatment the inspector's groups already use, with the tool's own glyph beside
+   it — the same icon that is lit on the toolbar 62px away. */
+.tool-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-faint);
+}
+
+.tool-head .panel-title {
+  margin-bottom: 0;
 }
 
 /* --- select (our own; see Select.tsx for why the native popup had to go) --- */
@@ -2559,7 +2842,7 @@ a {
   align-items: center;
   gap: 10px;
   background: var(--surface-float);
-  border-radius: 20px;
+  border-radius: var(--r-m);
   padding: 6px 14px;
   box-shadow: var(--shadow-2);
 }
@@ -2584,7 +2867,9 @@ a {
   padding: 0 var(--sp-3);
   background: var(--surface-float);
   border-color: transparent;
-  border-radius: 16px;
+  /* The same radius as the panel this opens into: a collapsed panel and its open state are one
+     object, and 16px against the strip's 6px meant the corner changed shape on the way out. */
+  border-radius: var(--r-m);
   box-shadow: var(--shadow-2);
 }
 
@@ -2831,11 +3116,11 @@ a {
   min-width: 0;
 }
 
-.measure-btns {
-  display: flex;
-  gap: 4px;
-}
-.measure-btns .mini.active,
+/* What is left of this rule is ONE button: the routing session's start/clear toggle, whose label
+   changes with its state. The pairs it used to serve — Badge/Free, Distance/Area — are Segmented
+   now, which says "one of these" in the control itself instead of in a class name.
+   Gold, not the accent, because a running measurement is the WORLD being measured rather than
+   the application talking. */
 .tool-settings .mini.active {
   border-color: var(--gold);
   color: var(--gold);
@@ -3000,23 +3285,17 @@ a {
   align-items: center;
 }
 
-.hier-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 8px;
-}
-
 .hier-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.hier-modes {
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
+/* The paint dimensions are a different question from the ranks above them, and a hairline says
+   so without spending a heading on it — which is what this panel had originally. */
+.hier-paint {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--sp-2);
 }
 
 .hier-list {
@@ -3025,15 +3304,10 @@ a {
   padding-top: 6px;
 }
 
-/* --- hierarchy tag chips (entity page + panel) --- */
-.tag-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
+/* --- tag chips: DATA, and only data now (an entry's ranks, its folder, a relation).
+   Every chip that was standing in for a tab, a mode, a filter or an action has moved to the
+   control that says what it is — see Tabs, Segmented, and the checkbox rows in the layers
+   panel. What is left is the one job the shape was right for. --- */
 .tag-chip {
   display: inline-flex;
   align-items: center;
@@ -3075,11 +3349,14 @@ a {
   color: var(--danger);
 }
 
-/* Timeline ±10/±100 jump buttons: narrow with small text. */
+/* Timeline ±10/±100 jump buttons: narrow, and tight rather than SMALL. 10px was the smallest
+   type in the app and off the scale entirely (--fs-1 is 12); the width was the real constraint,
+   so the tracking does that work and the size rejoins the scale. */
 .step-jump {
-  font-size: 10px;
-  padding: 2px 4px;
-  letter-spacing: -0.03em;
+  font-size: var(--fs-1);
+  padding: 2px var(--sp-1);
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Layer menu: labeled toolbar button → popover panel (LinearHistory pattern). */
@@ -3101,12 +3378,6 @@ a {
 
 .map-search .layers-panel {
   cursor: default;
-}
-
-/* Katman panelindeki pin tipi filtre chip'leri */
-.pin-type-row {
-  padding: 0 8px 6px;
-  margin-bottom: 0;
 }
 
 /* Maps popover: inline name editing and new-map form. */
@@ -3182,6 +3453,13 @@ a {
   cursor: pointer;
 }
 
+/* Something is hidden on the map. The one state on this toolbar worth noticing without looking
+   for it, so it is the one that takes the accent — a ratio in a badge ("3/4") could not say it. */
+.layers-btn.filtered {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .layers-btn:hover,
 .layers-btn.open {
   border-color: var(--accent);
@@ -3226,14 +3504,29 @@ a {
   padding: 4px 8px 6px;
 }
 
+/* A row is a <label> around a checkbox, a <button> (map search results), or a <div> holding
+   several buttons (the board list) — so the control reset lives here rather than in three
+   places, and the row looks the same whichever of the three it is. */
 .layers-row {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 10px;
+  width: 100%;
+  min-height: 0;
   padding: 7px 8px;
+  background: none;
+  border: 1px solid transparent;
   border-radius: var(--r-s);
+  color: var(--text);
+  text-align: left;
   cursor: pointer;
-  transition: background-color 0.1s;
+  transition: background-color var(--dur-fast);
+}
+
+.layers-row:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
 }
 
 .layers-row:hover {
@@ -3263,6 +3556,28 @@ a {
 .layers-name {
   font-size: 13px;
   color: var(--text);
+}
+
+/* The board name is the switch. Flat like the row it sits in; the active one keeps the accent
+   it already had, moved out of an inline style into the class where it belongs. */
+.board-pick {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  text-align: left;
+}
+
+.board-pick:hover {
+  background: none;
+  border-color: transparent;
+  color: var(--accent);
+}
+
+.board-pick.on {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .layers-desc {
@@ -3325,25 +3640,58 @@ a {
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
+/* The confirming button of a DESTRUCTIVE dialog is filled, not merely red on hover.
+   `button.danger` is deliberately neutral at rest everywhere else — a live red × on every row
+   reads as an invitation to delete things, which is the same rule .row-action follows — but in a
+   dialog that button IS the view's one action, and left at rest it was indistinguishable from
+   Cancel. Scoped here rather than changed globally so the hover-only rule keeps holding in the
+   lists. It is the ONLY filled button left in the app, and that is the point of it: this is the
+   one moment where a colour across a whole button is the message. It needs its own ink — the
+   dark theme's danger is a LIGHT red wanting dark ink at 5.33:1, where white on it would be
+   3.20:1. 5.67:1 in the light theme. */
+.dialog-actions .danger {
+  background: var(--danger);
+  border-color: transparent;
+  color: var(--danger-contrast);
+  font-weight: 600;
+}
+
+.dialog-actions .danger:hover {
+  background: var(--danger);
+  border-color: transparent;
+  color: var(--danger-contrast);
+  filter: brightness(1.08);
+}
+
+/* A button now (see ContextMenu), so the shared button styling has to be undone: a menu item is
+   a row, not a control with a box of its own. */
 .ctx-item {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: var(--sp-2);
+  width: 100%;
+  min-height: 0;
   color: var(--text-muted);
   padding: 6px 10px;
+  background: none;
+  border: 1px solid transparent;
   border-radius: var(--r-s);
   cursor: pointer;
+  text-align: left;
   white-space: nowrap;
   transition:
-    background-color 0.1s,
-    color 0.1s;
+    background-color var(--dur-fast),
+    color var(--dur-fast);
 }
 
-.ctx-item:hover {
+.ctx-item:hover,
+.ctx-item:focus-visible {
   background: var(--surface-hover);
+  border-color: transparent;
   color: var(--text);
 }
 
@@ -3456,6 +3804,113 @@ a {
 
 .tab.active::after {
   transform: scaleX(1);
+}
+
+/* A tab strip with an action that belongs to the OPEN tab beside it — deleting a government
+   form or a template. The × used to ride on each chip, which put "switch to this" and "destroy
+   this and everything under it" a few pixels apart on the same object. */
+.tabs-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+}
+
+/* WRAPS, and deliberately does not scroll. `overflow-x: auto` here bought a vertical scrollbar
+   for free: once one axis is not `visible` the other computes to `auto` too, and .tab::after
+   sits at bottom:-1px, so the underline overflowed the box and something had to scroll to reach
+   it. On a settings page a second row of tabs is also simply better than a hidden first one. */
+.tabs-row .tabs {
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.tabs-row .icon-btn {
+  flex: none;
+  margin-bottom: var(--sp-1);
+}
+
+/* --- segmented: mutually exclusive view modes in one track ---------------------------------
+   The visual argument against chips, made in CSS: a chip is a free-standing rounded object, so a
+   row of them reads as a list of THINGS. These share a track and touch each other, which reads as
+   one control with several positions — which is what they are. Wrapping is expected (a ladder can
+   be five ranks in a 260px panel) and the track wraps with them. */
+.seg-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.seg-label {
+  color: var(--text-faint);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  background: var(--control);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-m);
+}
+
+.seg-item {
+  flex: 1 1 auto;
+  min-height: var(--h-sm);
+  padding: 0 var(--sp-2);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-s);
+  color: var(--text-muted);
+  font-size: var(--fs-2);
+}
+
+.seg-item:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
+  color: var(--text);
+}
+
+/* The pressed one is the app's "active" language, the same the sidebar's current workspace and
+   the pressed tool button wear — at glyph scale, where the accent works. */
+.seg-item.on {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* The loose variant: pills in a wrapping row, no track around them.
+   This is the layout the hierarchy panel had before any of this and it was right — a ladder is
+   read left to right and a 260px panel has no width for a boxed grid. What was wrong with it was
+   the PILL, not the row: every chip carried a full border at rest, so a row of five outlined
+   boxes shouted before you had chosen anything. Here only the pressed one is filled and the rest
+   are quiet surfaces, which is what makes a row of them calm. */
+.seg.flow {
+  background: none;
+  border: none;
+  padding: 0;
+  gap: var(--sp-1);
+}
+
+.seg.flow .seg-item {
+  flex: 0 0 auto;
+  background: var(--control);
+  border-radius: 999px;
+  padding: 0 var(--sp-3);
+}
+
+.seg.flow .seg-item:hover {
+  background: var(--control-hover);
+}
+
+.seg.flow .seg-item.on {
+  background: var(--accent-soft);
 }
 
 /* --- section: a labelled group. Does the job a border used to do — heading,
@@ -3970,6 +4425,34 @@ a {
   background: var(--surface-float);
   border-radius: var(--r-l);
   box-shadow: var(--shadow-2);
+}
+
+/* The one place the emphasised button stands INSIDE a float, and the only place in the app that
+   fills a control with the accent.
+ *
+ * Both halves of that are deliberate. The card already carries --shadow-2, so the button's own
+ * --shadow-1 read as part of the card rather than as the button lifting off it — hence one step
+ * up, the same relative rule its fill follows elsewhere.
+ *
+ * And grey does not carry HERE, which is what makes this different from the start screen rather
+ * than an exception to it: that screen is quiet and a button one elevation up is the loudest
+ * thing on it, while this card floats over a whole map — terrain, borders, labels — where the
+ * same button is one more grey rectangle among them. The screen decides how much a signal is
+ * worth. Colour is the signal a busy backdrop cannot swallow, and at 32px it is a button rather
+ * than the 520px bar that made the accent unusable when this was tried globally.
+ *
+ * 5.06:1 against the card, ink at 6.40:1 (4.73:1 / 4.18:1 in the other two themes). */
+.map-empty .primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-ink);
+  box-shadow: var(--shadow-2);
+}
+
+.map-empty .primary:hover {
+  background: var(--accent);
+  border-color: transparent;
+  filter: brightness(1.1);
 }
 
 /* Error screen: the stack is collapsed by default (see ErrorBoundary for why) but must not

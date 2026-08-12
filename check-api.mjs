@@ -222,5 +222,89 @@ for (const [label, fn] of pure) {
   }
 }
 
+// --- the relations graph's force layout -----------------------------------------------------
+// Pure arithmetic in a module of its own (that is WHY it is in a module — see graphLayout.ts),
+// so it can be exercised with nothing but a stub for requestAnimationFrame. Four properties,
+// each one a way it could be wrong without ever throwing:
+//   · every position stays finite — one NaN spreads to the whole graph in a single pass
+//   · repulsion actually separates: the closest pair ends up further apart than a node is wide
+//   · the same world lays out the same way twice (the seed and the tie-break are by INDEX)
+//   · an empty graph and a single node do not divide by zero
+globalThis.requestAnimationFrame = () => 0
+globalThis.cancelAnimationFrame = () => {}
+const { ForceLayout } = await import('./src/renderer/src/graphLayout.ts')
+const settle = (ids, edges) => {
+  const g = new ForceLayout()
+  g.seed(ids, edges, 900, 600)
+  g.heat(1)
+  for (let i = 0; i < 600; i++) g.tick()
+  return g.nodes
+}
+const ids = Array.from({ length: 24 }, (_, i) => i + 1)
+const chain = ids.slice(1).map((id, i) => ({ from: ids[i], to: id }))
+const a = settle(ids, chain)
+const b = settle(ids, chain)
+let closest = Infinity
+for (let i = 0; i < a.length; i++)
+  for (let j = i + 1; j < a.length; j++)
+    closest = Math.min(closest, Math.hypot(a[i].x - a[j].x, a[i].y - a[j].y))
+// The coincident-node branch needs its OWN fixture, and finding that out is the point of
+// break-testing: the circle seed never puts two nodes on the same spot, so making that tie-break
+// random left "same world, same layout" green — an assertion that was passing without ever
+// reaching the line it was meant to be guarding. Here they all start stacked on one point.
+const stacked = () => {
+  const g = new ForceLayout()
+  g.seed([1, 2, 3, 4, 5], [], 900, 600)
+  for (const n of g.nodes) {
+    n.x = 400
+    n.y = 300
+  }
+  g.heat(1)
+  for (let i = 0; i < 400; i++) g.tick()
+  return g.nodes
+}
+const s1 = stacked()
+const s2 = stacked()
+
+/* What the SPRINGS are for, asked as a COMPARISON — the same nodes with and without their links,
+   which is the only form of the question that isolates the link force.
+   Two earlier forms of this check were wrong and break-testing found both. "Linked pairs sit
+   closer than the average pair" passed with the springs turned off when measured on a chain,
+   because a chain links 1–2–3… and the seed puts those side by side on the circle: the seed was
+   doing the work the springs were credited for. Measured on pairs across the circle it then
+   FAILED with the springs on — correctly, because each node there has one link and twenty-two
+   other nodes pushing it away, so a linked pair genuinely does sit further apart than average.
+   That is the physics being right, not the force being absent. */
+const acrossEdges = ids.slice(0, 12).map((id) => ({ from: id, to: id + 12 }))
+const mean = (l) => l.reduce((s, v) => s + v, 0) / l.length
+const gapAcross = (nodes) =>
+  mean(
+    acrossEdges.map((e) =>
+      Math.hypot(nodes[e.from - 1].x - nodes[e.to - 1].x, nodes[e.from - 1].y - nodes[e.to - 1].y)
+    )
+  )
+const withLinks = gapAcross(settle(ids, acrossEdges))
+const withoutLinks = gapAcross(settle(ids, []))
+
+// What the FRICTION is for: it comes to REST. Velocity that survives every tick with nothing to
+// bleed it away is a graph that drifts for ever, and "all finite" does not notice.
+const resting = Math.max(...a.map((n) => Math.hypot(n.vx, n.vy)))
+
+const graph = [
+  ['all finite', a.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y))],
+  ['no two nodes on top of each other', closest > 16],
+  ['a link pulls its two ends together', withLinks < withoutLinks * 0.75],
+  ['it comes to rest', resting < 0.5],
+  ['same world, same layout', a.every((n, i) => Math.abs(n.x - b[i].x) < 1e-9)],
+  ['coincident nodes separate', s1.every((n) => Number.isFinite(n.x)) && s1[0].x !== s1[1].x],
+  ['…and separate the SAME way twice', s1.every((n, i) => Math.abs(n.x - s2[i].x) < 1e-9)],
+  ['empty graph', settle([], []).length === 0],
+  ['one node', Number.isFinite(settle([1], [])[0].x)]
+]
+for (const [label, pass] of graph) {
+  console.log(`${pass ? 'ok    ' : 'FAILED'} layout: ${label}`)
+  if (!pass) fails++
+}
+
 console.log('\nObject.prototype.pwned =', {}.pwned)
 console.log(fails ? `${fails} PROBLEM(S)` : 'every loader total, no loader threw')

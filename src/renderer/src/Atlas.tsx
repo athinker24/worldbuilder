@@ -163,13 +163,20 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
     <div className="atlas-rows">
       {rows.map((r) => (
         <div key={r.key} className="atlas-row">
-          <span
-            className={`atlas-name ${r.eid !== undefined ? 'clickable' : ''}`}
-            onClick={r.eid !== undefined ? () => onOpenEntity(r.eid!) : undefined}
-          >
-            <span className="dot" style={{ background: r.color }} />
-            {r.label}
-          </span>
+          {/* A realm row opens its entry and a religion row does not, and until now the only
+              thing saying so was the cursor — and neither could be reached by keyboard. The one
+              that acts is a button; the one that does not stays text. */}
+          {r.eid !== undefined ? (
+            <button className="atlas-name clickable" onClick={() => onOpenEntity(r.eid!)}>
+              <span className="dot" style={{ background: r.color }} />
+              {r.label}
+            </button>
+          ) : (
+            <span className="atlas-name">
+              <span className="dot" style={{ background: r.color }} />
+              {r.label}
+            </span>
+          )}
           <div className="atlas-bar-track">
             <div
               className="atlas-bar"
@@ -217,14 +224,21 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
       )}
       {atlas.map(({ map, unit, total, realms, dims }) => (
         <div key={map.id} className="atlas-map">
+          {/* The heading is the map's name. The measurement is a fact ABOUT it and the missing
+              scale is a warning, and both were riding inside the <h3> as one long sentence. */}
           <h3>
             <Icon name="map" size={15} /> {map.name}
-            <span className="hint">
-              {' '}
-              — {t('mapped area')}: {fmtArea(total)} {unit ? `${unit}²` : t('mu²')}
-              {!unit && ` (${t('no scale set: use the Scale tool on the map')})`}
-            </span>
           </h3>
+          <p className="hint atlas-total">
+            {t('mapped area')}: <span className="atlas-num">{fmtArea(total)}</span>{' '}
+            {unit ? `${unit}²` : t('mu²')}
+            {!unit && (
+              <>
+                {' · '}
+                {t('no scale set: use the Scale tool on the map')}
+              </>
+            )}
+          </p>
           {/* Realms and each map-mode dimension side by side rather than stacked: the extra
               width buys comparisons you can make at a glance, which is what an atlas is for.
               Columns reflow to one when the window is narrow. */}

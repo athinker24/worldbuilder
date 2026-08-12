@@ -12,9 +12,11 @@
 //     which is what makes hover/active/disabled a single shared CSS rule
 //   · circles are written as arc subpaths so every entry is one `d` string
 //
-// Emoji deliberately survive in exactly two places: map CONTENT (the pin image
-// library is user data) and the 🎲 random-name buttons, which are a playful
-// affordance rather than chrome.
+// No emoji in the interface at all any more. The exception this note used to
+// carve out — the random-name buttons, "a playful affordance rather than chrome"
+// — outlived the rest of them, and one of a kind is worse than a rule: a single
+// emoji among 33 icons reads as something nobody got round to. It is `dice` now,
+// tinted by gender. Map CONTENT is a different matter and still user data.
 
 export type IconName =
   // structure / navigation
@@ -56,6 +58,7 @@ export type IconName =
   | 'label'
   | 'board'
   | 'eye'
+  | 'eye-off'
   | 'ruler'
   | 'palette'
   | 'play'
@@ -65,6 +68,8 @@ export type IconName =
   | 'settings'
   | 'conquest'
   | 'check'
+  | 'grip'
+  | 'dice'
 
 // One `d` per icon. Circles are arc pairs: M{cx+r} {cy} a{r} {r} 0 1 1 {-2r} 0 …
 const PATHS: Record<IconName, string> = {
@@ -127,6 +132,9 @@ const PATHS: Record<IconName, string> = {
   // so the base sheet is a map corner and the stack sits on top of it.
   board: 'M3 8l6-3 6 3 6-3v8M3 8v8l6-3 6 3 6-3M9 5v8M15 8v8',
   eye: 'M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0M15 12a3 3 0 1 1-6 0 3 3 0 1 1 6 0',
+  // The same eye with the lid drawn down and a stroke through it: "something is hidden".
+  'eye-off':
+    'M10.7 5.1A10.6 10.6 0 0 1 12 5c5 0 8.7 3.3 9.9 6.6a1 1 0 0 1 0 .7 12.4 12.4 0 0 1-2.5 3.7M6.6 6.6A12.4 12.4 0 0 0 2.1 11.6a1 1 0 0 0 0 .7C3.3 15.7 7 19 12 19a10.9 10.9 0 0 0 4.5-1M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18',
   ruler:
     'M21.3 8.7L8.7 21.3a1 1 0 0 1-1.4 0l-4.6-4.6a1 1 0 0 1 0-1.4L15.3 2.7a1 1 0 0 1 1.4 0l4.6 4.6a1 1 0 0 1 0 1.4zM7.5 10.5l2 2M10.5 7.5l2 2M13.5 4.5l2 2M4.5 13.5l2 2',
   // Playback: solid-looking triangles built from strokes so they keep the family's
@@ -141,8 +149,13 @@ const PATHS: Record<IconName, string> = {
   conquest:
     'M14.5 17.5L3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2M14.5 6.5L18 3h3v3l-3.5 3.5M9 11L5 15M8 16l-4 4M5 21l-2-2',
   check: 'M20 6L9 17l-5-5',
+  // Two columns of dots: the universal "hold here and drag me", drawn with the dot idiom.
+  grip: 'M10 6a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M10 12a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M10 18a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M16 6a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M16 12a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M16 18a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0',
   palette:
-    'M12 22a10 10 0 1 1 10-10 4 4 0 0 1-4 4h-1.5a2 2 0 0 0-1.5 3.3 2 2 0 0 1-1.5 3.3zM8 8.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M12 6.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M16.5 9.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0'
+    'M12 22a10 10 0 1 1 10-10 4 4 0 0 1-4 4h-1.5a2 2 0 0 0-1.5 3.3 2 2 0 0 1-1.5 3.3zM8 8.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M12 6.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M16.5 9.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0',
+  // The 🎲 on the random-name buttons was the last emoji left in the interface — one of a kind
+  // is worse than a rule, so it becomes an icon. Pips use the same dot idiom as `palette`.
+  dice: 'M8 3h8a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5V8a5 5 0 0 1 5-5zM9 8.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M12.5 12a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0M16 15.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0'
 }
 
 interface Props {

@@ -8,22 +8,30 @@ import { useT } from './i18n'
 interface Req {
   message: string
   confirm: boolean // true = has a Cancel button too; false = OK only (alert)
+  danger: boolean // the confirming button is destructive
   resolve: (ok: boolean) => void
 }
 
 // Module-level bridge so non-component modules (entityOps.ts) can call it too.
 let notify: ((r: Req) => void) | null = null
 
-export function confirmDialog(message: string): Promise<boolean> {
+/**
+ * @param danger whether saying yes DESTROYS something. Defaults to true because eight of this
+ * app's nine confirmations do (delete an entry, a folder, a map, a note, a template, a government
+ * form; discard unsaved changes) — and the one that does not passes `false`. An alert never does:
+ * it has one button and nothing to lose, and it was wearing the same red until now, so "are you
+ * sure you want to delete this world" and "this entry is not on a map" arrived looking identical.
+ */
+export function confirmDialog(message: string, danger = true): Promise<boolean> {
   return new Promise((resolve) => {
-    if (notify) notify({ message, confirm: true, resolve })
+    if (notify) notify({ message, confirm: true, danger, resolve })
     else resolve(window.confirm(message)) // fall back to the native dialog when no host is mounted
   })
 }
 
 export function alertDialog(message: string): Promise<void> {
   return new Promise((resolve) => {
-    if (notify) notify({ message, confirm: false, resolve: () => resolve() })
+    if (notify) notify({ message, confirm: false, danger: false, resolve: () => resolve() })
     else {
       window.alert(message)
       resolve()
@@ -71,7 +79,13 @@ export function DialogHost(): React.JSX.Element | null {
               {t('Cancel')}
             </button>
           )}
-          <button ref={okRef} className="mini danger" onClick={() => close(true)}>
+          {/* The one action of this view, so it carries the emphasis — red only when saying yes
+              actually destroys something. */}
+          <button
+            ref={okRef}
+            className={req.danger ? 'mini danger' : 'mini primary'}
+            onClick={() => close(true)}
+          >
             {t('OK')}
           </button>
         </div>

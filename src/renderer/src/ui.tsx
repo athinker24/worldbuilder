@@ -74,6 +74,56 @@ export function Tabs<T extends string>({
   )
 }
 
+interface SegmentedProps<T extends string> {
+  options: { key: T; label: string; icon?: IconName }[]
+  /** null = none of them, which is a state these groups genuinely have. */
+  value: T | null
+  onChange: (key: T) => void
+  /** The group's own name. These controls answer a question and it should be on screen. */
+  label?: string
+  /** Loose pills in a wrapping row instead of one track. A track says "either/or" and is right
+      for two fixed options; a list the user writes themselves (a rank ladder, the map-mode
+      dimensions) is any length, and boxing a wrapping row makes a wall out of it. */
+  flow?: boolean
+}
+
+/** A set of mutually exclusive view modes sharing one track.
+ *
+ * Toggle buttons rather than radios, and `aria-pressed` rather than `aria-checked`, because
+ * that is what they are: pressing the pressed one turns it off again. A radio group cannot say
+ * that, and claiming to be one would be a lie a screen reader repeats.
+ *
+ * NOT a chip. A chip is data — a rank tag on an entry, a folder — and chips were doing this job
+ * in five places, which is why nothing on screen told you whether a thing was a label, a filter
+ * or a switch. Data is a chip, navigation is a Tab, a mode is one of these.
+ */
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  label,
+  flow
+}: SegmentedProps<T>): React.JSX.Element {
+  return (
+    <div className="seg-group">
+      {label && <div className="seg-label">{label}</div>}
+      <div className={flow ? 'seg flow' : 'seg'}>
+        {options.map((o) => (
+          <button
+            key={o.key}
+            className={`seg-item ${value === o.key ? 'on' : ''}`}
+            aria-pressed={value === o.key}
+            onClick={() => onChange(o.key)}
+          >
+            {o.icon && <Icon name={o.icon} size={12} />}
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 interface EmptyProps {
   icon?: IconName
   title: string

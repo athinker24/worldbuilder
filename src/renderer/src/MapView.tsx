@@ -58,7 +58,7 @@ import { alertDialog, confirmDialog } from './dialog'
 import History from './History'
 import Icon from './icons'
 import Select from './Select'
-import { EmptyState, IconButton } from './ui'
+import { EmptyState, IconButton, Segmented } from './ui'
 import { useT } from './i18n'
 import Timeline from './Timeline'
 import MapToolbar from './MapToolbar'
@@ -3604,9 +3604,10 @@ export default function MapView({
           <button
             className="mini danger map-row-btn"
             title={t('Remove')}
+            aria-label={t('Remove')}
             onClick={(e) => (e.stopPropagation(), deleteMapWithUndo(m.id))}
           >
-            ×
+            <Icon name="trash" size={12} />
           </button>
         )}
       </div>
@@ -5130,7 +5131,9 @@ export default function MapView({
           {searchMatches.length > 0 && (
             <div className="layers-panel">
               {searchMatches.map(({ f, kind, name }) => (
-                <div
+                // A result list you could not Tab into: typing a name and then having to reach
+                // for the mouse is the one thing a search box must not ask for.
+                <button
                   key={f.id}
                   className="layers-row"
                   onClick={() => {
@@ -5161,7 +5164,7 @@ export default function MapView({
                       </span>
                     )}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -5218,7 +5221,7 @@ export default function MapView({
                 )}
                 {newMapName === null && (
                   <button className="mini base-add" onClick={() => setNewMapName('')}>
-                    ＋ {t('New map')}
+                    <Icon name="plus" size={12} /> {t('New map')}
                   </button>
                 )}
               </div>
@@ -5272,18 +5275,22 @@ export default function MapView({
                       />
                     </div>
                   ) : (
-                    <div key={b.id} className="layers-row" onClick={() => switchBoard(b.id)}>
-                      <span className="layers-icon">{b.id === boards.active ? '◉' : '○'}</span>
-                      <span
-                        className="layers-name"
-                        style={
-                          b.id === boards.active
-                            ? { color: 'var(--accent)', fontWeight: 600 }
-                            : undefined
-                        }
+                    <div key={b.id} className="layers-row">
+                      {/* A tick when it is the one being drawn on, and nothing when it is not —
+                          the row already says which by its weight and colour. The ◉/○ pair it
+                          replaces was the only place in the app drawing a control out of text. */}
+                      <span className="layers-icon">
+                        {b.id === boards.active && <Icon name="check" size={13} />}
+                      </span>
+                      {/* The name switches boards; rename and remove sit beside it. The row was
+                          the click target and held two buttons, which is the one arrangement
+                          that cannot become a button itself. */}
+                      <button
+                        className={`layers-name board-pick ${b.id === boards.active ? 'on' : ''}`}
+                        onClick={() => switchBoard(b.id)}
                       >
                         {b.name}
-                      </span>
+                      </button>
                       <button
                         className="mini map-row-btn"
                         title={t('Rename')}
@@ -5294,9 +5301,10 @@ export default function MapView({
                       <button
                         className="mini danger map-row-btn"
                         title={t('Remove')}
+                        aria-label={t('Remove')}
                         onClick={(e) => (e.stopPropagation(), removeBoard(b.id))}
                       >
-                        ×
+                        <Icon name="x" size={12} />
                       </button>
                     </div>
                   )
@@ -5320,7 +5328,7 @@ export default function MapView({
                   </form>
                 ) : (
                   <button className="mini base-add" onClick={() => setNewBoardName('')}>
-                    ＋ {t('New board')}
+                    <Icon name="plus" size={12} /> {t('New board')}
                   </button>
                 )}
               </div>
@@ -5328,14 +5336,24 @@ export default function MapView({
           )}
         </div>
         <div className="layers-menu">
-          <button
-            className={`layers-btn tier-3 ${layersOpen ? 'open' : ''}`}
-            title={t('Layers')}
-            onClick={() => setLayersOpen((o) => !o)}
-          >
-            <Icon name="eye" size={14} />
-            <span className="layers-count">{Object.values(layersOn).filter(Boolean).length}/4</span>
-          </button>
+          {/* "3/4" was a ratio, and the question it answers is not a ratio: it is "is anything
+              hidden right now?". The glyph says it — an open eye when everything is drawn, a
+              closed one and the accent when something is not, which is also the state worth
+              noticing from across the map. The count moves into the tooltip, where a number
+              belongs. */}
+          {(() => {
+            const off = Object.values(layersOn).filter((v) => !v).length
+            return (
+              <button
+                className={`layers-btn tier-3 ${layersOpen ? 'open' : ''} ${off ? 'filtered' : ''}`}
+                title={off ? t('{n} layer(s) hidden', { n: off }) : t('Everything is shown')}
+                aria-label={t('Layers')}
+                onClick={() => setLayersOpen((o) => !o)}
+              >
+                <Icon name={off ? 'eye-off' : 'eye'} size={14} />
+              </button>
+            )
+          })()}
           {layersOpen && (
             <>
               <div className="layers-backdrop" onClick={() => setLayersOpen(false)} />
@@ -5363,17 +5381,26 @@ export default function MapView({
                 {pinTypes.length > 1 && (
                   <>
                     <div className="layers-panel-head">{t('Pin folders')}</div>
-                    <div className="tag-row pin-type-row">
-                      {pinTypes.map((ty) => (
-                        <span
-                          key={ty}
-                          className={`tag-chip clickable ${pinHidden.has(ty) ? '' : 'active'}`}
-                          onClick={() => togglePinType(ty)}
-                        >
-                          {folders.find((x) => x.id === ty)?.name || t('(no folder)')}
+                    {/* Shown/hidden, which is the question the four rows above this one already
+                        answer with checkboxes — these were chips, in the same panel, for the same
+                        job. A chip cannot say "ticked" and these have to. */}
+                    {pinTypes.map((ty) => (
+                      <label key={ty} className="layers-row">
+                        <input
+                          type="checkbox"
+                          checked={!pinHidden.has(ty)}
+                          onChange={() => togglePinType(ty)}
+                        />
+                        <span className="layers-icon">
+                          <Icon name="map-pin" size={14} />
                         </span>
-                      ))}
-                    </div>
+                        <span className="layers-text">
+                          <span className="layers-name">
+                            {folders.find((x) => x.id === ty)?.name || t('(no folder)')}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
                   </>
                 )}
               </div>
@@ -5904,7 +5931,7 @@ export default function MapView({
                       {t('Show the name on the map')}
                     </label>
                     {selStyle.hideName ? (
-                      <p className="hint">{t('Name it with the 🏷 Label tool instead.')}</p>
+                      <p className="hint">{t('Name it with the Label tool instead.')}</p>
                     ) : (
                       <>
                         <label>{t('Label font')}</label>
@@ -6149,21 +6176,17 @@ export default function MapView({
                       <>
                         {/* See the same line in ToolPanel: the strip is its own remove button. */}
                         <p className="hint">{t('Click an image again to remove it.')}</p>
-                        <label>{t('Image style')}</label>
-                        <div className="measure-btns">
-                          <button
-                            className={`mini ${!selStyle.imgFree ? 'active' : ''}`}
-                            onClick={() => editSelectedStyle({ imgFree: false })}
-                          >
-                            {t('Badge')}
-                          </button>
-                          <button
-                            className={`mini ${selStyle.imgFree ? 'active' : ''}`}
-                            onClick={() => editSelectedStyle({ imgFree: true })}
-                          >
-                            {t('Free')}
-                          </button>
-                        </div>
+                        {/* The tool panel's twin — same control for the same choice, and it has
+                            to stay the twin: one shows the default, this shows one drawing. */}
+                        <Segmented
+                          label={t('Image style')}
+                          options={[
+                            { key: 'badge', label: t('Badge') },
+                            { key: 'free', label: t('Free') }
+                          ]}
+                          value={selStyle.imgFree ? 'free' : 'badge'}
+                          onChange={(k) => editSelectedStyle({ imgFree: k === 'free' })}
+                        />
                       </>
                     )}
                     <label className="cap">

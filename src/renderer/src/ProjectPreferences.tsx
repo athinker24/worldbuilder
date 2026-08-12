@@ -18,7 +18,7 @@ import Icon from './icons'
 import Select from './Select'
 import { useT } from './i18n'
 import { logEvent } from './log'
-import { IconButton, Section } from './ui'
+import { IconButton, Section, Tabs } from './ui'
 
 // PROJECT configuration: the systems that define the open world's own structure. All three live
 // in the settings table, so they travel inside the .world — that is exactly what separates them
@@ -35,6 +35,10 @@ export default function ProjectPreferences(): React.JSX.Element {
   const [tpls, setTpls] = useState<EntityTemplate[]>([])
   const [activeTpl, setActiveTpl] = useState<string | null>(null)
   const [tplInput, setTplInput] = useState('')
+  // Which rank is being dragged and which one it is currently over. Session state — an
+  // in-progress gesture is not a preference and must not survive the page.
+  const [dragTag, setDragTag] = useState<string | null>(null)
+  const [overTag, setOverTag] = useState<string | null>(null)
 
   useEffect(() => {
     Promise.all([getHierConfig(), api.hierarchy(), getMapModes(), getTemplates()]).then(
@@ -126,59 +130,97 @@ export default function ProjectPreferences(): React.JSX.Element {
             options={HIER_PRESETS.map((p) => ({ value: p.name, label: t(p.name) }))}
           />
         </div>
-        <div className="hier-tags" style={{ marginBottom: 8 }}>
-          {hierCfg.govs.map((g) => (
-            <span
-              key={g.name}
-              className={`tag-chip clickable ${activeGov === g.name ? 'active' : ''}`}
-              onClick={() => setActiveGov(g.name)}
-            >
-              {g.name}
-              <button
-                className="tag-x"
-                title={t('Delete government form')}
-                onClick={async (e) => {
-                  e.stopPropagation()
+        {/* Each government form is a whole ladder, and picking one changes which ladder this
+            section is editing — a place you go, so a tab strip. As chips they were also carrying
+            a delete ×, which put "switch to this" and "destroy this and its ranks" a few pixels
+            apart on the same object; the delete now sits beside the ladder it would take. */}
+        {hierCfg.govs.length > 0 && (
+          <div className="tabs-row">
+            <Tabs
+              tabs={hierCfg.govs.map((g) => ({ key: g.name, label: g.name }))}
+              active={activeGov ?? ''}
+              onChange={setActiveGov}
+            />
+            {gov && (
+              <IconButton
+                icon="trash"
+                label={t('Delete government form')}
+                small
+                danger
+                onClick={async () => {
                   if (
                     !(await confirmDialog(
-                      t('Delete government form "{name}" and its rank ladder?', { name: g.name })
+                      t('Delete government form "{name}" and its rank ladder?', { name: gov.name })
                     ))
                   )
                     return
-                  const next = { ...hierCfg, govs: hierCfg.govs.filter((x) => x.name !== g.name) }
+                  const next = { ...hierCfg, govs: hierCfg.govs.filter((x) => x.name !== gov.name) }
                   updateHier(next)
-                  if (activeGov === g.name) setActiveGov(next.govs[0]?.name ?? null)
+                  setActiveGov(next.govs[0]?.name ?? null)
                 }}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-          <form
-            className="tag-add"
-            onSubmit={(e) => {
-              e.preventDefault()
-              const name = govInput.trim()
-              setGovInput('')
-              if (!name || hierCfg.govs.some((g) => g.name === name)) return
-              updateHier({ ...hierCfg, govs: [...hierCfg.govs, { name, tags: [] }] })
-              setActiveGov(name)
-            }}
-          >
-            <input
-              placeholder={t('new government form (feudal, nomadic…)')}
-              value={govInput}
-              onChange={(e) => setGovInput(e.target.value)}
-            />
-            <button className="mini" type="submit">
-              +
-            </button>
-          </form>
-        </div>
+              />
+            )}
+          </div>
+        )}
+        {/* Under the strip it feeds, not at the end of the section: down there it would read as
+            belonging to the open ladder rather than to the list of ladders. */}
+        <form
+          className="field-row add"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const name = govInput.trim()
+            setGovInput('')
+            if (!name || hierCfg.govs.some((g) => g.name === name)) return
+            updateHier({ ...hierCfg, govs: [...hierCfg.govs, { name, tags: [] }] })
+            setActiveGov(name)
+          }}
+        >
+          <input
+            placeholder={t('new government form (feudal, nomadic…)')}
+            value={govInput}
+            onChange={(e) => setGovInput(e.target.value)}
+          />
+          <button className="mini" type="submit" title={t('Add')} aria-label={t('Add')}>
+            <Icon name="plus" size={12} />
+          </button>
+        </form>
         {gov && (
           <>
+            {/* Drag to reorder — a ladder IS an order, and setting one with two buttons cost a
+                click per position per rank: about twenty to lay out eight ranks. The sidebar
+                already moves things by dragging them, so this is the same gesture in the one
+                other place the app has an ordered list.
+
+                The arrows stay. They are not a fallback nobody uses: dragging is the one
+                interaction a keyboard cannot perform at all, and this list had just been made
+                reachable by one. Mouse gets the gesture, keyboard keeps the buttons. */}
             {gov.tags.map((tag, i) => (
-              <div className="field-row" key={tag}>
+              <div
+                className={`field-row ladder-row ${dragTag === tag ? 'dragging' : ''} ${
+                  overTag === tag && dragTag !== tag ? 'over' : ''
+                }`}
+                key={tag}
+                draggable
+                onDragStart={() => setDragTag(tag)}
+                onDragEnd={() => (setDragTag(null), setOverTag(null))}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  if (overTag !== tag) setOverTag(tag)
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  if (dragTag && dragTag !== tag) {
+                    const next = gov.tags.filter((x) => x !== dragTag)
+                    next.splice(next.indexOf(tag), 0, dragTag)
+                    updateGovTags(next)
+                  }
+                  setDragTag(null)
+                  setOverTag(null)
+                }}
+              >
+                <span className="ladder-grip" aria-hidden>
+                  <Icon name="grip" size={13} />
+                </span>
                 <IconButton
                   icon="chevron-up"
                   label={t('Move up')}
@@ -218,8 +260,8 @@ export default function ProjectPreferences(): React.JSX.Element {
                 value={tagInput}
                 onChange={(e) => setTagInput(e.target.value)}
               />
-              <button className="mini" type="submit">
-                +
+              <button className="mini" type="submit" title={t('Add')} aria-label={t('Add')}>
+                <Icon name="plus" size={12} />
               </button>
             </form>
           </>
@@ -249,7 +291,7 @@ export default function ProjectPreferences(): React.JSX.Element {
                 className="tag-x"
                 onClick={() => updateModes({ ...modes, dims: modes.dims.filter((x) => x !== d) })}
               >
-                ×
+                <Icon name="x" size={11} />
               </button>
             </span>
           ))}
@@ -267,8 +309,8 @@ export default function ProjectPreferences(): React.JSX.Element {
               value={dimInput}
               onChange={(e) => setDimInput(e.target.value)}
             />
-            <button className="mini" type="submit">
-              +
+            <button className="mini" type="submit" title={t('Add')} aria-label={t('Add')}>
+              <Icon name="plus" size={12} />
             </button>
           </form>
         </div>
@@ -278,51 +320,52 @@ export default function ProjectPreferences(): React.JSX.Element {
         <p className="hint">
           {t('The fields a new entry starts with. Everything stays editable afterwards.')}
         </p>
-        <div className="hier-tags">
-          {tpls.map((x) => (
-            <span
-              className={`tag-chip clickable ${activeTpl === x.name ? 'active' : ''}`}
-              key={x.name}
-              onClick={() => setActiveTpl(x.name)}
-            >
-              <Icon name="template" size={12} /> {x.name}
-              <button
-                className="tag-x"
-                title={t('Delete')}
-                onClick={async (e) => {
-                  e.stopPropagation()
-                  if (!(await confirmDialog(t('Delete template "{name}"?', { name: x.name }))))
-                    return
-                  const next = tpls.filter((y) => y.name !== x.name)
-                  updateTpls(next)
-                  if (activeTpl === x.name) setActiveTpl(next[0]?.name ?? null)
-                }}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-          <form
-            className="tag-add"
-            onSubmit={(e) => {
-              e.preventDefault()
-              const n = tplInput.trim()
-              setTplInput('')
-              if (!n || tpls.some((x) => x.name === n)) return
-              updateTpls([...tpls, { name: n, fields: {} }])
-              setActiveTpl(n)
-            }}
-          >
-            <input
-              placeholder={t('new template (city, dynasty…)')}
-              value={tplInput}
-              onChange={(e) => setTplInput(e.target.value)}
+        {/* Same as the ladders above: picking a template changes what the fields below
+            belong to, which is navigation. The delete moves next to the fields it would take. */}
+        {tpls.length > 0 && (
+          <div className="tabs-row">
+            <Tabs
+              tabs={tpls.map((x) => ({ key: x.name, label: x.name, icon: 'template' as const }))}
+              active={activeTpl ?? ''}
+              onChange={setActiveTpl}
             />
-            <button className="mini" type="submit">
-              +
-            </button>
-          </form>
-        </div>
+            {tpl && (
+              <IconButton
+                icon="trash"
+                label={t('Delete')}
+                small
+                danger
+                onClick={async () => {
+                  if (!(await confirmDialog(t('Delete template "{name}"?', { name: tpl.name }))))
+                    return
+                  const next = tpls.filter((y) => y.name !== tpl.name)
+                  updateTpls(next)
+                  setActiveTpl(next[0]?.name ?? null)
+                }}
+              />
+            )}
+          </div>
+        )}
+        <form
+          className="field-row add"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const n = tplInput.trim()
+            setTplInput('')
+            if (!n || tpls.some((x) => x.name === n)) return
+            updateTpls([...tpls, { name: n, fields: {} }])
+            setActiveTpl(n)
+          }}
+        >
+          <input
+            placeholder={t('new template (city, dynasty…)')}
+            value={tplInput}
+            onChange={(e) => setTplInput(e.target.value)}
+          />
+          <button className="mini" type="submit" title={t('Add')} aria-label={t('Add')}>
+            <Icon name="plus" size={12} />
+          </button>
+        </form>
         {tpl && (
           <>
             {Object.entries(tpl.fields).map(([k, v]) => (
@@ -336,16 +379,19 @@ export default function ProjectPreferences(): React.JSX.Element {
                     patchTpl({ fields: { ...tpl.fields, [k]: e.target.value } })
                   }
                 />
-                <button
-                  className="mini danger"
+                {/* The same control the rank ladder above uses for the same job — this row
+                    was a .mini danger while that one was an IconButton, in one screen. */}
+                <IconButton
+                  icon="x"
+                  label={t('Remove')}
+                  small
+                  danger
                   onClick={() => {
                     const f = { ...tpl.fields }
                     delete f[k]
                     patchTpl({ fields: f })
                   }}
-                >
-                  ×
-                </button>
+                />
               </div>
             ))}
             <form
@@ -362,8 +408,8 @@ export default function ProjectPreferences(): React.JSX.Element {
             >
               <input name="key" placeholder={t('new field')} />
               <input name="value" placeholder={t('default value (optional)')} />
-              <button className="mini" type="submit">
-                +
+              <button className="mini" type="submit" title={t('Add')} aria-label={t('Add')}>
+                <Icon name="plus" size={12} />
               </button>
             </form>
           </>

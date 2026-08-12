@@ -70,7 +70,9 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
         <h2>{t('This world could not be opened')}</h2>
         <p>{t('The file may be corrupt or created by a newer version.')}</p>
         <div className="start-actions">
-          <button onClick={() => api.newWorld()}>{t('＋ New world')}</button>
+          <button onClick={() => api.newWorld()}>
+            <Icon name="plus" size={14} /> {t('New world')}
+          </button>
           <button onClick={() => api.openWorld()}>
             <Icon name="folder" size={14} /> {t('Open…')}
           </button>

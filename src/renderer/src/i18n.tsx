@@ -29,6 +29,7 @@ const TR: Record<string, string> = {
   'Nothing recorded yet': 'Henüz kayıt yok',
   'Add events from the map timeline, or a ruler’s reign from an entry page. Both land here.':
     'Harita zaman çizgisinden olay, madde sayfasından hükümdarlık ekle. İkisi de buraya düşer.',
+  'Fit to view': 'Görünüme sığdır',
   'No relations yet': 'Henüz ilişki yok',
   'Link two entries from the Relations section of an entry page and the web draws itself.':
     'Bir madde sayfasının İlişkiler bölümünden iki maddeyi bağla, ağ kendiliğinden çizilir.',
@@ -85,7 +86,6 @@ const TR: Record<string, string> = {
   'Saved: {name}': 'Kaydedildi: {name}',
   'Auto-saved': 'Otomatik kaydedildi',
   // Kısayol yardımı (Shortcuts.tsx)
-  '⌨ Shortcuts': '⌨ Kısayollar',
   Shortcuts: 'Kısayollar',
   General: 'Genel',
   'Map: selection': 'Harita: seçim',
@@ -105,6 +105,8 @@ const TR: Record<string, string> = {
   'Open world': 'Dünya aç',
   'Undo / Redo': 'Geri al / Yinele',
   'Back / Forward in history': 'Geçmişte geri / ileri',
+  'Make the interface bigger / smaller': 'Arayüzü büyüt / küçült',
+  'Interface back to 100%': 'Arayüzü %100’e döndür',
   'This page': 'Bu sayfa',
   'Delete selected entries (in the list)': 'Seçili maddeleri sil (listede)',
   Click: 'Tık',
@@ -115,7 +117,8 @@ const TR: Record<string, string> = {
   'Add/remove from selection (edits apply to all)':
     'Seçime ekle/çıkar (düzenlemeler hepsine uygulanır)',
   'Delete selected drawings': 'Seçili çizimleri sil',
-  'Cancel conquest / measure / route session': 'Fetih / ölçüm / rota oturumunu iptal et',
+  'Leave the active tool; cancel a conquest / measure / route session':
+    'Etkin aletten çık; fetih / ölçüm / rota oturumunu iptal et',
   'Copy selected drawings': 'Seçili çizimleri kopyala',
   'Paste under the cursor (also into another map)':
     'İmlecin altına yapıştır (başka haritaya da olur)',
@@ -140,7 +143,6 @@ const TR: Record<string, string> = {
   'This will discard unsaved changes. Continue?':
     'Kaydedilmemiş değişiklikler kaybolacak. Devam edilsin mi?',
   // Başlangıç ekranı (son kullanılan .world dosyaları)
-  '＋ New world': '＋ Yeni dünya',
   Recent: 'Son kullanılanlar',
   Presets: 'Hazır renkler', // renk seçicideki sabit altılı şerit (son kullanılanlardan ayrı)
   'No recent worlds yet. Save one with Ctrl+S.':
@@ -148,7 +150,7 @@ const TR: Record<string, string> = {
   'file not found': 'dosya bulunamadı',
   'File not found: {p}': 'Dosya bulunamadı: {p}',
   'Remove from list': 'Listeden çıkar',
-  World: 'Dünya',
+  'Nothing open': 'Açık bir şey yok',
   'This entry is not marked on any map yet.': 'Bu madde henüz hiçbir haritada işaretli değil.',
 
   // ProjectPreferences.tsx (eski Settings.tsx). Not dışa aktarma artık File ▸ Export ▸ Notes.
@@ -194,6 +196,7 @@ const TR: Record<string, string> = {
   Save: 'Kaydet',
   Language: 'Dil',
   'Interface language': 'Arayüz dili',
+  'Interface scale': 'Arayüz ölçeği',
   Theme: 'Tema',
   // History panel (Overview ▸ History) — the labels come from pushUndo call sites, so the English
   // text there IS the key here.
@@ -214,7 +217,7 @@ const TR: Record<string, string> = {
   Bold: 'Kalın',
   Italic: 'Eğik',
   'Show the name on the map': 'Adı haritada göster',
-  'Name it with the 🏷 Label tool instead.': 'Bunun yerine 🏷 Etiket aletiyle adlandır.',
+  'Name it with the Label tool instead.': 'Bunun yerine Etiket aletiyle adlandır.',
   'Move to another entry': 'Başka maddeye taşı',
   'Remove the emptied entry': 'Boşalan madde silindi',
   'new entry each time': 'her seferinde yeni madde',
@@ -263,7 +266,8 @@ const TR: Record<string, string> = {
   Color: 'Renk',
   Icon: 'İkon',
   // Özel pin görselleri
-  'Upload image': 'Görsel yükle',
+  // Ellipsis because it opens a file dialog, like Open… — it was a tooltip on an icon before.
+  'Upload image…': 'Görsel yükle…',
   'Remove from library': 'Kütüphaneden çıkar',
   'Image style': 'Görsel biçimi',
   Badge: 'Rozet',
@@ -283,7 +287,6 @@ const TR: Record<string, string> = {
   Solid: 'Düz',
   Dashed: 'Kesikli',
   Dotted: 'Noktalı',
-  '〰 Draw path': '〰 Yol çiz',
   Curviness: 'Eğrilik',
   'Curve appears after drawing; the live preview stays straight.':
     'Eğri çizim bittikten sonra belirir; canlı önizleme düz kalır.',
@@ -378,6 +381,9 @@ const TR: Record<string, string> = {
   'Folder color': 'Klasör rengi',
   'Enlarge: center it on screen': 'Büyüt: ekranın ortasına al',
   'Pin folders': 'Pin klasörleri',
+  '{n} layer(s) hidden': '{n} katman gizli',
+  'Everything is shown': 'Her şey görünür',
+  'Nothing matches.': 'Eşleşen bir şey yok.',
   rank: 'kademe',
   base: 'taban',
   'Which ladder rank changes hands (upper ranks take their whole branch)':
@@ -385,7 +391,6 @@ const TR: Record<string, string> = {
   'This region has no owner at that rank in this year.':
     'Bu bölgenin o yıl o kademede bir sahibi yok.',
   '(no folder)': '(klasörsüz)',
-  '＋ Entry': '＋ Madde',
   'Not on a map': 'Haritada değil',
   Favorites: 'Favoriler',
   'Add to favorites': 'Favorilere ekle',
@@ -404,7 +409,6 @@ const TR: Record<string, string> = {
   Cross: 'Haç',
   'Nothing drawn on this map yet.': 'Bu haritada henüz bir çizim yok.',
   'Every entry is on a map.': 'Bütün maddeler bir haritada.',
-  '＋ Folder': '＋ Klasör',
   'Delete folder "{name}"? (entries are kept)': '"{name}" klasörü silinsin mi? (maddeler korunur)',
   'Add banner': 'Sancak ekle',
   'Replace banner': 'Sancağı değiştir',
@@ -436,12 +440,16 @@ const TR: Record<string, string> = {
   'birth year': 'doğum yılı',
   'death year': 'ölüm yılı',
   'child…': 'çocuk…',
-  '🎲 Random male name': '🎲 Rastgele erkek ismi',
-  '🎲 Random female name': '🎲 Rastgele kadın ismi',
+  'Random male name': 'Rastgele erkek ismi',
+  'Random female name': 'Rastgele kadın ismi',
   'in content': 'içerikte',
 
   // HierarchyPanel.tsx
   All: 'Tümü',
+  // The two mode groups in the hierarchy panel finally say what they are asking.
+  'Rank view': 'Kademe görünümü',
+  'Paint by': 'Şuna göre boya',
+  Nothing: 'Hiçbiri',
   'No ladder yet. Write a government form on entries, then order the ranks from Settings.':
     "Henüz merdiven yok. Maddelere yönetim biçimi yaz, Ayarlar'dan kademeleri sırala.",
   Conquest: 'Fetih',
@@ -483,8 +491,6 @@ const TR: Record<string, string> = {
   // MapView.tsx
   'The slider must be within the year range the drawing exists (after its start).':
     'Slider, çizimin var olduğu yıl aralığının içinde (başlangıcından sonra) olmalı.',
-  '⏳ Change border from this year': '⏳ Sınırı bu yıldan itibaren değiştir',
-  '⬠ Draw polygon': '⬠ Poligon çiz',
   'Could not load image. The file may be corrupt or in an unsupported format.':
     'Görsel yüklenemedi. Dosya bozuk ya da desteklenmeyen bir biçimde olabilir.',
   'Add base image': 'Zemin görseli ekle',

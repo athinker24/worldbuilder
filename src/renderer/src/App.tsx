@@ -21,7 +21,7 @@ import ColorPicker from './ColorPicker'
 import ContextMenu, { MenuState } from './ContextMenu'
 import Icon from './icons'
 import Select from './Select'
-import { IconButton } from './ui'
+import { EmptyState, IconButton } from './ui'
 import { alertDialog, confirmDialog, DialogHost } from './dialog'
 import EntityPage from './EntityPage'
 import { deleteEntitiesWithUndo, deleteEntityWithUndo } from './entityOps'
@@ -409,10 +409,22 @@ export default function App(): React.JSX.Element {
   // that Ctrl+S actually wrote; auto-save reports through the same channel.
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // There is one toast slot, so two messages in the same few seconds means one of them is lost.
+  // Which one matters: auto-save fires on a three-minute timer and does not know what is on
+  // screen, so "Auto-saved" could quietly replace the error that had just told you something
+  // went wrong — and the error is the one carrying the click that opens the log. An error is
+  // therefore not overwritten by an ordinary message; anything may replace an ordinary one, and
+  // an error may replace an error.
+  const toastErr = useRef(false)
   const showToast = useCallback((msg: string, ms = 2200, err = false): void => {
+    if (toastErr.current && !err) return
+    toastErr.current = err
     setToast({ msg, err })
     clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setToast(null), ms)
+    toastTimer.current = setTimeout(() => {
+      toastErr.current = false
+      setToast(null)
+    }, ms)
   }, [])
 
   // What to do after an undo or a redo. A step that THREW is a fault and this app's rule is that a
@@ -976,7 +988,13 @@ export default function App(): React.JSX.Element {
           title={folders.find((f) => f.id === e.folder)?.name ?? ''}
         />
       )}
-      <span className="side-label">{e.name}</span>
+      {/* The LABEL is the button, not the row. A row wrapping a checkbox, a star and a locate
+          button cannot itself be a button — that is a button inside a button — and role=button
+          on the div would only claim otherwise. This way the mouse keeps the whole row and the
+          keyboard gets a real target, with the row's own controls following it in tab order. */}
+      <button className="side-label" onClick={() => openEntity(e.id)}>
+        {e.name}
+      </button>
       {/* Outside `.locate`: that group hides when the pointer leaves, and a star that is ON has
           to keep saying so. `.on` is the whole difference — same button, two states. */}
       <span className={`fav-star ${favorites.has(e.id) ? 'on' : ''}`}>
@@ -1029,7 +1047,9 @@ export default function App(): React.JSX.Element {
           onClick={() => toggleCollapse(folder.id)}
           onContextMenu={(ev) => folderMenu(ev, folder)}
         >
-          <span className="tree-caret">{open ? '▾' : '▸'}</span>
+          <span className={`tree-caret ${open ? 'open' : ''}`}>
+            <Icon name="chevron-right" size={12} />
+          </span>
           {/* The folder's color (the old entity-type color, re-homed): also the default color of
               map drawings whose article lives in this folder. */}
           {/* stopPropagation: the row itself toggles the folder open, and the picker sits inside it */}
@@ -1062,9 +1082,14 @@ export default function App(): React.JSX.Element {
               }}
             />
           ) : (
-            <span className="side-label" onDoubleClick={() => setRenamingFolder(folder.id)}>
+            <button
+              className="side-label"
+              aria-expanded={open}
+              onClick={() => toggleCollapse(folder.id)}
+              onDoubleClick={() => setRenamingFolder(folder.id)}
+            >
               {folder.name}
-            </span>
+            </button>
           )}
         </div>
         {/* Indent guide. The wrapper only draws a line via ::before, so rows keep
@@ -1096,7 +1121,9 @@ export default function App(): React.JSX.Element {
           className="side-group-head"
           onClick={() => setClosedBoards((prev) => toggle(prev, b.id))}
         >
-          <span className="tree-caret">{open ? '▾' : '▸'}</span>
+          <span className={`tree-caret ${open ? 'open' : ''}`}>
+            <Icon name="chevron-right" size={12} />
+          </span>
           <Icon name="board" size={12} />
           <span className="side-label">{b.name}</span>
           <span className="side-group-count">{allow.size}</span>
@@ -1120,7 +1147,9 @@ export default function App(): React.JSX.Element {
           className="side-group-head"
           onClick={() => setOpenGroups((prev) => toggle(prev, g.key))}
         >
-          <span className="tree-caret">{open ? '▾' : '▸'}</span>
+          <span className={`tree-caret ${open ? 'open' : ''}`}>
+            <Icon name="chevron-right" size={12} />
+          </span>
           <Icon
             name={g.kind === 'map' ? 'map' : g.kind === 'fav' ? 'star' : 'file-text'}
             size={13}
@@ -1179,7 +1208,7 @@ export default function App(): React.JSX.Element {
             aria-label={t('Show panels (Tab)')}
             onClick={() => togglePanels(false)}
           >
-            ▸
+            <Icon name="chevron-right" size={12} />
           </button>
         )}
         {/* Hidden rather than unmounted: collapsing must not throw away the tree's collapsed
@@ -1203,8 +1232,11 @@ export default function App(): React.JSX.Element {
           </div>
 
           <div className="side-section grow">
+            {/* The count is the one thing this heading can say that the list does not already
+                show — it was a word on its own line doing nothing. */}
             <div className="side-head">
               <span>{t('Entries')}</span>
+              <span className="side-group-count">{entities.length}</span>
             </div>
             {selected.size > 0 && (
               <div className="bulk-bar">
@@ -1240,14 +1272,14 @@ export default function App(): React.JSX.Element {
                 </>
               )}
             </div>
-            {/* Create + sort at the bottom of the column (Obsidian) */}
+            {/* Create + sort at the bottom of the column (Obsidian).
+                Icon-only, and that is a width decision rather than a style one: this is the
+                tightest row in the app — two labelled buttons plus the sort control already
+                overflowed a sidebar dragged down to its 180px minimum, and the Turkish labels
+                are longer still. The name lives in the tooltip, as it does on the map toolbar. */}
             <div className="side-foot">
-              <button className="mini" title={t('New Entry')} onClick={() => addEntity()}>
-                {t('＋ Entry')}
-              </button>
-              <button className="mini" title={t('New folder')} onClick={() => addFolder()}>
-                {t('＋ Folder')}
-              </button>
+              <IconButton icon="plus" label={t('New Entry')} onClick={() => addEntity()} />
+              <IconButton icon="folder" label={t('New folder')} onClick={() => addFolder()} />
               <span className="side-foot-spacer" />
               <Select
                 className="side-sort"
@@ -1314,54 +1346,68 @@ export default function App(): React.JSX.Element {
         )}
 
         <div className="main">
-          {view.kind === 'empty' && (
-            <div className="empty-state start-screen">
-              <h2>{t('World')}</h2>
-              {!worldFile && (
-                <>
-                  {/* No "+ New world" here: a normal launch already IS a new, blank world (main's
-                      Photoshop-style reset), so the button offered to do something that had
-                      already happened. Starting genuinely from scratch is still one click away —
-                      Maps in the sidebar, or File ▸ New Project — for the rare case a returning
-                      user wants a fresh document instead of picking one up from here. */}
-                  <div className="start-actions">
-                    <button onClick={openWorld}>
-                      <Icon name="folder" size={14} /> {t('Open…')}
-                    </button>
-                  </div>
-                  <h4>{t('Recent')}</h4>
-                  {recent.length === 0 ? (
-                    <p>{t('No recent worlds yet. Save one with Ctrl+S.')}</p>
-                  ) : (
-                    <ul className="recent-list">
-                      {recent.map((r) => (
-                        <li key={r.path} className={r.missing ? 'missing' : undefined}>
-                          <button
-                            className="recent-open"
-                            title={r.path}
-                            onClick={() => openRecent(r.path)}
-                          >
-                            <span className="recent-name">{r.name}</span>
-                            <span className="recent-path">
-                              {r.missing ? t('file not found') : r.path}
-                            </span>
-                          </button>
-                          <button
-                            className="recent-x"
-                            title={t('Remove from list')}
-                            onClick={() => forgetRecent(r.path)}
-                          >
-                            ×
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              )}
-              <p>{t('Pick an entry or a map from the left, or search with Ctrl+K.')}</p>
-            </div>
-          )}
+          {/* Two different screens wearing one class until now. With NO document this is the
+              app's cover — the Photoshop/Krita "home", and the only screen that says the app's
+              name. With a document open it is not a start screen at all, it is "nothing is
+              selected", which is what EmptyState exists for and is where the user lands after
+              deleting the entry they were reading. As one component the second case was a
+              heading reading "World" and a single grey sentence. */}
+          {view.kind === 'empty' &&
+            (worldFile ? (
+              <div className="empty-state">
+                <EmptyState
+                  icon="book-open"
+                  title={t('Nothing open')}
+                  hint={t('Pick an entry or a map from the left, or search with Ctrl+K.')}
+                />
+              </div>
+            ) : (
+              <div className="empty-state start-screen">
+                {/* The app's own name, in the display face, once — this is the one screen that
+                    is allowed to be a cover. Not a translation key: it is a proper noun. */}
+                <h2 className="page-title">Worldbuilder</h2>
+                {/* No "+ New world" here: a normal launch already IS a new, blank world (main's
+                    Photoshop-style reset), so the button offered to do something that had already
+                    happened. Starting genuinely from scratch is still one click away — Maps in the
+                    sidebar, or File ▸ New Project — for the rare case a returning user wants a
+                    fresh document instead of picking one up from here.
+                    The one action of this screen, so it carries the one primary fill. */}
+                <div className="start-actions">
+                  <button className="primary" onClick={openWorld}>
+                    <Icon name="folder" size={14} /> {t('Open…')}
+                  </button>
+                </div>
+                <h4>{t('Recent')}</h4>
+                {recent.length === 0 ? (
+                  <p>{t('No recent worlds yet. Save one with Ctrl+S.')}</p>
+                ) : (
+                  <ul className="recent-list">
+                    {recent.map((r) => (
+                      <li key={r.path} className={r.missing ? 'missing' : undefined}>
+                        <button
+                          className="recent-open"
+                          title={r.path}
+                          onClick={() => openRecent(r.path)}
+                        >
+                          <span className="recent-name">{r.name}</span>
+                          <span className="recent-path">
+                            {r.missing ? t('file not found') : r.path}
+                          </span>
+                        </button>
+                        <button
+                          className="recent-x"
+                          title={t('Remove from list')}
+                          aria-label={t('Remove from list')}
+                          onClick={() => forgetRecent(r.path)}
+                        >
+                          <Icon name="x" size={14} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
           {view.kind === 'entity' && (
             <EntityPage
               key={`e-${view.id}-${bump}`}
