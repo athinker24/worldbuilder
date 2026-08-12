@@ -2930,27 +2930,39 @@ export default function MapView({
               },
               'sep'
             )
-          // Edit and Move are MODIFYING actions on an existing drawing, so they live here rather
-          // than in the creation toolbar. Both select the feature first: edit mode applies only to
-          // the selection (syncEditMode), and the [selected, tool] effect re-syncs once the state
-          // lands. setTool, not activateTool — the latter toggles off when handed the current tool.
-          items.push(
-            {
+          /* WHAT THIS KIND OF DRAWING CAN ACTUALLY HAVE DONE TO IT. The same seven items used to
+             appear on all four kinds, and two of them were noise on some of those:
+             — "Edit shape" puts geoman into vertex editing, and a pin and a label have no
+               vertices. On a marker geoman offers dragging and nothing else, which is exactly
+               what "Move" one line below already does — the same command twice under two names.
+             — "Change border from this year" forks the drawing so the border can differ from
+               that year on. Only a polygon HAS a border.
+             Edit and Move are modifying actions on an existing drawing, so they live here rather
+             than in the creation toolbar. Both select the feature first: edit mode applies only to
+             the selection (syncEditMode), and the [selected, tool] effect re-syncs once the state
+             lands. setTool, not activateTool — the latter toggles off when handed the current
+             tool. */
+          if (isPolygon || isLine)
+            items.push({
               icon: 'pencil',
               label: t('Edit shape'),
               onClick: () => (setSelected(f), setTool('edit'))
-            },
-            {
-              icon: 'maximize',
-              label: t('Move'),
-              onClick: () => (setSelected(f), setTool('drag'))
-            },
-            'sep',
-            {
+            })
+          items.push({
+            icon: 'maximize',
+            label: t('Move'),
+            onClick: () => (setSelected(f), setTool('drag'))
+          })
+          if (isPolygon)
+            items.push({
               icon: 'clock',
               label: t('Change border from this year'),
               onClick: () => createFeatureFork(f)
-            },
+            })
+          /* Three groups, not four. Doing / going / destroying survives a pin, which is down to
+             two doable things — the finer split (shape apart from time) put a rule between every
+             single item once the ones above were taken away. */
+          items.push(
             {
               icon: 'calendar',
               label: t('Add event to this drawing'),
