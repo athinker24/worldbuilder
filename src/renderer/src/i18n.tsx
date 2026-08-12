@@ -29,6 +29,7 @@ const TR: Record<string, string> = {
   'Nothing recorded yet': 'Henüz kayıt yok',
   'Add events from the map timeline, or a ruler’s reign from an entry page. Both land here.':
     'Harita zaman çizgisinden olay, madde sayfasından hükümdarlık ekle. İkisi de buraya düşer.',
+  'Fit to view': 'Görünüme sığdır',
   'No relations yet': 'Henüz ilişki yok',
   'Link two entries from the Relations section of an entry page and the web draws itself.':
     'Bir madde sayfasının İlişkiler bölümünden iki maddeyi bağla, ağ kendiliğinden çizilir.',

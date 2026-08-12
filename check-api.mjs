@@ -222,5 +222,63 @@ for (const [label, fn] of pure) {
   }
 }
 
+// --- the relations graph's force layout -----------------------------------------------------
+// Pure arithmetic in a module of its own (that is WHY it is in a module — see graphLayout.ts),
+// so it can be exercised with nothing but a stub for requestAnimationFrame. Four properties,
+// each one a way it could be wrong without ever throwing:
+//   · every position stays finite — one NaN spreads to the whole graph in a single pass
+//   · repulsion actually separates: the closest pair ends up further apart than a node is wide
+//   · the same world lays out the same way twice (the seed and the tie-break are by INDEX)
+//   · an empty graph and a single node do not divide by zero
+globalThis.requestAnimationFrame = () => 0
+globalThis.cancelAnimationFrame = () => {}
+const { ForceLayout } = await import('./src/renderer/src/graphLayout.ts')
+const settle = (ids, edges) => {
+  const g = new ForceLayout()
+  g.seed(ids, edges, 900, 600)
+  g.heat(50)
+  for (let i = 0; i < 400; i++) g.step()
+  return g.nodes
+}
+const ids = Array.from({ length: 24 }, (_, i) => i + 1)
+const chain = ids.slice(1).map((id, i) => ({ from: ids[i], to: id }))
+const a = settle(ids, chain)
+const b = settle(ids, chain)
+let closest = Infinity
+for (let i = 0; i < a.length; i++)
+  for (let j = i + 1; j < a.length; j++)
+    closest = Math.min(closest, Math.hypot(a[i].x - a[j].x, a[i].y - a[j].y))
+// The coincident-node branch needs its OWN fixture, and finding that out is the point of
+// break-testing: the circle seed never puts two nodes on the same spot, so making that tie-break
+// random left "same world, same layout" green — an assertion that was passing without ever
+// reaching the line it was meant to be guarding. Here they all start stacked on one point.
+const stacked = () => {
+  const g = new ForceLayout()
+  g.seed([1, 2, 3, 4, 5], [], 900, 600)
+  for (const n of g.nodes) {
+    n.x = 400
+    n.y = 300
+  }
+  g.heat(50)
+  for (let i = 0; i < 200; i++) g.step()
+  return g.nodes
+}
+const s1 = stacked()
+const s2 = stacked()
+
+const graph = [
+  ['all finite', a.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y))],
+  ['no two nodes on top of each other', closest > 16],
+  ['same world, same layout', a.every((n, i) => Math.abs(n.x - b[i].x) < 1e-9)],
+  ['coincident nodes separate', s1.every((n) => Number.isFinite(n.x)) && s1[0].x !== s1[1].x],
+  ['…and separate the SAME way twice', s1.every((n, i) => Math.abs(n.x - s2[i].x) < 1e-9)],
+  ['empty graph', settle([], []).length === 0],
+  ['one node', Number.isFinite(settle([1], [])[0].x)]
+]
+for (const [label, pass] of graph) {
+  console.log(`${pass ? 'ok    ' : 'FAILED'} layout: ${label}`)
+  if (!pass) fails++
+}
+
 console.log('\nObject.prototype.pwned =', {}.pwned)
 console.log(fails ? `${fails} PROBLEM(S)` : 'every loader total, no loader threw')

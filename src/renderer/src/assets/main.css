@@ -920,8 +920,15 @@ button.side-label:hover {
 .diplo-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 10px;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-2);
+}
+
+/* Pushed to the far end: the legend on the left says what the colours mean, this is what you do
+   to the view. */
+.diplo-tools {
+  margin-left: auto;
 }
 
 /* A button, so it keeps its own border colour (set inline per relation) and takes nothing from
@@ -952,11 +959,30 @@ button.side-label:hover {
 /* The web is a circle, so it wants the largest SQUARE that fits — growing it wider than
    tall would only add empty margins left and right. Bounded by the viewport height so the
    diagram never runs off the bottom, and centred in whatever width is left over. */
+/* The graph is a VIEWPORT now, not a picture: it fills the space it is given and the contents
+   are panned and zoomed inside it, the way the map does. Its own surface, one step below the
+   page, so the edge of the canvas is visible and a node dragged to the rim has somewhere to be. */
+.diplo-host {
+  position: relative;
+  height: calc(100vh - 230px);
+  min-height: 320px;
+  background: var(--surface-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-m);
+  overflow: hidden;
+}
+
 .diplo-svg {
   width: 100%;
-  max-width: min(100%, calc(100vh - 210px));
-  margin-inline: auto;
+  height: 100%;
   display: block;
+  cursor: grab;
+  /* The browser's own pan/zoom must not eat the gestures this handles itself. */
+  touch-action: none;
+}
+
+.diplo-svg:active {
+  cursor: grabbing;
 }
 
 .diplo-edge {
@@ -971,17 +997,48 @@ button.side-label:hover {
 }
 
 .diplo-node {
-  cursor: pointer;
+  cursor: grab;
 }
 
 .diplo-node text {
   fill: var(--text);
   font-size: 13px;
   dominant-baseline: central;
+  /* The name must not swallow the grab: you take hold of the node, not the word beside it.
+     The halo is what keeps a name readable where it crosses an edge behind it. */
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--surface-canvas);
+  stroke-width: 3px;
 }
 
 .diplo-node:hover text {
   fill: var(--accent);
+}
+
+.diplo-node circle {
+  transition: r var(--dur-fast) var(--ease-out);
+}
+
+.diplo-node:hover circle {
+  r: 11;
+}
+
+/* The idle drift — what a settled graph does instead of nothing.
+   A CSS animation rather than more physics, so a graph that has found its shape costs no frames
+   at all: the simulation stops the moment it is cool (see graphLayout) and this keeps the
+   picture alive for the price of a compositor transform. Small on purpose — a few pixels over
+   eight seconds is movement you notice only when you are not looking at it. The delay is
+   staggered by index so the whole web does not breathe in unison, which would read as a wobble
+   rather than as life. prefers-reduced-motion switches it off with everything else. */
+@keyframes diplo-drift {
+  50% {
+    transform: translate(2px, -3px);
+  }
+}
+
+.diplo-bob {
+  animation: diplo-drift 8s ease-in-out infinite;
 }
 
 /* --- main area --- */
