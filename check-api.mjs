@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 // Run every settings loader in api.ts against hostile values, with the IPC bridge stubbed.
 // A loader must never throw and must never hand back something its caller will trip over.
 const settings = new Map()
@@ -305,6 +306,35 @@ for (const [label, pass] of graph) {
   console.log(`${pass ? 'ok    ' : 'FAILED'} layout: ${label}`)
   if (!pass) fails++
 }
+
+/*
+ * Every `var(--x)` in the stylesheet resolves in the DEFAULT theme.
+ *
+ * Nothing else in this project can catch a token that stops being defined. An undefined CSS
+ * variable is not an error to the parser, to tsc, to eslint or to the bundler — it is SILENCE, and
+ * the rule quietly falls back to nothing. Retiring the compatibility aliases took `--tint-1` and
+ * `--tint-2` out with them, and five surfaces lost their background in the dark theme with every
+ * check still green; that is what this exists for.
+ *
+ * `:root` only. A theme block overrides a SUBSET by design (Dark Teal changes eight), so the
+ * question is whether the default defines everything, not whether each theme does.
+ */
+const css = await readFile('./src/renderer/src/assets/main.css', 'utf8')
+const rootAt = css.indexOf(':root {')
+const root = css.slice(rootAt, css.indexOf('\n}', rootAt))
+const defined = new Set([...root.matchAll(/^\s+(--[\w-]+):/gm)].map((m) => m[1]))
+// Set per ELEMENT rather than globally — by a rule further down the file, or by the renderer as an
+// inline style (--w and --mz from the stroke-width patch, --lz on a label, --guide on a sidebar
+// row). :root has no business defining these.
+const LOCAL = new Set(['--w', '--mz', '--lz', '--canvas-grid', '--guide'])
+const undef = [...new Set([...css.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]))]
+  .filter((v) => !LOCAL.has(v) && !defined.has(v))
+  .sort()
+console.log(
+  `${undef.length ? 'FAILED' : 'ok    '} css: every token used is defined in :root` +
+    (undef.length ? ` — missing ${undef.join(', ')}` : '')
+)
+if (undef.length) fails++
 
 console.log('\nObject.prototype.pwned =', {}.pwned)
 console.log(fails ? `${fails} PROBLEM(S)` : 'every loader total, no loader threw')

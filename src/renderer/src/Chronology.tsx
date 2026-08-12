@@ -97,7 +97,7 @@ export default function Kronoloji({ onOpenEntity, onLocateFeature }: Props): Rea
               <div className="kron-year">{formatYear(m.year, cfg)}</div>
               <div
                 className="kron-dot"
-                style={{ background: p ? autoColor(p.name) : 'var(--muted)' }}
+                style={{ background: p ? autoColor(p.name) : 'var(--text-muted)' }}
               />
               {/* An event pinned to a drawing goes somewhere; a reign that is only a date does
                   not. Two different things, and they were the same div with a different cursor. */}
