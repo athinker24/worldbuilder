@@ -3295,9 +3295,20 @@ export default function MapView({
     // (cycle-guarded). We deliberately keep climbing past the first match and return the TOPMOST
     // one: after a same-rank conquest (duchy A takes duchy B) B still carries the rank tag, so
     // stopping at the first match would keep painting B's land in B's own color and the conquest
-    // would be invisible in this view — the holder is A. The owner id resolves separately: color
-    // + derived label text share one climb.
+    // would be invisible in this view — the holder is A.
+    //
+    // MEMOISED PER applyYear, and the comment that used to sit here said "color + derived label
+    // text share one climb", which the code did not do: the colour asks in this function's own
+    // layer loop and `rebuildDerivedLabels` asks again for the same entity in the same tick, so
+    // every base polygon climbed its chain TWICE and allocated two Sets doing it. The year slider
+    // is dragged continuously and playback runs at up to 20 years a second, so the doubling is
+    // paid per frame of that. `rootOf` below has had this memo all along; this is the same three
+    // lines. NULL IS CACHED TOO — "nothing owns this at this rank" is a real answer and it costs
+    // a full climb to reach, so the map stores `number | null` and only `undefined` means unasked.
+    const ownerMemo = new Map<number, number | null>()
     const rungOwnerAt = (eid: number): number | null => {
+      const hit = ownerMemo.get(eid)
+      if (hit !== undefined) return hit
       let cur: number | undefined = eid
       const seen = new Set<number>()
       let holder: number | null = null
@@ -3306,6 +3317,7 @@ export default function MapView({
         seen.add(cur)
         cur = parentAt(parentHist.current.get(cur) ?? [], year) ?? undefined
       }
+      ownerMemo.set(eid, holder)
       return holder // null = no owner at this rank that year
     }
     const rungColor = (eid: number): string => {
