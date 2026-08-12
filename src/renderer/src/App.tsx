@@ -409,10 +409,22 @@ export default function App(): React.JSX.Element {
   // that Ctrl+S actually wrote; auto-save reports through the same channel.
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // There is one toast slot, so two messages in the same few seconds means one of them is lost.
+  // Which one matters: auto-save fires on a three-minute timer and does not know what is on
+  // screen, so "Auto-saved" could quietly replace the error that had just told you something
+  // went wrong — and the error is the one carrying the click that opens the log. An error is
+  // therefore not overwritten by an ordinary message; anything may replace an ordinary one, and
+  // an error may replace an error.
+  const toastErr = useRef(false)
   const showToast = useCallback((msg: string, ms = 2200, err = false): void => {
+    if (toastErr.current && !err) return
+    toastErr.current = err
     setToast({ msg, err })
     clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setToast(null), ms)
+    toastTimer.current = setTimeout(() => {
+      toastErr.current = false
+      setToast(null)
+    }, ms)
   }, [])
 
   // What to do after an undo or a redo. A step that THREW is a fault and this app's rule is that a
@@ -1220,8 +1232,11 @@ export default function App(): React.JSX.Element {
           </div>
 
           <div className="side-section grow">
+            {/* The count is the one thing this heading can say that the list does not already
+                show — it was a word on its own line doing nothing. */}
             <div className="side-head">
               <span>{t('Entries')}</span>
+              <span className="side-group-count">{entities.length}</span>
             </div>
             {selected.size > 0 && (
               <div className="bulk-bar">

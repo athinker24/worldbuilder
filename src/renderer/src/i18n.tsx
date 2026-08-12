@@ -380,6 +380,9 @@ const TR: Record<string, string> = {
   'Folder color': 'Klasör rengi',
   'Enlarge: center it on screen': 'Büyüt: ekranın ortasına al',
   'Pin folders': 'Pin klasörleri',
+  '{n} layer(s) hidden': '{n} katman gizli',
+  'Everything is shown': 'Her şey görünür',
+  'Nothing matches.': 'Eşleşen bir şey yok.',
   rank: 'kademe',
   base: 'taban',
   'Which ladder rank changes hands (upper ranks take their whole branch)':

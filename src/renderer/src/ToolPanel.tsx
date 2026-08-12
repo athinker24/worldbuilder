@@ -241,6 +241,16 @@ export default function ToolPanel({
   return (
     <div className="tool-panel-inner">
       <div className="tool-settings">
+        {/* Which tool these settings belong to. The popover floats 62px from a 34px icon-only
+            button, so the only thing saying whose panel this was is that button's accent — and
+            the hint that explains the tool sat at the BOTTOM, after the controls it explains. */}
+        {activeDef && (
+          <div className="tool-head">
+            <Icon name={activeDef.icon} size={14} />
+            <span className="panel-title">{t(activeDef.name)}</span>
+          </div>
+        )}
+        {activeDef?.hint && <p className="hint">{t(activeDef.hint)}</p>}
         {active === 'polygon' && (
           <>
             <label>{t('Color')}</label>
@@ -801,7 +811,6 @@ export default function ToolPanel({
                 })()}
             </>
           ))}
-        {activeDef?.hint && <p className="hint">{t(activeDef.hint)}</p>}
         {!active && <p className="hint">{t('Select a tool; its settings appear here.')}</p>}
       </div>
     </div>

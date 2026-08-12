@@ -5336,14 +5336,24 @@ export default function MapView({
           )}
         </div>
         <div className="layers-menu">
-          <button
-            className={`layers-btn tier-3 ${layersOpen ? 'open' : ''}`}
-            title={t('Layers')}
-            onClick={() => setLayersOpen((o) => !o)}
-          >
-            <Icon name="eye" size={14} />
-            <span className="layers-count">{Object.values(layersOn).filter(Boolean).length}/4</span>
-          </button>
+          {/* "3/4" was a ratio, and the question it answers is not a ratio: it is "is anything
+              hidden right now?". The glyph says it — an open eye when everything is drawn, a
+              closed one and the accent when something is not, which is also the state worth
+              noticing from across the map. The count moves into the tooltip, where a number
+              belongs. */}
+          {(() => {
+            const off = Object.values(layersOn).filter((v) => !v).length
+            return (
+              <button
+                className={`layers-btn tier-3 ${layersOpen ? 'open' : ''} ${off ? 'filtered' : ''}`}
+                title={off ? t('{n} layer(s) hidden', { n: off }) : t('Everything is shown')}
+                aria-label={t('Layers')}
+                onClick={() => setLayersOpen((o) => !o)}
+              >
+                <Icon name={off ? 'eye-off' : 'eye'} size={14} />
+              </button>
+            )
+          })()}
           {layersOpen && (
             <>
               <div className="layers-backdrop" onClick={() => setLayersOpen(false)} />

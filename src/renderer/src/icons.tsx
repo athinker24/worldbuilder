@@ -58,6 +58,7 @@ export type IconName =
   | 'label'
   | 'board'
   | 'eye'
+  | 'eye-off'
   | 'ruler'
   | 'palette'
   | 'play'
@@ -130,6 +131,9 @@ const PATHS: Record<IconName, string> = {
   // so the base sheet is a map corner and the stack sits on top of it.
   board: 'M3 8l6-3 6 3 6-3v8M3 8v8l6-3 6 3 6-3M9 5v8M15 8v8',
   eye: 'M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0M15 12a3 3 0 1 1-6 0 3 3 0 1 1 6 0',
+  // The same eye with the lid drawn down and a stroke through it: "something is hidden".
+  'eye-off':
+    'M10.7 5.1A10.6 10.6 0 0 1 12 5c5 0 8.7 3.3 9.9 6.6a1 1 0 0 1 0 .7 12.4 12.4 0 0 1-2.5 3.7M6.6 6.6A12.4 12.4 0 0 0 2.1 11.6a1 1 0 0 0 0 .7C3.3 15.7 7 19 12 19a10.9 10.9 0 0 0 4.5-1M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18',
   ruler:
     'M21.3 8.7L8.7 21.3a1 1 0 0 1-1.4 0l-4.6-4.6a1 1 0 0 1 0-1.4L15.3 2.7a1 1 0 0 1 1.4 0l4.6 4.6a1 1 0 0 1 0 1.4zM7.5 10.5l2 2M10.5 7.5l2 2M13.5 4.5l2 2M4.5 13.5l2 2',
   // Playback: solid-looking triangles built from strokes so they keep the family's

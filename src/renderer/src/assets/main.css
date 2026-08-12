@@ -815,7 +815,16 @@ button.side-label:hover {
 }
 
 .atlas-map {
-  margin-bottom: 22px;
+  margin-bottom: var(--sp-6);
+}
+
+.atlas-map h3 {
+  margin-bottom: var(--sp-1);
+}
+
+/* The measurement under the map's name: a fact about it, not part of the heading. */
+.atlas-total {
+  margin: 0 0 var(--sp-3);
 }
 
 .atlas-map h3 {
@@ -2422,9 +2431,25 @@ a {
 /* No `gap` — the two-gap rhythm up by .panel-block is what spaces this, and a
    gap underneath it would add to every one of those margins. */
 .tool-settings {
-  padding: 12px;
+  padding: var(--sp-3);
   display: flex;
   flex-direction: column;
+}
+
+/* Whose settings these are. It reads as a panel header rather than a caption, so it takes the
+   .panel-title treatment the inspector's groups already use, with the tool's own glyph beside
+   it — the same icon that is lit on the toolbar 62px away. */
+.tool-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-faint);
+}
+
+.tool-head .panel-title {
+  margin-bottom: 0;
 }
 
 /* --- select (our own; see Select.tsx for why the native popup had to go) --- */
@@ -3221,11 +3246,14 @@ a {
   color: var(--danger);
 }
 
-/* Timeline ±10/±100 jump buttons: narrow with small text. */
+/* Timeline ±10/±100 jump buttons: narrow, and tight rather than SMALL. 10px was the smallest
+   type in the app and off the scale entirely (--fs-1 is 12); the width was the real constraint,
+   so the tracking does that work and the size rejoins the scale. */
 .step-jump {
-  font-size: 10px;
-  padding: 2px 4px;
-  letter-spacing: -0.03em;
+  font-size: var(--fs-1);
+  padding: 2px var(--sp-1);
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Layer menu: labeled toolbar button → popover panel (LinearHistory pattern). */
@@ -3320,6 +3348,13 @@ a {
   color: var(--text);
   font-size: 13px;
   cursor: pointer;
+}
+
+/* Something is hidden on the map. The one state on this toolbar worth noticing without looking
+   for it, so it is the one that takes the accent — a ratio in a badge ("3/4") could not say it. */
+.layers-btn.filtered {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .layers-btn:hover,

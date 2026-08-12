@@ -224,14 +224,21 @@ export default function Atlas({ onOpenEntity }: Props): React.JSX.Element {
       )}
       {atlas.map(({ map, unit, total, realms, dims }) => (
         <div key={map.id} className="atlas-map">
+          {/* The heading is the map's name. The measurement is a fact ABOUT it and the missing
+              scale is a warning, and both were riding inside the <h3> as one long sentence. */}
           <h3>
             <Icon name="map" size={15} /> {map.name}
-            <span className="hint">
-              {' '}
-              — {t('mapped area')}: {fmtArea(total)} {unit ? `${unit}²` : t('mu²')}
-              {!unit && ` (${t('no scale set: use the Scale tool on the map')})`}
-            </span>
           </h3>
+          <p className="hint atlas-total">
+            {t('mapped area')}: <span className="atlas-num">{fmtArea(total)}</span>{' '}
+            {unit ? `${unit}²` : t('mu²')}
+            {!unit && (
+              <>
+                {' · '}
+                {t('no scale set: use the Scale tool on the map')}
+              </>
+            )}
+          </p>
           {/* Realms and each map-mode dimension side by side rather than stacked: the extra
               width buys comparisons you can make at a glance, which is what an atlas is for.
               Columns reflow to one when the window is narrow. */}
