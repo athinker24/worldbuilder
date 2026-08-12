@@ -59,6 +59,8 @@ const TR: Record<string, string> = {
   'Untitled drawing': 'Adsız çizim',
   Region: 'Bölge',
   'Move to': 'Taşı',
+  // A long menu grows a filter field (ContextMenu) — no full stop, it is a placeholder.
+  Filter: 'Süz',
   Open: 'Aç',
   'Delete mode': 'Silme modu',
   // App.tsx

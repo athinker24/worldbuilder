@@ -3607,6 +3607,10 @@ a {
   position: fixed;
   min-width: 170px;
   max-width: 320px;
+  /* A menu long enough to earn a filter field is long enough to run off the screen. The clamp in
+     ContextMenu measures the box, so capping the height here is what it ends up honouring. */
+  max-height: 70vh;
+  overflow-y: auto;
   background: var(--surface-float);
   border-radius: var(--r-m);
   padding: 4px;
@@ -3731,6 +3735,15 @@ a {
 .ctx-item:hover .ctx-hint,
 .ctx-item:focus-visible .ctx-hint {
   color: var(--text-muted);
+}
+
+/* ponytail: scrolls with the list rather than sticking to the top. Sticky needs an opaque backing
+   over a translucent --control, and it would still leave the menu's 4px padding showing content
+   through above it — for a case that barely happens: the field takes focus as the menu opens, and
+   typing is what makes the list short enough to stop scrolling. */
+.ctx-filter {
+  width: 100%;
+  margin-bottom: 4px;
 }
 
 /* What was right-clicked. Not a title — a menu has no title, it has a subject. */

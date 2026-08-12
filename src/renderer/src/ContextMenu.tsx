@@ -1,5 +1,9 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Icon, { IconName } from './icons'
+import { useT } from './i18n'
+
+/** Above this many rows a menu grows a filter field. See `filtered` below. */
+const FILTER_AT = 10
 
 export interface MenuItem {
   label: string
@@ -34,6 +38,7 @@ interface Props {
 
 export default function ContextMenu({ menu, onClose }: Props): React.JSX.Element {
   const box = useRef<HTMLDivElement>(null)
+  const t = useT()
 
   /* Clamped against the MEASURED box. The estimate this replaces (a fixed 190px wide, 32px per
      item) could not survive a header, a swatch row or a rule, and was already wrong for a long
@@ -58,7 +63,13 @@ export default function ContextMenu({ menu, onClose }: Props): React.JSX.Element
     ...(box.current?.querySelectorAll<HTMLButtonElement>('.ctx-item') ?? [])
   ]
   useEffect(() => {
-    box.current?.querySelector<HTMLButtonElement>('.ctx-item')?.focus()
+    // The field first when there is one: past a certain length you are looking for a name, and
+    // the answer to that is typing it, not arrowing past forty rows.
+    const el = box.current
+    ;(
+      el?.querySelector<HTMLInputElement>('.ctx-filter') ??
+      el?.querySelector<HTMLButtonElement>('.ctx-item')
+    )?.focus()
   }, [])
 
   const walk = (e: React.KeyboardEvent, dir: 1 | -1): void => {
@@ -66,18 +77,33 @@ export default function ContextMenu({ menu, onClose }: Props): React.JSX.Element
     const items = rows()
     const at = items.indexOf(document.activeElement as HTMLButtonElement)
     // Wraps: a menu is a short cycle, and falling off the end of one is only ever annoying.
+    // From the filter field `at` is -1, so ↓ lands on the first row and ↑ on the last.
     items[(at + dir + items.length) % items.length]?.focus()
   }
 
-  // Drop a rule that has nothing on one side of it — see MenuEntry.
-  const entries = menu.items.filter(
-    (it, i, all) =>
-      it !== 'sep' ||
-      (i > 0 &&
-        i < all.length - 1 &&
-        all[i - 1] !== 'sep' &&
-        all.slice(i + 1).some((x) => x !== 'sep'))
-  )
+  /* Long menus filter themselves. The map tree's "move under…" menu is one row PER MAP, so it is
+     a picker wearing a menu's clothes — twenty maps make twenty rows and the useful answer is the
+     one you can name. A submenu was the obvious fix and is the wrong one: every guideline says a
+     flyout off a context menu closes the moment the pointer strays off the parent row.
+     The threshold lives here rather than at the call sites, because the menus that can grow are
+     not the ones anybody remembers to mark. */
+  const [q, setQ] = useState('')
+  const filtered = menu.items.length > FILTER_AT
+  const hit = (it: MenuEntry): boolean =>
+    it !== 'sep' && it.label.toLowerCase().includes(q.trim().toLowerCase())
+
+  // Rules are dropped while filtering: they separate groups, and a filtered list has none.
+  // Otherwise: drop a rule that has nothing on one side of it — see MenuEntry.
+  const entries = q.trim()
+    ? menu.items.filter(hit)
+    : menu.items.filter(
+        (it, i, all) =>
+          it !== 'sep' ||
+          (i > 0 &&
+            i < all.length - 1 &&
+            all[i - 1] !== 'sep' &&
+            all.slice(i + 1).some((x) => x !== 'sep'))
+      )
 
   return (
     <div
@@ -104,6 +130,21 @@ export default function ContextMenu({ menu, onClose }: Props): React.JSX.Element
             <span className="ctx-head-name">{menu.header.name}</span>
             {menu.header.note && <span className="ctx-head-note">{menu.header.note}</span>}
           </div>
+        )}
+        {filtered && (
+          <input
+            className="ctx-filter"
+            value={q}
+            placeholder={t('Filter')}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter takes the first row that survived, which is the whole point of typing.
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                rows()[0]?.click()
+              }
+            }}
+          />
         )}
         {menu.swatches && menu.swatches.colors.length > 0 && (
           <div className="ctx-colors">
