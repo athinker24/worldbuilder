@@ -48,7 +48,8 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['Wheel', 'Smooth zoom'],
       ['Shift+wheel', 'Size/thickness: of the selection, or of the active tool default'],
       ['Ctrl+drag a vertex', 'Weld: move the neighbouring polygon vertex along with it'],
-      ['Right click on a drawing', 'Menu: event, fork border, delete…']
+      ['Right click on a drawing', 'Menu: recolour, edit shape, event, fork border, delete…'],
+      ['Right click on the map', 'Menu: pick a drawing tool, or paste at that point']
     ]
   },
   {

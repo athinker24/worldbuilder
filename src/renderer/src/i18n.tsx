@@ -17,8 +17,6 @@ const TR: Record<string, string> = {
   // Labels that lost a leading glyph to the icon set, plus the split empty states.
   'Open…': 'Aç…',
   'Person folder': 'Kişi klasörü',
-  'Show in panel': 'Panelde göster',
-  'Link to entry…': 'Maddeye bağla…',
   map: 'harita',
   'Pick an entry or a map from the left, or search with Ctrl+K.':
     'Soldan bir madde ya da harita seç, ya da Ctrl+K ile ara.',
@@ -55,6 +53,14 @@ const TR: Record<string, string> = {
   'Add label': 'Etiket ekle',
   'Add event to this drawing': 'Bu çizime olay ekle',
   'Add location': 'Konum ekle',
+  'Paste here': 'Buraya yapıştır',
+  'New label': 'Yeni etiket',
+  // The context menu's subject line: what was right-clicked, and which KIND it is.
+  'Untitled drawing': 'Adsız çizim',
+  Region: 'Bölge',
+  'Move to': 'Taşı',
+  // A long menu grows a filter field (ContextMenu) — no full stop, it is a placeholder.
+  Filter: 'Süz',
   Open: 'Aç',
   'Delete mode': 'Silme modu',
   // App.tsx
@@ -132,7 +138,11 @@ const TR: Record<string, string> = {
   'Weld: move the neighbouring polygon vertex along with it':
     'Kaynak: komşu poligonun köşesini de birlikte taşı',
   'Right click on a drawing': 'Çizime sağ tık',
-  'Menu: event, fork border, delete…': 'Menü: olay, sınırı çatalla, sil…',
+  'Menu: recolour, edit shape, event, fork border, delete…':
+    'Menü: rengi değiştir, şekli düzenle, olay, sınırı çatalla, sil…',
+  'Right click on the map': 'Haritaya sağ tık',
+  'Menu: pick a drawing tool, or paste at that point':
+    'Menü: bir çizim aracı seç, ya da o noktaya yapıştır',
   'Step one year (while the strip is open)': 'Bir yıl ilerle/geri (şerit açıkken)',
   'Click the year': 'Yıla tıkla',
   'Type a year by hand': 'Elle yıl gir',

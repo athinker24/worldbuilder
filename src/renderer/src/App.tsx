@@ -916,9 +916,11 @@ export default function App(): React.JSX.Element {
     setMenu({
       x: ev.clientX,
       y: ev.clientY,
+      header: { name: folder.name, color: folderColor(folders, folder.id) },
       items: [
         { icon: 'file-text', label: t('New Entry'), onClick: () => addEntity(folder.id) },
         { icon: 'folder', label: t('New folder'), onClick: () => addFolder(folder.id) },
+        'sep',
         { icon: 'pencil', label: t('Rename'), onClick: () => setRenamingFolder(folder.id) },
         {
           // People live in folders now (the old "Person" entity type): family/dynasty pickers
@@ -931,6 +933,7 @@ export default function App(): React.JSX.Element {
               folders.map((f) => (f.id === folder.id ? { ...f, isPerson: !f.isPerson } : f))
             )
         },
+        'sep',
         { icon: 'trash', label: t('Delete'), danger: true, onClick: () => deleteFolder(folder) }
       ]
     })
@@ -953,9 +956,11 @@ export default function App(): React.JSX.Element {
         setMenu({
           x: ev.clientX,
           y: ev.clientY,
+          header: { name: e.name, color: folderColor(folders, e.folder ?? null) },
           items: [
             { icon: 'file-text', label: t('Open'), onClick: () => openEntity(e.id) },
             { icon: 'map-pin', label: t('Show on map'), onClick: () => locateEntity(e.id) },
+            'sep',
             {
               icon: 'trash',
               label: t('Delete'),

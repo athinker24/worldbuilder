@@ -2124,9 +2124,22 @@ kbd {
    same values. Nothing in CSS can reach it any more. */
 
 /* Selection highlight (single or Ctrl+click multi-select). A filter, not setStyle, preserves a
-   drawing's own color while editing. Applied to SVG paths and divIcons; map content is theme-independent. */
+   drawing's own color while editing. Applied to SVG paths and divIcons; map content is theme-independent.
+
+   ONE thin translucent shading, matched to SEL_HALO_PX/COLOR/ALPHA in pixiShapes — the two have
+   to agree, because in a multi-selection the primary is drawn here and the rest there.
+
+   WIDTH was the bug, not the colour, and it took getting it wrong in both directions to see it:
+   first a 5px black smear (a second, darker road around the road), then a wide white glow that
+   erased the neighbouring borders a selected region has to be read against. A selection mark is
+   THIN. Being dark rather than white is a separate choice on top of that — in a dark interface
+   white is the brightest thing on the screen, so it pulled harder than whatever it was pointing
+   at, and a slight shading belongs to the same family as every other surface here.
+
+   The cost objection in pixiShapes' comment does not reach this one: it is on a single element,
+   not on every shape on the map. */
 .sel-feature {
-  filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 5px #000);
+  filter: drop-shadow(0 0 1.25px rgb(0 0 0 / 0.55));
 }
 
 /* The contextual map inspector. RAISED, not floating: it is docked, and it keeps
@@ -3606,10 +3619,27 @@ a {
 .ctx-menu {
   position: fixed;
   min-width: 170px;
+  max-width: 320px;
+  /* A menu long enough to earn a filter field is long enough to run off the screen. The clamp in
+     ContextMenu measures the box, so capping the height here is what it ends up honouring. */
+  max-height: 70vh;
+  overflow-y: auto;
   background: var(--surface-float);
   border-radius: var(--r-m);
   padding: 4px;
   box-shadow: var(--shadow-2);
+  /* Grown from the corner nearest the cursor, which is the top-left in every case except a
+     clamped one. Small on purpose: the job is to say WHERE it came from, and a menu that has to
+     finish animating before it can be read is a menu that got slower. */
+  animation: ctx-in var(--dur-fast) var(--ease-out);
+  transform-origin: top left;
+}
+
+@keyframes ctx-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
 }
 
 /* In-app confirm/alert instead of native window.confirm — avoids focus loss. */
@@ -3697,6 +3727,106 @@ a {
 
 .ctx-item.danger:hover {
   color: var(--danger);
+}
+
+/* The shortcut this exact row runs. Right-aligned and quiet: it is an aside, and the menu is
+   still a list of labels — the `margin-left: auto` is what keeps it from being a second column
+   that every other row has to leave room for. */
+.ctx-hint {
+  margin-left: auto;
+  /* A <kbd> for what it means, but NOT the keycap the shortcut page wears: that rule paints
+     --surface-float, which is the menu's own background, so every hint came out as a raised box
+     floating on the same colour. Here the shortcut is an aside on a row, not the subject. */
+  padding: 0 0 0 var(--sp-4);
+  font: inherit;
+  font-size: var(--fs-1);
+  background: none;
+  border: 0;
+  color: var(--text-faint);
+}
+
+.ctx-item:hover .ctx-hint,
+.ctx-item:focus-visible .ctx-hint {
+  color: var(--text-muted);
+}
+
+/* ponytail: scrolls with the list rather than sticking to the top. Sticky needs an opaque backing
+   over a translucent --control, and it would still leave the menu's 4px padding showing content
+   through above it — for a case that barely happens: the field takes focus as the menu opens, and
+   typing is what makes the list short enough to stop scrolling. */
+.ctx-filter {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+/* What was right-clicked. Not a title — a menu has no title, it has a subject. */
+.ctx-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px 10px 7px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ctx-head-name {
+  font-weight: 600;
+  color: var(--text);
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The kind, and it earns its place on exactly one case: a region and the free label naming it
+   are two drawings with the SAME name, and this is the only thing that tells them apart. */
+.ctx-head-note {
+  margin-left: auto;
+  padding-left: var(--sp-3);
+  font-size: var(--fs-1);
+  color: var(--text-faint);
+}
+
+.ctx-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.35);
+}
+
+/* A row that ACTS rather than lists. The swatches are map content, so they carry their own
+   colour in both themes — the same exemption the picker's presets have. */
+.ctx-colors {
+  display: flex;
+  gap: 4px;
+  padding: 2px 10px 7px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ctx-color {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  padding: 0;
+  border-radius: var(--r-s);
+  border: 1px solid rgb(0 0 0 / 0.35);
+  cursor: pointer;
+  transition: transform var(--dur-fast);
+}
+
+.ctx-color:hover,
+.ctx-color:focus-visible {
+  transform: scale(1.15);
+  border-color: var(--text);
+}
+
+.ctx-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-subtle);
 }
 
 /* Leaflet dark-theme fit. Double class for the same reason as .leaflet-host
@@ -4402,6 +4532,15 @@ a {
 .leaflet-overlay-pane path {
   stroke-width: max(0.75px, calc(var(--w, 3) * var(--mz, 1) * 1px));
   vector-effect: non-scaling-stroke;
+}
+
+/* The selected drawing's own stroke thickens — SEL_BOOST_PX in pixiShapes, which draws whichever
+   members of a multi-selection Leaflet is not holding. Screen pixels either way: the boost is
+   interface, so it is the same amount at every zoom whatever unit the stroke under it uses.
+   A weight of 0 keeps its inline `stroke-width: 0` from the _updateStyle patch, which beats this
+   — no outline is a choice, and selecting something must not draw a line its author turned off. */
+.leaflet-overlay-pane path.sel-feature {
+  stroke-width: max(0.75px, calc(var(--w, 3) * var(--mz, 1) * 1px + 2px));
 }
 
 /* An empty map says so in the middle, where you are already looking, rather than with a button
