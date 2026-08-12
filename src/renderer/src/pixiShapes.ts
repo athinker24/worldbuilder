@@ -167,8 +167,18 @@ const STROKE_REDRAW_SPAN = 0.35
 
 /** The stylesheet's own hairline floor (`max(0.75px, …)`), for the strokes that scale. */
 const MIN_STROKE_PX = 0.75
-/** The selection rim, in screen pixels — it says "this one", so it is interface, not terrain. */
-const SEL_HALO_PX = 6
+/**
+ * The selection rim, in screen pixels — it says "this one", so it is interface, not terrain.
+ *
+ * A RIM, not a glow, and thin. At 6px (3 each side, near-opaque white) it was wide enough to
+ * cover what it was drawn next to: a polygon's outline runs the whole way round the region, so
+ * the halo erased every neighbouring border it touched and the selection could not be read
+ * against its surroundings — which is most of what you are looking at when you select a region.
+ * A mark that hides the thing it is marking has stopped being a mark. 1.25px a side, and
+ * translucent so what is under it still shows through.
+ */
+const SEL_HALO_PX = 2.5
+const SEL_HALO_ALPHA = 0.7
 
 // Vertex and midpoint dots, in SCREEN pixels, matched to geoman's own handles: a 14 px white
 // circle with a blue rim for a vertex, a smaller and fainter one for the midpoint between two.
@@ -422,7 +432,7 @@ export class ShapeLayer {
         g.stroke({
           width: w + SEL_HALO_PX / this.strokeScale,
           color: 0xffffff,
-          alpha: 0.9,
+          alpha: SEL_HALO_ALPHA,
           join: 'round'
         })
       }
