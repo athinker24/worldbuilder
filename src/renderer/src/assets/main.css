@@ -2126,20 +2126,20 @@ kbd {
 /* Selection highlight (single or Ctrl+click multi-select). A filter, not setStyle, preserves a
    drawing's own color while editing. Applied to SVG paths and divIcons; map content is theme-independent.
 
-   ONE thin translucent white shadow, matched to SEL_HALO_PX/SEL_HALO_ALPHA in pixiShapes — the
-   two have to agree, because in a multi-selection the primary is drawn here and the rest there.
+   ONE thin translucent shading, matched to SEL_HALO_PX/COLOR/ALPHA in pixiShapes — the two have
+   to agree, because in a multi-selection the primary is drawn here and the rest there.
 
-   It has been wrong in both directions. It used to end with `drop-shadow(0 0 5px #000)`, and a
-   5px black smear around a 3px road is not a highlight but a second, darker road. Two stacked
-   white shadows fixed the darkness and kept the width, which is the half that actually hurts on a
-   polygon: its outline runs the whole way round the region, so a wide halo erases the
-   neighbouring borders it touches and you cannot read the selection against its surroundings.
-   Both times the mark was competing with the map instead of pointing at it.
+   WIDTH was the bug, not the colour, and it took getting it wrong in both directions to see it:
+   first a 5px black smear (a second, darker road around the road), then a wide white glow that
+   erased the neighbouring borders a selected region has to be read against. A selection mark is
+   THIN. Being dark rather than white is a separate choice on top of that — in a dark interface
+   white is the brightest thing on the screen, so it pulled harder than whatever it was pointing
+   at, and a slight shading belongs to the same family as every other surface here.
 
    The cost objection in pixiShapes' comment does not reach this one: it is on a single element,
    not on every shape on the map. */
 .sel-feature {
-  filter: drop-shadow(0 0 1.25px rgb(255 255 255 / 0.7));
+  filter: drop-shadow(0 0 1.25px rgb(0 0 0 / 0.55));
 }
 
 /* The contextual map inspector. RAISED, not floating: it is docked, and it keeps

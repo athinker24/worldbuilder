@@ -176,9 +176,15 @@ const MIN_STROKE_PX = 0.75
  * against its surroundings — which is most of what you are looking at when you select a region.
  * A mark that hides the thing it is marking has stopped being a mark. 1.25px a side, and
  * translucent so what is under it still shows through.
+ *
+ * DARK, not white. White is the brighter thing on every screen in a dark interface, so it drew
+ * the eye harder than anything it was pointing at; a slight shading sits with the rest of the app
+ * instead of shouting over it. This is not the 5px black smear from two commits ago coming back —
+ * that one was wrong for its WIDTH, and the width is what changed.
  */
 const SEL_HALO_PX = 2.5
-const SEL_HALO_ALPHA = 0.7
+const SEL_HALO_COLOR = 0x000000
+const SEL_HALO_ALPHA = 0.55
 
 // Vertex and midpoint dots, in SCREEN pixels, matched to geoman's own handles: a 14 px white
 // circle with a blue rim for a vertex, a smaller and fainter one for the midpoint between two.
@@ -431,7 +437,7 @@ export class ShapeLayer {
         trace(g, s)
         g.stroke({
           width: w + SEL_HALO_PX / this.strokeScale,
-          color: 0xffffff,
+          color: SEL_HALO_COLOR,
           alpha: SEL_HALO_ALPHA,
           join: 'round'
         })
