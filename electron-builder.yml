@@ -31,7 +31,7 @@ files:
   # A licence the user cannot find has not been given to them, and one buried inside an archive
   # they have no tool to open is exactly that.
   - '!gen-notices.mjs'
-  - '!{TERMS.txt,PRIVACY.txt,THIRD-PARTY-NOTICES.txt}'
+  - '!{TERMS.txt,PRIVACY.txt,THIRD-PARTY-NOTICES.txt,ALPHA-README.txt}'
   # Agent and editor configuration. Nothing above covers the repo root, and electron-builder ships
   # whatever it is not told to leave out — so `.claude/`, `.agents/`, `.mcp.json` and
   # `skills-lock.json` were going out INSIDE every copy of the app, and
@@ -63,6 +63,7 @@ extraFiles:
   - TERMS.txt
   - PRIVACY.txt
   - THIRD-PARTY-NOTICES.txt
+  - ALPHA-README.txt
 # Electron fuses: flags flipped in the binary itself, so they cannot be turned back on by an
 # environment variable or a command line. Each closes a way to make OUR signed-looking exe run
 # somebody else's code.

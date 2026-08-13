@@ -4,15 +4,16 @@
 # three in agreement on every platform.
 * text=auto eol=lf
 
-# The three documents that SHIP, and the only place the eol=lf rule above is wrong. They are read
+# The documents that SHIP, and the only place the eol=lf rule above is wrong. They are read
 # outside any editor of ours: NSIS renders TERMS.txt in the installer's licence page through a
-# RichEdit control, and Notepad is what opens the other two from Help ▸. Both want CRLF, and the
+# RichEdit control, and Notepad is what opens the others from Help ▸. All want CRLF, and the
 # rule above would have handed the release runner LF-only text — the licence page is the one moment
 # a user is guaranteed to be looking at it. Stored as LF in the repo either way; this is about the
 # working tree the build reads.
 TERMS.txt text eol=crlf
 PRIVACY.txt text eol=crlf
 THIRD-PARTY-NOTICES.txt text eol=crlf
+ALPHA-README.txt text eol=crlf
 
 # Binary assets must never be touched.
 *.png binary

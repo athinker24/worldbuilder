@@ -372,7 +372,9 @@ function noteUiState(scope: string, data: Record<string, unknown> | undefined): 
  * renderer. In development the files are at the repo root, which is what getAppPath returns before
  * packaging — packaged it would be the asar itself, so the two cases differ.
  */
-function openLegal(name: 'TERMS.txt' | 'PRIVACY.txt' | 'THIRD-PARTY-NOTICES.txt'): void {
+function openLegal(
+  name: 'TERMS.txt' | 'PRIVACY.txt' | 'THIRD-PARTY-NOTICES.txt' | 'ALPHA-README.txt'
+): void {
   const file = is.dev ? join(app.getAppPath(), name) : join(dirname(app.getPath('exe')), name)
   if (!existsSync(file)) {
     // Worth saying rather than doing nothing: an empty click on a legal document reads as the app
@@ -523,6 +525,7 @@ const MENU_TR: Record<string, string> = {
   'Reset Zoom': 'Yakınlaştırmayı Sıfırla',
   'Keyboard Shortcuts': 'Klavye Kısayolları',
   'Open Error Log': 'Hata Kaydını Aç',
+  'Alpha Notes': 'Alfa Notları',
   'Terms of Use': 'Kullanım Şartları',
   'Privacy Policy': 'Gizlilik Politikası',
   'Third-Party Notices': 'Üçüncü Taraf Bildirimleri',
@@ -655,6 +658,7 @@ function buildMenu(): void {
             click: () => send('help.shortcuts')
           },
           { type: 'separator' },
+          { label: ml('Alpha Notes'), click: () => openLegal('ALPHA-README.txt') },
           { label: ml('Terms of Use'), click: () => openLegal('TERMS.txt') },
           { label: ml('Privacy Policy'), click: () => openLegal('PRIVACY.txt') },
           { label: ml('Third-Party Notices'), click: () => openLegal('THIRD-PARTY-NOTICES.txt') },
