@@ -1,13 +1,13 @@
-WORLDBUILDER - TERMS OF USE
+Worldbuilder - Terms of Use
 ================================================================================
 
-Copyright (c) 2026 henryoferzincan. All rights reserved.
+Copyright (c) 2026 athinker24. All rights reserved.
 
 Please read this before installing. Installing or using Worldbuilder means you
 accept these terms. If you do not accept them, do not install it.
 
 
-1. WHAT YOU MAY DO
+1. What you may do
 --------------------------------------------------------------------------------
 
 Worldbuilder is provided free of charge. You may:
@@ -19,7 +19,7 @@ Worldbuilder is provided free of charge. You may:
     people, exactly as you received it, at no charge
 
 
-2. WHAT YOU MAY NOT DO
+2. What you may not do
 --------------------------------------------------------------------------------
 
   - sell, rent or license the application itself, or charge any fee for it
@@ -30,10 +30,10 @@ Worldbuilder is provided free of charge. You may:
     that accompany the application
   - present the application as your own work
 
-This does not restrict what you make WITH it. See section 3.
+This does not restrict what you make with it. See section 3.
 
 
-3. YOUR WORK IS YOURS
+3. Your work is yours
 --------------------------------------------------------------------------------
 
 Everything you create in Worldbuilder - your maps, entries, languages, images,
@@ -45,28 +45,28 @@ The application stores its working copy under your Documents folder. Those files
 are yours; nothing removes them, including uninstalling the application.
 
 
-4. NO WARRANTY
+4. No warranty
 --------------------------------------------------------------------------------
 
-Worldbuilder is provided "AS IS", WITHOUT WARRANTY OF ANY KIND, express or
+Worldbuilder is provided "as is", without warranty of any kind, express or
 implied, including but not limited to the warranties of merchantability, fitness
 for a particular purpose and non-infringement. It is not promised to be free of
 errors, nor to run on any particular machine, nor to remain compatible with files
 saved by other versions.
 
-BACK UP YOUR WORK. The application keeps dated copies of your world in a
+Back up your work. The application keeps dated copies of your world in a
 "backups" folder inside its data directory, and this is a convenience, not a
 guarantee. A copy you keep somewhere else is the only backup that is certain.
 
 
-5. NO LIABILITY
+5. No liability
 --------------------------------------------------------------------------------
 
-TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE AUTHOR SHALL NOT BE LIABLE
-FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
-OR OTHERWISE, ARISING FROM OR IN CONNECTION WITH THE APPLICATION OR ITS USE -
+To the maximum extent permitted by applicable law, the author shall not be liable
+for any claim, damages or other liability, whether in an action of contract, tort
+or otherwise, arising from or in connection with the application or its use -
 including, without limitation, lost or corrupted data, lost work, lost profits or
-business interruption - EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+business interruption - even if advised of the possibility of such damage.
 
 Some jurisdictions do not allow the exclusion of certain warranties or the
 limitation of certain liabilities. Where that is the case, the exclusions and
@@ -74,7 +74,7 @@ limitations above apply only to the extent permitted, and your statutory rights
 as a consumer are unaffected.
 
 
-6. WORLD FILES FROM OTHER PEOPLE
+6. World files from other people
 --------------------------------------------------------------------------------
 
 A .world file is a document written by whoever created it. The application treats
@@ -83,37 +83,34 @@ check is ever complete. Open files from people you trust, and treat one from an
 unknown source with the same caution you would give any downloaded document.
 
 
-7. THIRD-PARTY COMPONENTS
+7. Third-party components
 --------------------------------------------------------------------------------
 
 Worldbuilder is built on open source software, each part under its own licence.
 Those licences govern those parts and are reproduced in full in:
 
-  THIRD-PARTY-NOTICES.txt   (beside the application)
-  LICENSE.electron.txt      (Electron)
-  LICENSES.chromium.html    (Chromium and ffmpeg)
+  THIRD-PARTY-NOTICES.txt   (beside this file)
+  LICENSE.electron.txt      (Electron, next to the application executable)
+  LICENSES.chromium.html    (Chromium and ffmpeg, next to the application executable)
 
 Nothing in this document overrides any of them.
 
 
-8. PRIVACY
+8. Privacy
 --------------------------------------------------------------------------------
 
-Worldbuilder makes no network requests and collects nothing. See PRIVACY.txt,
-beside the application.
+Worldbuilder makes no network requests and collects nothing. See
+PRIVACY.txt, beside this file.
 
 
-9. CHANGES
+9. Changes
 --------------------------------------------------------------------------------
 
 These terms may change in later versions. A change applies to the version it
 ships with; the version you already have keeps the terms it came with.
 
 
-10. CONTACT
+10. Contact
 --------------------------------------------------------------------------------
 
-  henryoferzincan
-
-  (No public address is given here yet. Put the one you want people to use -
-  a project page, a release page or an email - before you publish.)
+  athinker24

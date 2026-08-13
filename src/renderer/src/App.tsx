@@ -523,9 +523,13 @@ export default function App(): React.JSX.Element {
   // there is no document — and the empty view falls back to a plain hint.
   const [recent, setRecent] = useState<{ path: string; name: string; missing: boolean }[]>([])
   const [worldFile, setWorldFile] = useState<string | null>(null)
+  // The most recent session closed without saving — its own start-screen section, separate from
+  // recentWorlds() on purpose (see api.ts): a system snapshot, not a file the user named.
+  const [prevSession, setPrevSession] = useState<{ path: string; name: string } | null>(null)
   useEffect(() => {
     api.recentWorlds().then(setRecent)
     api.worldInfo().then((w) => setWorldFile(w.file))
+    api.previousSession().then(setPrevSession)
   }, [])
   const openRecent = useCallback(
     async (path: string): Promise<void> => {
@@ -536,6 +540,11 @@ export default function App(): React.JSX.Element {
     },
     [discardOk, lang]
   )
+  const openPreviousSession = useCallback(async (): Promise<void> => {
+    if (!(await discardOk())) return
+    if (await api.openPreviousSession()) return // main reloads
+    setPrevSession(await api.previousSession()) // it vanished between listing and clicking
+  }, [discardOk])
   const forgetRecent = useCallback(async (path: string): Promise<void> => {
     await api.forgetRecent(path)
     setRecent(await api.recentWorlds())
@@ -1382,6 +1391,25 @@ export default function App(): React.JSX.Element {
                     <Icon name="folder" size={14} /> {t('Open…')}
                   </button>
                 </div>
+                {/* Its own heading, above Recent — see api.ts/previousSession: mixing a system
+                    snapshot into the worlds the user actually saved read as clutter, whatever its
+                    label said. Reuses .recent-list's markup so it still looks like it belongs. */}
+                {prevSession && (
+                  <>
+                    <h4>{t('Previous session')}</h4>
+                    <ul className="recent-list">
+                      <li>
+                        <button
+                          className="recent-open"
+                          title={prevSession.path}
+                          onClick={openPreviousSession}
+                        >
+                          <span className="recent-name">{prevSession.name}</span>
+                        </button>
+                      </li>
+                    </ul>
+                  </>
+                )}
                 <h4>{t('Recent')}</h4>
                 {recent.length === 0 ? (
                   <p>{t('No recent worlds yet. Save one with Ctrl+S.')}</p>

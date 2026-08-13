@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, protocol, net, Menu, session } from 'electron'
 import { basename, dirname, join } from 'path'
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { writeFile } from 'fs/promises'
 import { execFile } from 'child_process'
 import { pathToFileURL } from 'url'
@@ -372,15 +372,23 @@ function noteUiState(scope: string, data: Record<string, unknown> | undefined): 
  * renderer. In development the files are at the repo root, which is what getAppPath returns before
  * packaging — packaged it would be the asar itself, so the two cases differ.
  */
-function openLegal(name: 'TERMS.txt' | 'PRIVACY.txt' | 'THIRD-PARTY-NOTICES.txt'): void {
-  const file = is.dev ? join(app.getAppPath(), name) : join(dirname(app.getPath('exe')), name)
+function openLegal(
+  name: 'TERMS.txt' | 'PRIVACY.txt' | 'THIRD-PARTY-NOTICES.txt' | 'ALPHA-README.txt'
+): void {
+  // These live in a `legal/` folder now (both in the repo and in what ships — see
+  // electron-builder.yml's extraFiles), kept separate from `name` itself so the message below
+  // still names just the file, not its folder.
+  const file = is.dev
+    ? join(app.getAppPath(), 'legal', name)
+    : join(dirname(app.getPath('exe')), 'legal', name)
   if (!existsSync(file)) {
     // Worth saying rather than doing nothing: an empty click on a legal document reads as the app
     // hiding it, and the realistic cause is a portable copy where only the exe was moved.
     dialog.showMessageBoxSync({
       type: 'warning',
-      message: `${name} was not found next to the application.`,
-      detail: 'It is part of the download. If this is a portable copy, move the whole folder.'
+      message: `${name} was not found.`,
+      detail:
+        'It should be in the "legal" folder next to the application. If this is a portable copy, move the whole folder.'
     })
     return
   }
@@ -453,6 +461,13 @@ function newProject(): void {
   const done = logTime('project.new')
   if (hasContent()) {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    // A session that was never saved is otherwise a file nobody knows to look for: recoverable in
+    // principle, invisible in practice. findPreviousSession() is what makes "closed without
+    // saving" a click on the start screen instead of a support request — see HANDOFF/the alpha
+    // readiness report, finding B-2. NOT addRecent: this is not a file the user named or chose,
+    // it is a system snapshot, and mixing it into Recent (a) reads as clutter next to worlds the
+    // user actually saved and (b) would compete with them for Recent's 12-entry cap. It gets its
+    // own start-screen section instead, computed live from backups/ rather than persisted.
     packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.world`))
     logEvent('INFO', 'project.autobacked', { reason: 'previous session had content' })
   }
@@ -489,6 +504,7 @@ const MENU_TR: Record<string, string> = {
     'Bu dünya dosyası bir dünyada olması gerekenden çok daha fazla görsel taşıyor.',
   'Open Recent': 'Son Kullanılanlar',
   '(empty)': '(boş)',
+  'Previous session': 'Önceki oturum',
   Save: 'Kaydet',
   'Save As…': 'Farklı Kaydet…',
   Export: 'Dışa Aktar',
@@ -517,6 +533,7 @@ const MENU_TR: Record<string, string> = {
   'Reset Zoom': 'Yakınlaştırmayı Sıfırla',
   'Keyboard Shortcuts': 'Klavye Kısayolları',
   'Open Error Log': 'Hata Kaydını Aç',
+  'Alpha Notes': 'Alfa Notları',
   'Terms of Use': 'Kullanım Şartları',
   'Privacy Policy': 'Gizlilik Politikası',
   'Third-Party Notices': 'Üçüncü Taraf Bildirimleri',
@@ -525,6 +542,40 @@ const MENU_TR: Record<string, string> = {
     'Belgeler içindeki Worldbuilder klasörünün yazılabilir olduğunu kontrol edin.'
 }
 const ml = (s: string): string => (readPrefs().language === 'tr' ? (MENU_TR[s] ?? s) : s)
+
+/** Every other Recent entry is a name the USER chose when they saved. `last-session-<stamp>.world`
+ *  is the one kind nobody named — it exists so a session closed without saving is not invisible
+ *  (see newProject / the blank-launch branch) — and showing its raw ISO filename there reads as a
+ *  bug even though the file itself is fine. This gives it a label instead. */
+const LAST_SESSION_RE = /^last-session-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z\.world$/
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+const recentDisplayName = (path: string): string => {
+  const base = basename(path)
+  const m = LAST_SESSION_RE.exec(base)
+  if (!m) return base
+  const d = new Date(`${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z`)
+  if (isNaN(d.getTime())) return base // a stamp that fails to parse is not worth failing over
+  return (
+    `${ml('Previous session')} — ${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.` +
+    `${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  )
+}
+
+/** The most recent unsaved-session snapshot, or null. Computed live from backups/ rather than
+ *  persisted anywhere — there is nothing to keep in sync, and the file itself is the only source
+ *  of truth. Filenames sort chronologically as text (same property the log's fileStamp relies on),
+ *  so the last one alphabetically is the newest; no stat() needed. */
+function findPreviousSession(): { path: string; name: string } | null {
+  let files: string[]
+  try {
+    files = readdirSync(join(DATA_DIR, 'backups')).filter((f) => LAST_SESSION_RE.test(f))
+  } catch {
+    return null // no backups/ folder yet (very first launch) — nothing to show, not an error
+  }
+  if (!files.length) return null
+  const full = join(DATA_DIR, 'backups', files.sort().at(-1)!)
+  return { path: full, name: recentDisplayName(full) }
+}
 
 function buildMenu(): void {
   const recent = readRecent()
@@ -649,6 +700,7 @@ function buildMenu(): void {
             click: () => send('help.shortcuts')
           },
           { type: 'separator' },
+          { label: ml('Alpha Notes'), click: () => openLegal('ALPHA-README.txt') },
           { label: ml('Terms of Use'), click: () => openLegal('TERMS.txt') },
           { label: ml('Privacy Policy'), click: () => openLegal('PRIVACY.txt') },
           { label: ml('Third-Party Notices'), click: () => openLegal('THIRD-PARTY-NOTICES.txt') },
@@ -675,6 +727,10 @@ const mainApi = {
   saveWorld: (): Promise<string | null> => saveWorld(false),
   saveWorldAs: (): Promise<string | null> => saveWorld(true),
   worldInfo: (): { file: string | null; dirty: boolean } => ({ file: currentFile, dirty }),
+  // 'appVersion', not 'getVersion' — a `get*` name reads fine but the point is only that it must
+  // NOT match MUTATES (create|update|delete|add|set|restore|retype|import|pick); this avoids the
+  // question rather than relying on a prefix quirk.
+  appVersion: (): string => app.getVersion(),
   // Pick + open a file. The unsaved-changes confirm lives in the RENDERER (asked via worldInfo)
   // — here it is just pick + open. The returned path signals "reload" to the renderer.
   async openWorld(): Promise<string | null> {
@@ -695,7 +751,7 @@ const mainApi = {
   // Start screen: recent worlds. 'missing' = the file was moved/deleted —
   // the row stays listed (the user dismisses it with ×), it is not silently dropped.
   recentWorlds: (): { path: string; name: string; missing: boolean }[] =>
-    readRecent().map((p) => ({ path: p, name: basename(p), missing: !existsSync(p) })),
+    readRecent().map((p) => ({ path: p, name: recentDisplayName(p), missing: !existsSync(p) })),
   forgetRecent: (path: string): void => writeRecent(readRecent().filter((p) => p !== path)),
   // Open from the list. A missing file stays listed (so the user sees it) and returns false.
   // ONLY paths recorded in recent.json can be opened: a path arriving over IPC is untrusted —
@@ -704,6 +760,18 @@ const mainApi = {
   openRecent(path: string): boolean {
     if (!readRecent().includes(path) || !existsSync(path)) return false
     if (!openGuarded(path)) return false // a recent entry can go bad on disk after it was listed
+    mainWindow?.webContents.reload()
+    return true
+  },
+  // Start screen, its own section above Recent: the most recent session closed without saving —
+  // see findPreviousSession(). Deliberately separate from recentWorlds(): this is not a file the
+  // user named, and showing it there read as clutter next to worlds they actually chose to save.
+  previousSession: (): { path: string; name: string } | null => findPreviousSession(),
+  // No path argument, unlike openRecent — main recomputes which file this is rather than trusting
+  // one from the renderer, so there is no list for a compromised renderer to have tampered with.
+  openPreviousSession(): boolean {
+    const p = findPreviousSession()
+    if (!p || !openGuarded(p.path)) return false
     mainWindow?.webContents.reload()
     return true
   },
@@ -1182,6 +1250,8 @@ app.whenReady().then(() => {
       // working copy (images included) is packed into backups/ as a full .world — nothing is
       // lost even if it was never saved (subject to the 30-day backup pruning).
       const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      // NOT addRecent — see newProject() for why: findPreviousSession() surfaces this on its own,
+      // separate from the worlds the user actually chose to save.
       packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.world`))
       resetWorld()
       dbApi.createMap({ name: ml('New map') }) // see newProject() — same reasoning
