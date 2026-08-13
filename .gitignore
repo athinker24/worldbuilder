@@ -9,3 +9,18 @@ HANDOFF.md
 # Per-machine agent configuration: absolute paths with the account name in them. This rule used
 # to live only in a personal global ignore file, which protects one machine and no clone.
 .claude/settings.local.json
+
+# A skill-management CLI installs an unrelated marketing/design skill library here, outside this
+# project's control. Ignore everything it adds and allowlist only what this project actually owns
+# — a new marketing skill the tool installs later is ignored automatically, not swept in by a
+# careless `git add -A`. .claude/skills/<name> is a junction to .agents/skills/<name> for every
+# installed skill except the four below, which are real directories.
+.agents/skills/*
+!.agents/skills/agentation/
+!.agents/skills/agentation-self-driving/
+
+.claude/skills/*
+!.claude/skills/agentation/
+!.claude/skills/agentation-self-driving/
+!.claude/skills/security-gates/
+!.claude/skills/map-internals/
