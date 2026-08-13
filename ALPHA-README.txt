@@ -12,7 +12,7 @@ explanatory, and if it isn't, that itself is worth reporting.
 
 Expect bugs. The save/data-safety side of the app has had real attention (see
 TERMS.txt and PRIVACY.txt for the details), but that does not mean nothing
-will go wrong — it means that when something does, the app should tell you
+will go wrong it means that when something does, the app should tell you
 rather than fail silently. If it ever doesn't, that is the most useful kind
 of report you can send.
 
@@ -30,7 +30,7 @@ Two files, both open the same app:
   Worldbuilder-portable.zip Extract anywhere and run Worldbuilder.exe.
 
 Running the .exe will very likely show a blue "Windows protected your PC"
-screen. This is not a virus warning — it appears because the app is not
+screen. This is not a virus warning it appears because the app is not
 signed with a paid certificate, and Windows shows this for any unrecognised
 publisher. Click "More info" then "Run anyway". Once per file is enough.
 
@@ -46,7 +46,7 @@ Everything is saved instantly, on your own computer, here:
       backups\     automatic dated copies
       logs\        session logs (see section 5)
 
-No account, no cloud, no network requests at all — see PRIVACY.txt for the
+No account, no cloud, no network requests at all. see PRIVACY.txt for the
 full statement.
 
 
@@ -74,7 +74,7 @@ anything in it is in there, dated.
 
 Help > Open Error Log (or Preferences > Developer > Open Log Folder) opens
 THIS session's log file, selected, ready to attach. It records what the app
-did and when, including any error and where it happened — never the content
+did and when, including any error and where it happened never the content
 of your world, never your file paths, never your username (see PRIVACY.txt).
 
 Send that file along with a short note on what you were doing when it
