@@ -80,7 +80,7 @@ protocol.registerSchemesAsPrivileged([
 // exportMapImage needs the window for capturePage; assigned in createWindow
 let mainWindow: BrowserWindow | null = null
 
-// --- Wonderdraft-style file model: the working copy (DATA_DIR) is saved instantly at all times,
+// --- The document model: the working copy (DATA_DIR) is saved instantly at all times,
 // Ctrl+S packs it into a single .world file, Open unpacks a file over the working copy.
 // currentFile = the Ctrl+S target, kept in memory here and nowhere else; dirty = changes since
 // the last save. (settings.worldFile is a working-copy convenience that nothing reads, and
@@ -90,7 +90,7 @@ let dirty = false
 // Set when the startup sequence failed. Reported once the window exists — the point is that the
 // app still opens; a dialog before createWindow() would have nothing to attach to.
 let startupWarning: string | null = null
-// Name + dirty star in the window title (Photoshop pattern). The renderer never sets document.title.
+// Name + dirty star in the window title. The renderer never sets document.title.
 function updateTitle(): void {
   mainWindow?.setTitle(
     `${APP_NAME} — ${currentFile ? basename(currentFile) : 'unsaved'}${dirty ? ' *' : ''}`
@@ -127,7 +127,7 @@ const WORLD_EXT = ['.world', '.dunya']
 const worldArg = (argv: string[]): string | null =>
   argv.find((a) => WORLD_EXT.some((e) => a.toLowerCase().endsWith(e)) && existsSync(a)) ?? null
 
-// Recent .world files (Photoshop/Krita start screen). NOT written into DATA_DIR: the working
+// Recent .world files, shown on the start screen. NOT written into DATA_DIR: the working
 // copy is reset on every normal launch, and the list must outlive that → userData/recent.json.
 const RECENT = join(app.getPath('userData'), 'recent.json')
 const readRecent = (): string[] => {
@@ -167,8 +167,8 @@ type Prefs = {
   mapPanelWidth?: number
   /** Interface scale, as a PERCENT. The app is drawn in CSS pixels, so on a 2560-wide display at
       100% system scaling everything is physically small — the usual complaint about any desktop
-      app on a 2K panel, and the usual answer is the one VS Code, Discord and Obsidian all give:
-      a zoom the app owns, per machine, because it describes a screen rather than a world. */
+      app on a 2K panel. The answer is a zoom the app owns, per machine, because it describes a
+      screen rather than a world. */
   uiScale?: number
   // Developer logging. Per machine like everything else here — it describes how YOU want the app
   // to behave, and a shared .world must not be able to turn it on for someone else.
@@ -591,7 +591,7 @@ function buildMenu(): void {
       {
         label: ml('View'),
         submenu: [
-          // Photoshop's Tab / Shift+Tab. registerAccelerator:false — Tab is the focus key, and
+          // Tab / Shift+Tab hide the panels. registerAccelerator:false — Tab is the focus key, and
           // registering it natively would kill keyboard navigation in every input on the page.
           // The renderer owns the key and skips it while a form control has focus.
           {
@@ -692,7 +692,7 @@ const mainApi = {
     mainWindow?.webContents.reload()
     return r.filePaths[0]
   },
-  // Start screen (Photoshop/Krita): recent worlds. 'missing' = the file was moved/deleted —
+  // Start screen: recent worlds. 'missing' = the file was moved/deleted —
   // the row stays listed (the user dismisses it with ×), it is not silently dropped.
   recentWorlds: (): { path: string; name: string; missing: boolean }[] =>
     readRecent().map((p) => ({ path: p, name: basename(p), missing: !existsSync(p) })),
@@ -820,7 +820,7 @@ const mainApi = {
     return importAsset(r.filePaths[0])
   },
   // Exports what is on screen (rect: CSS pixels, the .leaflet-host bounds) as a PNG.
-  // The equivalent of Wonderdraft's "Export" — not editable, a one-way sharing artifact.
+  // Export, as opposed to save: not editable, a one-way sharing artifact.
   async exportMapImage(
     rect: { x: number; y: number; width: number; height: number },
     defaultName: string
@@ -973,7 +973,7 @@ function createWindow(): void {
     if (s) applyUiScale(s)
   })
 
-  // Close guard while dirty (Photoshop pattern): Save / Don't Save / Cancel
+  // Close guard while dirty: Save / Don't Save / Cancel
   win.on('close', (e) => {
     if (!dirty) return
     const r = dialog.showMessageBoxSync(win, {
@@ -1178,7 +1178,7 @@ app.whenReady().then(() => {
     if (arg) {
       openGuarded(arg) // launch with the double-clicked file; a bad one just starts blank
     } else if (hasContent()) {
-      // Photoshop pattern: a normal launch is ALWAYS a blank document. The previous session's
+      // A normal launch is ALWAYS a blank document. The previous session's
       // working copy (images included) is packed into backups/ as a full .world — nothing is
       // lost even if it was never saved (subject to the 30-day backup pruning).
       const stamp = new Date().toISOString().replace(/[:.]/g, '-')
@@ -1274,7 +1274,7 @@ app.whenReady().then(() => {
     // hasOwn: prototype members like 'constructor' must not count as methods
     if (!Object.hasOwn(mainApi, method)) throw new Error(`Bilinmeyen api metodu: ${method}`)
     const fn = (mainApi as Record<string, (...a: unknown[]) => unknown>)[method]
-    // Dirty flag: mutation methods mean changes since the last save (ponytail: a method-name
+    // Dirty flag: mutation methods mean changes since the last save (a method-name
     // heuristic — get/list/search/export do not match, save/open manage themselves)
     if (MUTATES.test(method)) {
       dirty = true

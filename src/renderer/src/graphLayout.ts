@@ -1,6 +1,6 @@
 /**
- * Force-directed graph layout — a velocity simulation, in the shape d3-force uses and Obsidian's
- * graph view is built on. Written here rather than installed for the same reason `navRoute` has
+ * Force-directed graph layout — a velocity simulation: repulsion between every pair, attraction
+ * along each link, and a per-tick damping. Written here rather than installed for the same reason `navRoute` has
  * its own Dijkstra and `pcaAxis` its own eigenvector: it is a page of arithmetic, and a graph
  * library arrives with a renderer, a zoom behaviour and a data model that would all have to be
  * argued with.

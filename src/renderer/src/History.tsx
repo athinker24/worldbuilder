@@ -4,7 +4,7 @@ import { alertDialog } from './dialog'
 import { useT } from './i18n'
 import Icon from './icons'
 
-// Photoshop's History palette: the session's edits in order, with a click to jump to any of them.
+// History panel: the session's edits in order, with a click to jump to any of them.
 //
 // It reads the undo stacks through a store subscription rather than props, because those stacks are
 // module state that anything in the app may push to — the map, an article, the sidebar — and there
@@ -24,7 +24,7 @@ export default function History({ onApplied }: Props): React.JSX.Element {
   const t = useT()
   const { steps, applied } = useSyncExternalStore(subscribeHistory, getHistory)
 
-  // Photoshop keeps the current state visible; the list grows downward and scrolls itself. Without
+  // The current state stays visible; the list grows downward and scrolls itself. Without
   // this the newest edit — the one you almost always want — walks off the bottom while you sit at
   // the top, which is what made the panel feel like it just got longer and longer.
   const here = useRef<HTMLButtonElement>(null)
@@ -45,8 +45,8 @@ export default function History({ onApplied }: Props): React.JSX.Element {
 
   return (
     <div className="hist-list">
-      {/* The state before anything was done. Photoshop keeps the same row, and without it there
-          is no way to click your way back past the first edit. */}
+      {/* The state before anything was done. Without this row there is no way to click your way
+          back past the first edit. */}
       <button
         ref={applied === 0 ? here : null}
         className={`hist-row${applied === 0 ? ' current' : ''}`}

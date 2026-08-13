@@ -16,8 +16,7 @@ const NODE_R = 8
    wider than the dot itself, which is what makes a node easy to take hold of rather than exact. */
 const GRAB_PX = 14
 
-// Diplomacy web (World Anvil's "diplomacy web" pattern): non-person entries and the links between
-// them. It used to drop them on a fixed circle, which is readable at eight entries and a cat's
+// Relations web: non-person entries and the links between them. It used to drop them on a fixed circle, which is readable at eight entries and a cat's
 // cradle at forty — the names on the outside ran into each other and there was no way to look
 // closer. It behaves like a map now: force-directed layout (graphLayout.ts), wheel to zoom, drag
 // the background to pan, drag a node to pull it and its neighbours around. Still no new data —

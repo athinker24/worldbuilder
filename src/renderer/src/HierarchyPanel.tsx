@@ -15,8 +15,8 @@ import Icon from './icons'
 import { useT } from './i18n'
 import { IconButton, Segmented, Tabs } from './ui'
 
-// The map's active mode: rank (paint base polygons by their ancestor at that rank — the CK3
-// realm view) or paint (color by a dimension like religion/language)
+// The map's active mode: rank (paint base polygons by their ancestor at that rank — the realm
+// view) or paint (color by a dimension like religion/language)
 export type ActiveMode = { kind: 'rank' | 'paint'; key: string } | null
 
 interface Props {
@@ -32,7 +32,7 @@ interface Props {
   onLocate: (id: number) => void
 }
 
-/** CK3-style bottom-right hierarchy panel: government tabs + rank views + map modes. */
+/** The bottom-right hierarchy panel: government tabs + rank views + map modes. */
 export default function HierarchyPanel({
   active,
   scope,

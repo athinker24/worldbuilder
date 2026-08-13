@@ -161,7 +161,7 @@ export default function EntityPage({
   // on a real drag (mousedown≠mouseup); a bare 'did height change' check also fired on the
   // first click (when n.height did not exist yet).
   const noteResizeStart = useRef<number | null>(null)
-  // Map history (the OHM chronology pattern): the entity's features with their year ranges
+  // Map history: the entity's features with their year ranges
   const [feats, setFeats] = useState<
     { id: number; map_id: number; style: string; map_name: string }[]
   >(initialFeats ?? [])
@@ -595,7 +595,7 @@ export default function EntityPage({
     if (!tags.includes(t)) saveTags([...tags, t])
   }
 
-  // --- [[ entity-name completion (the Obsidian pattern) ---
+  // --- [[ entity-name completion ---
   // The textareas are deliberately UNCONTROLLED (defaultValue + save on blur; making them
   // controlled would rewrite the whole note-editing path and height saving) → the insertion is
   // written straight into the DOM. The suggestion box anchors BELOW the textarea: converting
@@ -1219,7 +1219,7 @@ export default function EntityPage({
         </form>
       </Section>
 
-      {/* The OHM chronology pattern: where this entity is drawn, and when.
+      {/* Chronology: where this entity is drawn, and when.
           Needs a host that can actually navigate to a map. */}
       {onLocateFeature && feats.length > 0 && (
         <Section title={t('Map history')} icon="map-pin">

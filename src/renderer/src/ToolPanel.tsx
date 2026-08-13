@@ -63,9 +63,9 @@ export interface DrawSettings {
     opacity: number
     dash: LineDash
     arrow: LineArrow
-    curviness: number // 0-100; render-only curvature (LegendKeeper path-tool pattern)
+    curviness: number // 0-100; render-only curvature
   }
-  // Serbest metin etiketi (LegendKeeper "Labels" + Wonderdraft curved text)
+  // Free text label: map text with no polygon or pin behind it, optionally curved
   label: {
     text: string
     color: string
@@ -179,7 +179,7 @@ interface Props {
   onSettings: (s: DrawSettings) => void
   // 📏 Scale tool (state lives in MapView; the panel only displays/triggers)
   scale: MapScale | null
-  mapWidthPx: number | null // base image width in pixels (Wonderdraft method); null without an image
+  mapWidthPx: number | null // base image width in pixels; null without an image
   measuring: 'dist' | 'area' | null
   onCalibrate: () => void
   onMeasure: (k: 'dist' | 'area') => void
@@ -667,7 +667,7 @@ export default function ToolPanel({
               onBlur={commitUnit}
               onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
             />
-            {/* Method A (Wonderdraft): the map's full width = N units */}
+            {/* Method A: the map's full width = N units */}
             <label>{t('Map width ({unit})', { unit: unit.trim() || 'km' })}</label>
             {mapWidthPx ? (
               <input

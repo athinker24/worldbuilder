@@ -319,7 +319,7 @@ interface FeatureStyle {
   fillImg?: string // polygon fill image (assets/-relative) — tiled via an SVG pattern
   text?: string // free text label (Point geometry + this field = a label, not a pin)
   angle?: number // label rotation angle (degrees)
-  curve?: number // label curvature -100..100 (Wonderdraft curved text; 0 = straight)
+  curve?: number // label curvature -100..100 (0 = straight)
   board?: string // id of the board (drawing layer) it belongs to — matches settings.mapBoards
   minZoom?: number // hide below this zoom (declutter pins/labels when zoomed out)
   maxZoom?: number // hide above this zoom
@@ -347,7 +347,7 @@ interface Props {
   // Deliberately an opaque () => void — capturePage needs the live .leaflet-host element, which
   // only exists here, and no Leaflet type may leave this file.
   onExportReady?: (fn: (() => void) | null) => void
-  // Photoshop's Tab / Shift+Tab, driven from App: hidePanels covers the inspector and the tool
+  // Tab / Shift+Tab, driven from App: hidePanels covers the inspector and the tool
   // settings popover, hideTools additionally hides the floating tool palette.
   /** False while another workspace is on screen. The map stays MOUNTED so returning
       to it does not rebuild Leaflet and throw away your zoom and position — but its
@@ -438,7 +438,7 @@ const pinDivIcon = (m: {
   })
 }
 
-// Free text label (LegendKeeper "Labels"): map text without polygon or pin — a sea, a
+// Free text label: map text without polygon or pin — a sea, a
 // mountain range, a region name. iconSize/iconAnchor [0,0]: the icon's top-left sits exactly
 // on the point and the inner div centers itself via translate(-50%,-50%) → no width math per
 // text length. Zoom scales it via the `--lz` custom property (LABEL_BASE = zoom-0 base).
@@ -453,7 +453,7 @@ const LABEL_BASE = 16
  */
 const MAX_BASE_PX = 8192
 // Derived-mode label (rank/paint): a base font (map units) below this means the region is too
-// small, so no label is drawn (CK3 does not name tiny regions either)
+// small, so no label is drawn — a name wider than the region it names is noise
 const LABEL_MIN = 5
 // The text is user input embedded into an html string → must be escaped (no XSS from a shared
 // world.db; same rationale as blocking raw HTML in markdown).
@@ -558,7 +558,7 @@ const labelDivIcon = (
   return L.divIcon({ className: 'map-label', html, iconSize: [0, 0], iconAnchor: [0, 0] })
 }
 
-// Polygon fill image (LegendKeeper region fills): the SVG <pattern> resolves document-wide via
+// Polygon fill image: the SVG <pattern> resolves document-wide via
 // url(#id) (same mechanism as the worldArrow marker). One pattern def PER IMAGE, not per
 // polygon. objectBoundingBox: the image is stretched over the REFERENCING polygon's bbox → it
 // sticks to the polygon and scales with it on zoom (screen-fixed tiling was tried; zoomed out,
@@ -567,8 +567,8 @@ const labelDivIcon = (
 // pattern, so the existing opacity slider needed no change.
 const fillPatternId = (path: string): string => `fillpat-${path.replace(/[^a-zA-Z0-9]/g, '_')}`
 
-// Map scale: perUnit = real distance / map unit (px). Two methods: numeric map width
-// (Wonderdraft) or measuring a known distance on the map. settings 'mapScales' =
+// Map scale: perUnit = real distance / map unit (px). Two methods: a numeric map width
+// or measuring a known distance on the map. settings 'mapScales' =
 // { [mapId]: {perUnit, unit} }. CRS.Simple is planar, so the math is pure Euclid — no projection.
 const ringLen = (ring: number[][]): number => {
   let s = 0
@@ -577,7 +577,7 @@ const ringLen = (ring: number[][]): number => {
   return s
 }
 // ringArea lives in api.ts (shared with Atlas, pure geometry — no dependency on the heavy
-// MapView module). ponytail: vertex average — not a shoelace centroid, fine for a label anchor
+// MapView module). Vertex average — not a shoelace centroid, fine for a label anchor
 const ringCentroid = (ring: number[][]): [number, number] => {
   let sx = 0
   let sy = 0
@@ -662,7 +662,7 @@ const ringsTouch = (a: number[][], b: number[][], tol: number): boolean => {
 // just under a 1.2:1 rectangle, measured against open rings — anything rounder is written level.
 const ANISO_MIN = 0.15
 // PCA main axis: long-axis angle (radians) from the vertex cloud's covariance + width along it.
-// CK3/cartography use medial axis; PCA is enough at personal scale (ponytail: medial axis is overkill).
+// Cartography proper uses the medial axis; PCA is enough at personal scale.
 const pcaAxis = (verts: number[][]): { theta: number; extent: number } => {
   let mx = 0
   let my = 0
@@ -712,7 +712,7 @@ const fmtDist = (v: number): string =>
 const curvePoints = (coords: number[][], curviness: number): L.LatLng[] => {
   if (coords.length < 3) return coords.map(([x, y]) => L.latLng(y, x))
   const s = (Math.max(0, Math.min(100, curviness)) / 100) * 0.5
-  const steps = coords.length > 150 ? 4 : 12 // ponytail: fewer subdivisions on very long paths
+  const steps = coords.length > 150 ? 4 : 12 // Fewer subdivisions on very long paths
   const pt = (i: number): number[] => coords[Math.max(0, Math.min(coords.length - 1, i))]
   const out: L.LatLng[] = []
   for (let i = 0; i < coords.length - 1; i++) {
@@ -790,7 +790,7 @@ const buildNavGraph = (
 ): { nodes: number[][]; adj: NavEdge[][]; pinNode: Map<number, number> } => {
   const nodes: number[][] = []
   const adj: NavEdge[][] = []
-  // ponytail: O(n²) linear scan — a few hundred nodes at personal scale, no spatial index needed
+  // O(n²) linear scan — a few hundred nodes at personal scale, no spatial index needed
   const findOrAdd = (x: number, y: number): number => {
     for (let i = 0; i < nodes.length; i++)
       if (Math.abs(nodes[i][0] - x) < eps && Math.abs(nodes[i][1] - y) < eps) return i
@@ -847,7 +847,7 @@ const buildNavGraph = (
   return { nodes, adj, pinNode }
 }
 
-// Dijkstra (ponytail: O(V²) node pick — runs once per route, no heap needed).
+// Dijkstra (O(V²) node pick — runs once per route, no heap needed).
 // null when no route exists. Consecutive same-fid edges fold into one NavLeg.
 const navRoute = (
   g: { nodes: number[][]; adj: NavEdge[][] },
@@ -1134,7 +1134,7 @@ export default function MapView({
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [hudZoom, setHudZoom] = useState<number | null>(null)
   const hudTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  // Map mode (CK3-like): rank → base polygons by their ancestor at that rank; paint → by dimension
+  // Map mode: rank → base polygons by their ancestor at that rank; paint → by dimension
   const [activeMode, setActiveMode] = useState<ActiveMode>(null)
   const activeModeRef = useRef<ActiveMode>(null)
   const [layersOpen, setLayersOpen] = useState(false)
@@ -1216,7 +1216,7 @@ export default function MapView({
   const entColors = useRef(new Map<number, string>())
   const entNames = useRef(new Map<number, string>())
   const featArea = useRef(new Map<number, number>())
-  // Derived-mode labels (rank/paint, CK3-style): not DB features but transient markers built
+  // Derived-mode labels (rank/paint): not DB features but transient markers built
   // in applyYear. labelGeo: base polygon geometry summary (fixed per reload generation; keys =
   // EPS-grid cell keys of the vertices — polygons sharing a vertex count as adjacent, geoman
   // snapping makes neighbouring coordinates exactly equal). dimValue: the paint value text.
@@ -1330,7 +1330,7 @@ export default function MapView({
 
   // 📏 Scale tool (state of the right panel's 'scale' tool): saved scale + active measure
   // session. Session kinds: calib (2 points → distance form), dist (cumulative ruler), area
-  // (transient polygon). dist/area create NO persistent features — Wonderdraft's measure tool.
+  // (transient polygon). dist/area create NO persistent features — measuring is not drawing.
   const [mapScale, setMapScale] = useState<MapScale | null>(null)
   const [barZoom, setBarZoom] = useState(0) // for the scale bar (no ref reads during render)
   type Measure =
@@ -1464,7 +1464,7 @@ export default function MapView({
     navTemp.current?.remove()
     navTemp.current = null
     if (!lines.length) return setNav({ step: 'result', aName, bName, route: null })
-    // ponytail: junction tolerance = 1/500 of the map's long edge (~6px on a 3000px map).
+    // Junction tolerance = 1/500 of the map's long edge (~6px on a 3000px map).
     // Geoman snapping (on by default) already makes coordinates shared; this tolerance mops up
     // float rounding and small misses. A single tunable number.
     const span = Math.max(wm.width ?? 0, wm.height ?? 0) || 1000
@@ -1493,8 +1493,8 @@ export default function MapView({
   const [drawSettings, setDrawSettingsState] = useState<DrawSettings>(DEFAULT_DRAW)
   const drawRef = useRef<DrawSettings>(DEFAULT_DRAW)
   // Export: at capture time the UI covering the map (Time strip, HUD, Hierarchy panel,
-  // conquest/event hints) temporarily leaves the render — a one-way, non-editable PNG like
-  // Wonderdraft's "Export" (Save already happens automatically on every edit).
+  // conquest/event hints) temporarily leaves the render — a one-way, non-editable PNG
+  // (saving already happens automatically on every edit).
   const [exporting, setExporting] = useState(false)
   const exportMap = async (): Promise<void> => {
     const host = divRef.current
@@ -2567,7 +2567,7 @@ export default function MapView({
           if (derived) {
             // Geometry summary for derived labels. Grid rounding (EPS=0.01) is the same
             // tolerance as the weld's Chebyshev compare; snapping makes coordinates exactly
-            // equal, so cells hold. ponytail: a vertex pair within EPS but across a cell
+            // equal, so cells hold. A vertex pair within EPS but across a cell
             // boundary could in theory split a component — write the 4 neighbour cells too if seen.
             const geom = JSON.parse(f.geometry) as { type: string; coordinates: number[][][] }
             if (geom.type === 'Polygon') {
@@ -2844,7 +2844,7 @@ export default function MapView({
         }
         // Live weld: starting a vertex drag with Ctrl held finds the neighbours' co-located
         // vertices and moves them along for the whole drag (a single magnet-point feel).
-        // ponytail: editing two neighbours at once via geoman could have the last save clobber the weld.
+        // Editing two neighbours at once via geoman could have the last save clobber the weld.
         const dragLL = (e: unknown): L.LatLng | undefined =>
           (e as { markerEvent?: { target?: L.Marker } }).markerEvent?.target?.getLatLng?.()
         const partnerRings = (poly: L.Polygon): L.LatLng[][] => {
@@ -2856,7 +2856,7 @@ export default function MapView({
           if (!ctrlRef.current || !isPolygon) return
           const ll = dragLL(e)
           if (!ll) return
-          const EPS = 0.01 // ponytail: co-location tolerance (map units) — a single tunable if needed
+          const EPS = 0.01 // Co-location tolerance (map units) — a single tunable if needed
           for (const [fid, lys] of allLayers.current) {
             if (fid === f.id) continue
             for (const ly of lys) {
@@ -3040,7 +3040,7 @@ export default function MapView({
     done({ features: wm?.features.length ?? 0 })
   }
 
-  // CK3-style derived region labels (rank/paint): ADJACENT base polygons in the same group
+  // Derived region labels (rank/paint): ADJACENT base polygons in the same group
   // (that year's rank owner / paint value) union-find into one component (adjacency = shared
   // vertex grid cell, guaranteed by geoman snapping); each component gets a name label tilted
   // along its long axis (PCA) with a slight arc, font scaled to component width, none when
@@ -3143,7 +3143,7 @@ export default function MapView({
     // the ordinary case (merged by a shared corner in the pass above) costs a find() and nothing
     // more, and boxes that do not overlap are skipped before any geometry is looked at. Measured on
     // a mode switch: 400 adjacent polygons in one realm, 36-70 ms, indistinguishable from before.
-    // ponytail: still O(pairs) within a group, so the slow case is polygons that overlap by box and
+    // Still O(pairs) within a group, so the slow case is polygons that overlap by box and
     // never touch — 60 mutually overlapping 102-vertex slivers cost 330 ms, contrived (real
     // neighbours touch, and touching merges them out of the loop) and paid on a mode switch rather
     // than per frame. A segment grid is the upgrade if a real map ever finds it.
@@ -3965,7 +3965,8 @@ export default function MapView({
 
   // Feature shortcuts: Del/Backspace delete, Ctrl+C copy, Ctrl+V paste under the cursor,
   // Ctrl+D duplicate — all work with MULTI-select. None fire while typing in an input.
-  // Bare effect (dep dizisi yok): handler'lar her render tazelenir, bayat closure olmaz.
+  // Bare effect (no dependency array): the handlers are refreshed on every render, so no
+  // handler can close over stale state.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       // The most important guard of the six: this one runs in the CAPTURE phase and
@@ -4241,7 +4242,7 @@ export default function MapView({
     // current zoom toward it. Every frame animate:false setZoomAround → 'zoom' event → labels/
     // pins scale synchronously per frame (Leaflet's own animation does not, hence manual).
     // Previously it jumped to the target INSTANTLY → ~0.15 leap per wheel tick = stepped feel.
-    // ponytail: 0.0015 sensitivity, 0.2 ease — single numbers to tune if it feels fast/slow/harsh.
+    // 0.0015 sensitivity, 0.2 ease — single numbers to tune if it feels fast/slow/harsh.
     // wheelZooming: while the rAF runs, the 'zoom' event does DOM only (label/pin scaling) and
     // React state (HUD/scale bar) is not updated per frame — 60fps React re-renders (Timeline/
     // panel) would stutter. React state updates once when the zoom settles (below).
@@ -5145,9 +5146,9 @@ export default function MapView({
   )
 
   // Shift+wheel: resize the selected feature — or, with nothing selected, the active draw
-  // tool's DEFAULT — instead of zooming (the Wonderdraft pattern). onWheel lives in a
+  // tool's DEFAULT — instead of zooming. onWheel lives in a
   // mount-once useEffect closure, so the fresh selection is read via a ref, reassigned every
-  // render with the current selStyle/editSelectedStyle. ponytail: every tick goes
+  // render with the current selStyle/editSelectedStyle. Every tick goes
   // editSelectedStyle → reloadFeatures (same path as dragging a slider; reloadGen already
   // prevents flicker); the defaults branch refreshes the preview instantly via updateDrawSettings.
   const drawTool = tool === 'polygon' || tool === 'line' || tool === 'marker' || tool === 'label'
@@ -6386,7 +6387,7 @@ export default function MapView({
                         </span>
                       </div>
                     )
-                  // ponytail: outer ring only — no holed polygons are drawn
+                  // Outer ring only — no holed polygons are drawn
                   const ring = (g.coordinates as number[][][])[0]
                   return (
                     <div className="panel-block scale-info">

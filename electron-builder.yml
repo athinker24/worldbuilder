@@ -11,7 +11,9 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   # Dev notes never ship to users: a detailed map of the internals + every security
   # mitigation, i.e. a ready-made roadmap for an attacker. (README.md is excluded above.)
-  - '!{CLAUDE.md,DURUM.md,HANDOFF.md,AGENTS.md,TANITIM.md}'
+  # (The guidance that moved out of CLAUDE.md is covered too: the skills sit under `.claude/`
+  # and `src/`, both excluded elsewhere in this list.)
+  - '!{CLAUDE.md,HANDOFF.md,AGENTS.md}'
   # The renderer-side check harness. It lives at the repo ROOT, which the excludes above do not
   # cover — everything not named here ships. Harmless in itself, but a test that stubs the IPC
   # bridge is a description of the bridge, and nothing that exists for development belongs in the

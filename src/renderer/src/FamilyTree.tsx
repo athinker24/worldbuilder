@@ -13,7 +13,7 @@ import Icon from './icons'
 import { useT } from './i18n'
 import { IconButton } from './ui'
 
-// Dynasty tree (CK3 house-tree style): no separate data structure — derived from the
+// Dynasty tree: no separate data structure — derived from the
 // 'mother'/'father'/'spouse' links between person entities. Climb to the founder preferring
 // fathers, then descend the whole line (couple-nodes). Clicking a person recenters the tree.
 interface Props {

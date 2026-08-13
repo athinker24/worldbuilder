@@ -265,7 +265,7 @@ export function backupIfNeeded(): void {
   if (made || dropped) logEvent('INFO', 'project.backup', { daily: today, dropped })
 }
 
-// --- The .world file format (like Wonderdraft's own file): EVERYTHING in one file ---
+// --- The .world file format: EVERYTHING in one file ---
 // Format = a SQLite copy with the same schema + an extra `assets` table (images embedded as BLOBs).
 // The working copy (world.db + assets/) is untouched by this — Save packs, Open unpacks.
 // settings.worldFile is the Ctrl+S target in the WORKING COPY only — packWorld strips it, so a
@@ -1337,7 +1337,7 @@ export function hasContent(): boolean {
   )
 }
 
-/** Reset the working copy: empty schema + empty assets/ (Photoshop's blank-document launch).
+/** Reset the working copy: empty schema + empty assets/ — a launch always opens a blank document.
  *  The caller must snapshot with packWorld first — no backup is taken here. */
 export function resetWorld(): void {
   db.close()
@@ -1578,7 +1578,7 @@ export const api = {
   // short context snippet around the hit. Technical fields (banner file path, parent/ruler/house
   // JSON histories, color) are excluded — the snippet is always human-readable text.
   // Filtering happens in JS so Turkish case folds correctly (SQLite LIKE/lower folds ASCII
-  // only). ponytail: scans all rows at personal scale; switch to FTS5 if it ever gets slow.
+  // only). Scans all rows at personal scale; switch to FTS5 if it ever gets slow.
   searchContent(q: string): unknown[] {
     const needle = q.trim().toLocaleLowerCase('tr')
     if (needle.length < 2) return []
@@ -1967,7 +1967,7 @@ export const api = {
     height?: number
     parent_map_id?: number
   }): unknown {
-    // ponytail: the layers JSON is plumbing for heightmaps etc. — currently written, never read
+    // The layers JSON is plumbing for heightmaps etc. — currently written, never read
     const layers = m.image_path ? JSON.stringify([{ type: 'image', path: m.image_path }]) : '[]'
     const r = db
       .prepare(

@@ -9,7 +9,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     rows: [
       ['Ctrl+K', 'Search everything (palette)'],
       ['M', 'Go to the map (the last one you were on)'],
-      ['Tab', 'Hide every panel (Photoshop style)'],
+      ['Tab', 'Hide every panel'],
       ['Shift+Tab', 'Hide panels but keep the map tools'],
       ['Ctrl+N', 'New world'],
       ['Ctrl+S / Ctrl+Shift+S', 'Save world / Save as'],

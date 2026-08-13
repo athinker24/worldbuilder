@@ -5,7 +5,8 @@ history in one place, all **linked together**.
 
 - Nested interactive maps (continent → city → building) with borders and pins drawn on top
 - Encyclopedia-style articles: free-form fields, templates, `[[links]]` between them
-- CK3-style layered political hierarchy, year-based conquest and border changes
+- A layered political hierarchy (empire → kingdom → duchy → county), year-based conquest and
+  border changes
 - Map modes you **define yourself** — religion, language, culture, anything
 - A timeline: drag the year and the map returns to that day
 - Dynasty trees, a diplomacy web, atlas statistics
@@ -52,7 +53,7 @@ Documents\Worldbuilder\
 
 No cloud, no account — everything stays on your own computer. To back up, copy that folder.
 
-A **`.world` file** is like Photoshop's `.psd`: `Ctrl+S` packs the whole world (images
+A **`.world` file** is the whole world as one document: `Ctrl+S` packs everything (images
 included) into a single file you can send to someone or open on another computer.
 
 ---
@@ -79,8 +80,8 @@ The complete list lives on the **⌨ Shortcuts** page inside the app.
 
 The files are designed to be shared, so their contents are treated as **untrusted input**:
 note content cannot run HTML/JavaScript, embedded images cannot write outside the `assets\`
-folder, and corrupt data is repaired instead of locking the app up. Details: the "Security
-contract" section in CLAUDE.md.
+folder, and corrupt data is repaired instead of locking the app up. Details:
+[.claude/skills/security-gates/SKILL.md](.claude/skills/security-gates/SKILL.md).
 
 Still — give a file from a stranger the same suspicion you would give an unknown program.
 

@@ -5,3 +5,4 @@ out
 .eslintcache
 *.log*
 graphify-out
+HANDOFF.md

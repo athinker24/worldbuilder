@@ -1224,7 +1224,7 @@ kbd {
   white-space: nowrap;
 }
 
-/* Start screen (Photoshop/Krita "home"): recently used .world files. */
+/* Start screen: recently used .world files. */
 .start-screen {
   width: 100%;
   max-width: 520px;
@@ -1941,7 +1941,8 @@ kbd {
   flex: none;
 }
 
-/* Silhouette placeholder without a portrait (the card always reserves portrait space, CK3 pattern). */
+/* Silhouette placeholder without a portrait — the card always reserves portrait space, so a
+   line of people with and without pictures still reads as one row. */
 .tree-portrait.placeholder {
   display: inline-flex;
   align-items: center;
@@ -2884,7 +2885,7 @@ a {
   color: var(--text);
 }
 
-/* --- hierarchy (CK3-style bottom-right panel) --- */
+/* --- hierarchy (the bottom-right panel) --- */
 .hier-toggle,
 .timeline-toggle {
   position: absolute;
@@ -3762,7 +3763,7 @@ a {
   color: var(--text-muted);
 }
 
-/* ponytail: scrolls with the list rather than sticking to the top. Sticky needs an opaque backing
+/* Scrolls with the list rather than sticking to the top. Sticky needs an opaque backing
    over a translucent --control, and it would still leave the menu's 4px padding showing content
    through above it — for a case that barely happens: the field takes focus as the menu opens, and
    typing is what makes the list short enough to stop scrolling. */
@@ -4623,7 +4624,7 @@ a {
      read, short enough not to run off the map, and scrolling once the session gets going. */
   min-width: 240px;
   /* About four rows. It scrolls itself to the current step (see History.tsx), which is what makes
-     a short window usable — Photoshop's panel grows downward too and never asks you to chase it. */
+     a short window usable — the list must never ask you to chase it as it grows. */
   max-height: 120px;
   overflow-y: auto;
 }
@@ -4658,8 +4659,7 @@ a {
 /* Undone steps are still listed — that is what makes them clickable to go forward again — but
    they are not part of the world as it stands, and the list has to say which is which. */
 /* DIMMED, not struck through. These steps are not deleted — they are what you would lose by
-   carrying on from here, which is exactly the distinction Photoshop's dimming makes. A line
-   through them claims they are already gone. */
+   carrying on from here. A line through them claims they are already gone. */
 .hist-row.undone .hist-text {
   color: var(--text-faint);
   opacity: 0.7;

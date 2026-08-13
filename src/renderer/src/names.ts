@@ -1,5 +1,5 @@
 // Random person names for quick testing — Old English / Frankish / Germanic flavour.
-// ponytail: a flat pair of lists, not a generator; swap in per-culture lists when cultures exist.
+// A flat pair of lists, not a generator; swap in per-culture lists when cultures exist.
 
 const MALE = [
   'Æthelred',

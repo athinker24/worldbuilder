@@ -270,7 +270,7 @@ export const api = {
   backupNow: () => inv<string>('backupNow'),
   // Dumps note tabs into a readable .txt tree (notes/<map>/<type>/<entity>/<note>.txt) + opens the folder
   exportNotes: () => inv<{ path: string; files: number; skipped: number }>('exportNotes'),
-  // The .world file model (Wonderdraft-style): save / save as / open + dirty state
+  // The .world file model: save / save as / open + dirty state
   saveWorld: () => inv<string | null>('saveWorld'),
   saveWorldAs: () => inv<string | null>('saveWorldAs'),
   openWorld: () => inv<string | null>('openWorld'),
@@ -642,8 +642,8 @@ export const RESERVED_FIELDS = [
   '_tpl' // name of the applied template (informational; keeps EntityPage's select in sync)
 ]
 
-// Sidebar file tree (settings 'entityFolders', global): user-made folders that group articles like
-// Obsidian. An article's membership is fields['folder'] = a folder id (absent = root). Folders nest
+// Sidebar file tree (settings 'entityFolders', global): user-made folders that group articles.
+// An article's membership is fields['folder'] = a folder id (absent = root). Folders nest
 // via `parent` (a folder id, null = root); `order` is the manual creation order.
 export interface FolderDef {
   id: string
@@ -775,8 +775,9 @@ export async function restoreMapSettings(
   }
 }
 
-// Boards (settings 'mapBoards', per map): multiple drawing layers on the same map (Photoshop
-// mental model). Each feature is tied to the board (id) it was drawn on via `style.board`;
+// Boards (settings 'mapBoards', per map): multiple drawing layers on the same map, the same
+// mental model as image-editor layers. Each feature is tied to the board (id) it was drawn on
+// via `style.board`;
 // switching boards hides the others'. NO external images — this only groups drawings over the
 // same base image. Features with a missing/stale board id fall to the first board (deletion/
 // rename cannot break them — see MapView).

@@ -59,7 +59,7 @@ export default function App(): React.JSX.Element {
   const [lang, setLang] = useState<Lang>('en')
   const [theme, setTheme] = useState<Theme>('dark')
   const [selected, setSelected] = useState<Set<number>>(new Set()) // multi-delete selection
-  // Sidebar file tree (Obsidian model): folders group articles; membership = each article's
+  // Sidebar file tree: folders group articles; membership = each article's
   // fields['folder']. Collapse + rename + drag are view/session state (browsing never dirties).
   const [folders, setFolders] = useState<FolderDef[]>([])
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -94,9 +94,9 @@ export default function App(): React.JSX.Element {
   const t = (s: string, params?: Record<string, string | number>): string =>
     translate(lang, s, params)
 
-  // Photoshop's Tab / Shift+Tab: 'all' hides every chrome including the map tool palette,
+  // Tab / Shift+Tab: 'all' hides every chrome including the map tool palette,
   // 'panels' keeps the palette so you can still draw. Pressing either key while hidden restores,
-  // whichever one hid it — that is how Photoshop behaves.
+  // whichever one hid it.
   // Deliberately NOT persisted (widths are): launching into a chrome-less window would read as a
   // broken app. This is a temporary view mode, not a layout preference.
   // The last map opened stays MOUNTED behind the other workspaces. Unmounting it
@@ -402,7 +402,7 @@ export default function App(): React.JSX.Element {
     [openMap, lang]
   )
 
-  // Save the world as a .world / open one from disk (Wonderdraft model). Opening overwrites
+  // Save the world as a .world / open one from disk. Opening overwrites
   // the working copy → confirm first when dirty; then a full page reload (all refs/undo/state
   // start clean).
   // Toast (save confirmation) — not modal, disappears on its own. There was no visual proof
@@ -489,7 +489,7 @@ export default function App(): React.JSX.Element {
     [showToast, lang]
   )
 
-  // Auto-save (Photoshop/Krita pattern): when a .world is open and there are changes, pack
+  // Auto-save: when a .world is open and there are changes, pack
   // silently. With NO file, do nothing — popping a save dialog would steal focus (an unsaved
   // session is packed into backups/ on close anyway).
   useEffect(() => {
@@ -517,10 +517,10 @@ export default function App(): React.JSX.Element {
     await api.openWorld() // main does the reload (webContents.reload — immune to the will-navigate block)
   }, [discardOk])
 
-  // Start screen (Photoshop/Krita): recent .world files. The list lives in userData — the
+  // Start screen: recent .world files. The list lives in userData — the
   // working copy is reset on every launch, so it cannot live in settings.
-  // worldFile: with a world open the start screen is hidden (Photoshop shows "home" only
-  // with no document too) — the empty view falls back to a plain hint.
+  // worldFile: with a world open the start screen is hidden — a cover screen is for when
+  // there is no document — and the empty view falls back to a plain hint.
   const [recent, setRecent] = useState<{ path: string; name: string; missing: boolean }[]>([])
   const [worldFile, setWorldFile] = useState<string | null>(null)
   useEffect(() => {
@@ -574,7 +574,7 @@ export default function App(): React.JSX.Element {
         case 'file.close':
           return void closeWorld()
         case 'file.exportMap':
-          // ponytail: enabled even off a map view — greying it out would mean rebuilding the
+          // Enabled even off a map view — greying it out would mean rebuilding the
           // native menu on every view change. Swap to a menu rebuild if that ever grates.
           return exportMapRef.current && viewRef.current.kind === 'map'
             ? exportMapRef.current()
@@ -654,7 +654,7 @@ export default function App(): React.JSX.Element {
         e.preventDefault()
         setPalette((p) => !p)
       } else if (e.key === 'Tab' && !typing && t.tagName !== 'SELECT' && t.tagName !== 'BUTTON') {
-        // Photoshop's Tab / Shift+Tab. SELECT and BUTTON are excluded alongside the typing guard
+        // Tab / Shift+Tab hide the panels. SELECT and BUTTON are excluded alongside the typing guard
         // so Tab keeps doing its real job — moving focus — whenever a control actually has it.
         e.preventDefault()
         togglePanels(e.shiftKey)
@@ -1205,7 +1205,7 @@ export default function App(): React.JSX.Element {
     <LangContext.Provider value={lang}>
       <div className="app">
         {/* Shift+Tab leaves a thin rail as the way back; plain Tab is presentation mode and
-            hides even that, exactly like Photoshop. The View menu is the guaranteed way out. */}
+            hides even that. The View menu is the guaranteed way out. */}
         {hidden === 'panels' && (
           <button
             className="sidebar-rail"
@@ -1277,7 +1277,7 @@ export default function App(): React.JSX.Element {
                 </>
               )}
             </div>
-            {/* Create + sort at the bottom of the column (Obsidian).
+            {/* Create + sort at the bottom of the column.
                 Icon-only, and that is a width decision rather than a style one: this is the
                 tightest row in the app — two labelled buttons plus the sort control already
                 overflowed a sidebar dragged down to its 180px minimum, and the Turkish labels
@@ -1352,7 +1352,7 @@ export default function App(): React.JSX.Element {
 
         <div className="main">
           {/* Two different screens wearing one class until now. With NO document this is the
-              app's cover — the Photoshop/Krita "home", and the only screen that says the app's
+              app's cover, and the only screen that says the app's
               name. With a document open it is not a start screen at all, it is "nothing is
               selected", which is what EmptyState exists for and is where the user lands after
               deleting the entry they were reading. As one component the second case was a
@@ -1371,9 +1371,9 @@ export default function App(): React.JSX.Element {
                 {/* The app's own name, in the display face, once — this is the one screen that
                     is allowed to be a cover. Not a translation key: it is a proper noun. */}
                 <h2 className="page-title">Worldbuilder</h2>
-                {/* No "+ New world" here: a normal launch already IS a new, blank world (main's
-                    Photoshop-style reset), so the button offered to do something that had already
-                    happened. Starting genuinely from scratch is still one click away — Maps in the
+                {/* No "+ New world" here: a normal launch already IS a new, blank world (main
+                    resets the working copy), so the button offered to do something that had
+                    already happened. Starting genuinely from scratch is still one click away — Maps in the
                     sidebar, or File ▸ New Project — for the rare case a returning user wants a
                     fresh document instead of picking one up from here.
                     The one action of this screen, so it carries the one primary fill. */}

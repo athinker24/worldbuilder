@@ -115,7 +115,7 @@ const TR: Record<string, string> = {
   'Close the suggestion list': 'Öneri listesini kapat',
   'Search everything (palette)': 'Her şeyde ara (palet)',
   'Go to the map (the last one you were on)': 'Haritaya git (en son bulunduğun harita)',
-  'Hide every panel (Photoshop style)': 'Tüm panelleri gizle (Photoshop gibi)',
+  'Hide every panel': 'Tüm panelleri gizle',
   'Hide panels but keep the map tools': 'Panelleri gizle ama harita araçları kalsın',
   'New world': 'Yeni dünya',
   'Save world / Save as': 'Dünyayı kaydet / Farklı kaydet',
