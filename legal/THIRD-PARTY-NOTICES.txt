@@ -1,4 +1,4 @@
-THIRD-PARTY NOTICES
+Third-Party Notices
 ==============================================================================
 
 Worldbuilder includes the open source components listed below. Each is used

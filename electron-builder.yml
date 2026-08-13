@@ -31,7 +31,7 @@ files:
   # A licence the user cannot find has not been given to them, and one buried inside an archive
   # they have no tool to open is exactly that.
   - '!gen-notices.mjs'
-  - '!{TERMS.txt,PRIVACY.txt,THIRD-PARTY-NOTICES.txt,ALPHA-README.txt}'
+  - '!legal/**'
   # Agent and editor configuration. Nothing above covers the repo root, and electron-builder ships
   # whatever it is not told to leave out — so `.claude/`, `.agents/`, `.mcp.json` and
   # `skills-lock.json` were going out INSIDE every copy of the app, and
@@ -51,19 +51,22 @@ files:
   - '!graphify-out'
 asarUnpack:
   - resources/**
-# The legal documents, as FILES beside the exe rather than inside the asar. Both distributions get
-# them: NSIS copies them into the install folder, and the ZIP contains them next to Worldbuilder.exe
-# — which is the only way the portable build can carry terms at all, having no installer to show a
-# page in. They sit alongside LICENSE.electron.txt and LICENSES.chromium.html, which electron-builder
-# already places there, so all four read as one set.
+# The legal/info documents, as FILES in a `legal/` folder beside the exe rather than inside the
+# asar. Both distributions get them: NSIS copies the folder into the install directory, and the ZIP
+# contains it next to Worldbuilder.exe — which is the only way the portable build can carry terms at
+# all, having no installer to show a page in. LICENSE.electron.txt and LICENSES.chromium.html stay
+# at the install root: electron-builder places those itself and does not offer a destination for
+# them, so this is the boundary of what we control the layout of.
 #
 # extraFiles, not extraResources: resources/ is an implementation detail nobody opens, and a licence
-# nobody can find has not been given to anyone. Help ▸ opens these same files from disk.
+# nobody can find has not been given to anyone. Help ▸ opens these same files from disk (openLegal,
+# index.ts). The string form (not {from, to}) preserves the `legal/` prefix in the output, matching
+# the source layout — so the source path and the shipped path are the same path.
 extraFiles:
-  - TERMS.txt
-  - PRIVACY.txt
-  - THIRD-PARTY-NOTICES.txt
-  - ALPHA-README.txt
+  - legal/TERMS.txt
+  - legal/PRIVACY.txt
+  - legal/THIRD-PARTY-NOTICES.txt
+  - legal/ALPHA-README.txt
 # Electron fuses: flags flipped in the binary itself, so they cannot be turned back on by an
 # environment variable or a command line. Each closes a way to make OUR signed-looking exe run
 # somebody else's code.
@@ -112,7 +115,7 @@ nsis:
   # moment the user is guaranteed to be looking, and it is why the file is written to be read
   # rather than scrolled past. The ZIP has no equivalent moment, which is what extraFiles and the
   # Help menu are for.
-  license: TERMS.txt
+  license: legal/TERMS.txt
   # A wizard opens and asks for the install folder (not a one-click silent install)
   oneClick: false
   allowToChangeInstallationDirectory: true

@@ -48,8 +48,8 @@ jobs:
         shell: bash
         run: |
           node gen-notices.mjs
-          git diff --exit-code --ignore-cr-at-eol -- THIRD-PARTY-NOTICES.txt \
-            || { echo "::error::THIRD-PARTY-NOTICES.txt is stale — run: node gen-notices.mjs"; exit 1; }
+          git diff --exit-code --ignore-cr-at-eol -- legal/THIRD-PARTY-NOTICES.txt \
+            || { echo "::error::legal/THIRD-PARTY-NOTICES.txt is stale — run: node gen-notices.mjs"; exit 1; }
 
       # --publish never is inside the script (package.json), not here, so a local build on a tagged
       # commit behaves the same way. Without it electron-builder sees the git tag, decides on its

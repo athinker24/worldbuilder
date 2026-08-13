@@ -375,14 +375,20 @@ function noteUiState(scope: string, data: Record<string, unknown> | undefined): 
 function openLegal(
   name: 'TERMS.txt' | 'PRIVACY.txt' | 'THIRD-PARTY-NOTICES.txt' | 'ALPHA-README.txt'
 ): void {
-  const file = is.dev ? join(app.getAppPath(), name) : join(dirname(app.getPath('exe')), name)
+  // These live in a `legal/` folder now (both in the repo and in what ships — see
+  // electron-builder.yml's extraFiles), kept separate from `name` itself so the message below
+  // still names just the file, not its folder.
+  const file = is.dev
+    ? join(app.getAppPath(), 'legal', name)
+    : join(dirname(app.getPath('exe')), 'legal', name)
   if (!existsSync(file)) {
     // Worth saying rather than doing nothing: an empty click on a legal document reads as the app
     // hiding it, and the realistic cause is a portable copy where only the exe was moved.
     dialog.showMessageBoxSync({
       type: 'warning',
-      message: `${name} was not found next to the application.`,
-      detail: 'It is part of the download. If this is a portable copy, move the whole folder.'
+      message: `${name} was not found.`,
+      detail:
+        'It should be in the "legal" folder next to the application. If this is a portable copy, move the whole folder.'
     })
     return
   }

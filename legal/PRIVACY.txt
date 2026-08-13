@@ -1,10 +1,10 @@
-WORLDBUILDER - PRIVACY POLICY
+Worldbuilder - Privacy Policy
 ================================================================================
 
 Last updated: 7 August 2026
 
 
-THE SHORT VERSION
+The short version
 --------------------------------------------------------------------------------
 
 Worldbuilder collects nothing, sends nothing and makes no network requests. It
@@ -15,7 +15,7 @@ way.
 There is no server to hold your data, because there is no server.
 
 
-WHERE YOUR DATA LIVES
+Where your data lives
 --------------------------------------------------------------------------------
 
 Everything stays on your own computer, in folders you can open yourself:
@@ -38,7 +38,7 @@ You may read, copy or delete any of it at any time. Uninstalling the application
 deliberately leaves it alone - your work is not the installer's to remove.
 
 
-WHAT THE LOG FILE CONTAINS
+What the log file contains
 --------------------------------------------------------------------------------
 
 The application writes a session log to help diagnose faults, and it is designed
@@ -59,7 +59,7 @@ Nothing sends the log anywhere. It is a file on your disk, and it goes to anothe
 person only if you send it yourself.
 
 
-WHEN YOU SHARE A .world FILE
+When you share a .world file
 --------------------------------------------------------------------------------
 
 A .world file is a document, and sharing one is like sharing any document: it
@@ -86,7 +86,7 @@ and none of the above applies to them. They are meant to stay on your machine.
 The file to hand to somebody is the .world you saved.
 
 
-SPELL CHECKING
+Spell checking
 --------------------------------------------------------------------------------
 
 The spell checker is switched off. This is worth stating because it is the one
@@ -95,13 +95,13 @@ dictionaries are downloaded from a third-party server the first time a language
 is used. It is disabled, so that request never happens.
 
 
-CHILDREN
+Children
 --------------------------------------------------------------------------------
 
 The application collects no personal data from anyone, of any age.
 
 
-CHANGES
+Changes
 --------------------------------------------------------------------------------
 
 If a future version ever does anything described above differently - and any form
@@ -109,7 +109,7 @@ of network access would count - this document will say so, and the change will b
 in the release notes rather than only here.
 
 
-CONTACT
+Contact
 --------------------------------------------------------------------------------
 
   athinker24

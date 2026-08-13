@@ -10,10 +10,10 @@
 # rule above would have handed the release runner LF-only text — the licence page is the one moment
 # a user is guaranteed to be looking at it. Stored as LF in the repo either way; this is about the
 # working tree the build reads.
-TERMS.txt text eol=crlf
-PRIVACY.txt text eol=crlf
-THIRD-PARTY-NOTICES.txt text eol=crlf
-ALPHA-README.txt text eol=crlf
+legal/TERMS.txt text eol=crlf
+legal/PRIVACY.txt text eol=crlf
+legal/THIRD-PARTY-NOTICES.txt text eol=crlf
+legal/ALPHA-README.txt text eol=crlf
 
 # Binary assets must never be touched.
 *.png binary
