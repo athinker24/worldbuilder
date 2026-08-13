@@ -58,6 +58,13 @@ jobs:
       # that needs it. Building and publishing are separate on purpose; the tag is not consent.
       - run: npm run build:win
 
+      # What actually ships, checked by listing the built archive rather than trusting the config
+      # that makes it — this is how graphify-out/ (a dump of this codebase's own architecture and
+      # security notes) was found shipping inside app.asar despite files: being written specifically
+      # to keep that class of thing out. Runs after the build because it has nothing to check
+      # before then.
+      - run: node check-pack.mjs
+
       # Upload via GitHub's OWN 'gh' tool (preinstalled on the runner). Avoiding a third-party
       # action is deliberate: any external dependency granted contents:write is supply-chain
       # surface that could write to the repo if compromised.

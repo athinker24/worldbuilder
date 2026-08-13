@@ -25,6 +25,7 @@ files:
   # app users get. Same rule as the dev CSP widening.
   - '!check-api.mjs'
   - '!check-corrupt.mjs'
+  - '!check-pack.mjs'
   # The notice GENERATOR is development tooling and never ships; its OUTPUT does, but as an
   # extraFile beside the exe, so keeping all four out of the asar leaves one copy rather than two.
   # A licence the user cannot find has not been given to them, and one buried inside an archive
