@@ -497,6 +497,7 @@ const MENU_TR: Record<string, string> = {
     'Bu dünya dosyası bir dünyada olması gerekenden çok daha fazla görsel taşıyor.',
   'Open Recent': 'Son Kullanılanlar',
   '(empty)': '(boş)',
+  'Previous session': 'Önceki oturum',
   Save: 'Kaydet',
   'Save As…': 'Farklı Kaydet…',
   Export: 'Dışa Aktar',
@@ -534,6 +535,24 @@ const MENU_TR: Record<string, string> = {
     'Belgeler içindeki Worldbuilder klasörünün yazılabilir olduğunu kontrol edin.'
 }
 const ml = (s: string): string => (readPrefs().language === 'tr' ? (MENU_TR[s] ?? s) : s)
+
+/** Every other Recent entry is a name the USER chose when they saved. `last-session-<stamp>.world`
+ *  is the one kind nobody named — it exists so a session closed without saving is not invisible
+ *  (see newProject / the blank-launch branch) — and showing its raw ISO filename there reads as a
+ *  bug even though the file itself is fine. This gives it a label instead. */
+const LAST_SESSION_RE = /^last-session-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z\.world$/
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+const recentDisplayName = (path: string): string => {
+  const base = basename(path)
+  const m = LAST_SESSION_RE.exec(base)
+  if (!m) return base
+  const d = new Date(`${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z`)
+  if (isNaN(d.getTime())) return base // a stamp that fails to parse is not worth failing over
+  return (
+    `${ml('Previous session')} — ${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.` +
+    `${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  )
+}
 
 function buildMenu(): void {
   const recent = readRecent()
@@ -709,7 +728,7 @@ const mainApi = {
   // Start screen: recent worlds. 'missing' = the file was moved/deleted —
   // the row stays listed (the user dismisses it with ×), it is not silently dropped.
   recentWorlds: (): { path: string; name: string; missing: boolean }[] =>
-    readRecent().map((p) => ({ path: p, name: basename(p), missing: !existsSync(p) })),
+    readRecent().map((p) => ({ path: p, name: recentDisplayName(p), missing: !existsSync(p) })),
   forgetRecent: (path: string): void => writeRecent(readRecent().filter((p) => p !== path)),
   // Open from the list. A missing file stays listed (so the user sees it) and returns false.
   // ONLY paths recorded in recent.json can be opened: a path arriving over IPC is untrusted —
