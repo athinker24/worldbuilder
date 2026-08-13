@@ -165,6 +165,7 @@ const TR: Record<string, string> = {
     'Kaydedilmemiş değişiklikler kaybolacak. Devam edilsin mi?',
   // Başlangıç ekranı (son kullanılan .world dosyaları)
   Recent: 'Son kullanılanlar',
+  'Previous session': 'Önceki oturum',
   Presets: 'Hazır renkler', // renk seçicideki sabit altılı şerit (son kullanılanlardan ayrı)
   'No recent worlds yet. Save one with Ctrl+S.':
     'Henüz son kullanılan dünya yok. Ctrl+S ile kaydet.',

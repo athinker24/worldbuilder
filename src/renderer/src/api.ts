@@ -281,6 +281,10 @@ export const api = {
   // Start screen: recent worlds (userData/recent.json — independent of the working copy)
   recentWorlds: () => inv<{ path: string; name: string; missing: boolean }[]>('recentWorlds'),
   openRecent: (path: string) => inv<boolean>('openRecent', path),
+  // The most recent session closed without saving, shown in its own start-screen section — a
+  // system snapshot, not a file the user named, so it is not part of recentWorlds().
+  previousSession: () => inv<{ path: string; name: string } | null>('previousSession'),
+  openPreviousSession: () => inv<boolean>('openPreviousSession'),
   forgetRecent: (path: string) => inv<void>('forgetRecent', path),
   newWorld: () => inv<void>('newWorld'),
   // Same behaviour as newWorld in this app — a separate command because that is where users

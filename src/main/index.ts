@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, protocol, net, Menu, session } from 'electron'
 import { basename, dirname, join } from 'path'
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { writeFile } from 'fs/promises'
 import { execFile } from 'child_process'
 import { pathToFileURL } from 'url'
@@ -455,13 +455,14 @@ function newProject(): void {
   const done = logTime('project.new')
   if (hasContent()) {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const snapshot = join(DATA_DIR, 'backups', `last-session-${stamp}.world`)
-    packWorld(snapshot)
     // A session that was never saved is otherwise a file nobody knows to look for: recoverable in
-    // principle, invisible in practice. Listing it here is what makes "closed without saving" a
-    // click on the start screen instead of a support request — see HANDOFF/the alpha readiness
-    // report, finding B-2. It does not become currentFile: the new document is still blank.
-    addRecent(snapshot)
+    // principle, invisible in practice. findPreviousSession() is what makes "closed without
+    // saving" a click on the start screen instead of a support request — see HANDOFF/the alpha
+    // readiness report, finding B-2. NOT addRecent: this is not a file the user named or chose,
+    // it is a system snapshot, and mixing it into Recent (a) reads as clutter next to worlds the
+    // user actually saved and (b) would compete with them for Recent's 12-entry cap. It gets its
+    // own start-screen section instead, computed live from backups/ rather than persisted.
+    packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.world`))
     logEvent('INFO', 'project.autobacked', { reason: 'previous session had content' })
   }
   resetWorld()
@@ -552,6 +553,22 @@ const recentDisplayName = (path: string): string => {
     `${ml('Previous session')} — ${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.` +
     `${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
   )
+}
+
+/** The most recent unsaved-session snapshot, or null. Computed live from backups/ rather than
+ *  persisted anywhere — there is nothing to keep in sync, and the file itself is the only source
+ *  of truth. Filenames sort chronologically as text (same property the log's fileStamp relies on),
+ *  so the last one alphabetically is the newest; no stat() needed. */
+function findPreviousSession(): { path: string; name: string } | null {
+  let files: string[]
+  try {
+    files = readdirSync(join(DATA_DIR, 'backups')).filter((f) => LAST_SESSION_RE.test(f))
+  } catch {
+    return null // no backups/ folder yet (very first launch) — nothing to show, not an error
+  }
+  if (!files.length) return null
+  const full = join(DATA_DIR, 'backups', files.sort().at(-1)!)
+  return { path: full, name: recentDisplayName(full) }
 }
 
 function buildMenu(): void {
@@ -737,6 +754,18 @@ const mainApi = {
   openRecent(path: string): boolean {
     if (!readRecent().includes(path) || !existsSync(path)) return false
     if (!openGuarded(path)) return false // a recent entry can go bad on disk after it was listed
+    mainWindow?.webContents.reload()
+    return true
+  },
+  // Start screen, its own section above Recent: the most recent session closed without saving —
+  // see findPreviousSession(). Deliberately separate from recentWorlds(): this is not a file the
+  // user named, and showing it there read as clutter next to worlds they actually chose to save.
+  previousSession: (): { path: string; name: string } | null => findPreviousSession(),
+  // No path argument, unlike openRecent — main recomputes which file this is rather than trusting
+  // one from the renderer, so there is no list for a compromised renderer to have tampered with.
+  openPreviousSession(): boolean {
+    const p = findPreviousSession()
+    if (!p || !openGuarded(p.path)) return false
     mainWindow?.webContents.reload()
     return true
   },
@@ -1215,9 +1244,9 @@ app.whenReady().then(() => {
       // working copy (images included) is packed into backups/ as a full .world — nothing is
       // lost even if it was never saved (subject to the 30-day backup pruning).
       const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-      const snapshot = join(DATA_DIR, 'backups', `last-session-${stamp}.world`)
-      packWorld(snapshot)
-      addRecent(snapshot) // see newProject() — same reasoning: otherwise nothing says it exists
+      // NOT addRecent — see newProject() for why: findPreviousSession() surfaces this on its own,
+      // separate from the worlds the user actually chose to save.
+      packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.world`))
       resetWorld()
       dbApi.createMap({ name: ml('New map') }) // see newProject() — same reasoning
     } else if (!(dbApi.listMaps() as unknown[]).length) {

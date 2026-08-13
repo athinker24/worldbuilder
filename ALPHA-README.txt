@@ -55,18 +55,19 @@ full statement.
 
 This is deliberate, not a bug: every launch opens on a fresh, empty world.
 If the world you had open last time held anything, it was NOT deleted —
-it was packed into a single file under backups\ automatically, and that file
-shows up under "Recent" on the start screen the next time you open the app,
-ready to reopen with one click.
+it was packed into a single file under backups\ automatically, and that
+shows up as "Previous session" on the start screen the next time you open
+the app, ready to reopen with one click. That is separate from "Recent",
+which is for worlds you saved and named yourself.
 
 To keep working on the SAME world across sessions instead of starting fresh
 each time, save it once with Ctrl+S (or File > Save) and give it a name.
 From then on, opening that file (from Recent, or by double-clicking the
 .world file itself) picks up where you left off.
 
-If you ever close the app and the world you expected is not on the start
-screen's Recent list, check backups\ directly — every session that had
-anything in it is in there, dated.
+If you ever close the app and don't see "Previous session" on the start
+screen, check backups\ directly — every session that had anything in it is
+in there, dated.
 
 
 5. IF SOMETHING GOES WRONG
