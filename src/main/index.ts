@@ -453,7 +453,13 @@ function newProject(): void {
   const done = logTime('project.new')
   if (hasContent()) {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.world`))
+    const snapshot = join(DATA_DIR, 'backups', `last-session-${stamp}.world`)
+    packWorld(snapshot)
+    // A session that was never saved is otherwise a file nobody knows to look for: recoverable in
+    // principle, invisible in practice. Listing it here is what makes "closed without saving" a
+    // click on the start screen instead of a support request — see HANDOFF/the alpha readiness
+    // report, finding B-2. It does not become currentFile: the new document is still blank.
+    addRecent(snapshot)
     logEvent('INFO', 'project.autobacked', { reason: 'previous session had content' })
   }
   resetWorld()
@@ -1182,7 +1188,9 @@ app.whenReady().then(() => {
       // working copy (images included) is packed into backups/ as a full .world — nothing is
       // lost even if it was never saved (subject to the 30-day backup pruning).
       const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-      packWorld(join(DATA_DIR, 'backups', `last-session-${stamp}.world`))
+      const snapshot = join(DATA_DIR, 'backups', `last-session-${stamp}.world`)
+      packWorld(snapshot)
+      addRecent(snapshot) // see newProject() — same reasoning: otherwise nothing says it exists
       resetWorld()
       dbApi.createMap({ name: ml('New map') }) // see newProject() — same reasoning
     } else if (!(dbApi.listMaps() as unknown[]).length) {
