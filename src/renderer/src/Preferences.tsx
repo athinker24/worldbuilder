@@ -36,12 +36,15 @@ export default function Preferences({
   // needs it except this one dropdown. The View menu's Ctrl+= writes the same file, so a value
   // set from the keyboard while this page is open is picked up the next time it is opened.
   const [uiScale, setUiScale] = useState(100)
+  // For a bug report to cite — otherwise nothing in the UI says which build someone is running.
+  const [version, setVersion] = useState('')
   useEffect(() => {
     void getDebugLog().then((on) => {
       setDebug(on)
       setDebugLog(on) // the renderer's own filter, so a DEBUG line costs a boolean test when off
     })
     void api.getPrefs().then((p) => setUiScale(p.uiScale ?? 100))
+    void api.appVersion().then(setVersion)
   }, [])
   return (
     <div className="page">
@@ -137,6 +140,7 @@ export default function Preferences({
         <button className="mini" onClick={() => void api.openLogFolder()}>
           {t('Open Log Folder')}
         </button>
+        {version && <Row label={t('Version')}>{version}</Row>}
       </Section>
     </div>
   )

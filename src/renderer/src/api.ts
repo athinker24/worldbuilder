@@ -275,6 +275,9 @@ export const api = {
   saveWorldAs: () => inv<string | null>('saveWorldAs'),
   openWorld: () => inv<string | null>('openWorld'),
   worldInfo: () => inv<{ file: string | null; dirty: boolean }>('worldInfo'),
+  // package.json's version, for a bug report to cite — otherwise nothing in the UI says which
+  // build someone is running.
+  appVersion: () => inv<string>('appVersion'),
   // Start screen: recent worlds (userData/recent.json — independent of the working copy)
   recentWorlds: () => inv<{ path: string; name: string; missing: boolean }[]>('recentWorlds'),
   openRecent: (path: string) => inv<boolean>('openRecent', path),

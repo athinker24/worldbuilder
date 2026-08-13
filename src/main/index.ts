@@ -681,6 +681,10 @@ const mainApi = {
   saveWorld: (): Promise<string | null> => saveWorld(false),
   saveWorldAs: (): Promise<string | null> => saveWorld(true),
   worldInfo: (): { file: string | null; dirty: boolean } => ({ file: currentFile, dirty }),
+  // 'appVersion', not 'getVersion' — a `get*` name reads fine but the point is only that it must
+  // NOT match MUTATES (create|update|delete|add|set|restore|retype|import|pick); this avoids the
+  // question rather than relying on a prefix quirk.
+  appVersion: (): string => app.getVersion(),
   // Pick + open a file. The unsaved-changes confirm lives in the RENDERER (asked via worldInfo)
   // — here it is just pick + open. The returned path signals "reload" to the renderer.
   async openWorld(): Promise<string | null> {
