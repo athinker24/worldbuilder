@@ -6,7 +6,10 @@ searching and measuring beforehand is expected; that is what makes those sentenc
 This holds for small changes too: the expensive mistakes here have been confident work on a
 misread request, not slow work.
 
-Read `HANDOFF.md` at the start of a session and update it after material work.
+**If `HANDOFF.md` is present, read it at the start of a session and update it after material
+work.** It is the running log of what was decided and why — but it is deliberately NOT in the
+repository (`.gitignore`), because it is a working document rather than something a reader of this
+project needs. A fresh clone has no copy and nothing depends on one.
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -44,7 +47,7 @@ never a migration.
 
 On Windows, `dist/` files are locked while the packaged `Worldbuilder.exe` is running — close it before `build:unpack`.
 
-**`graphify-out/graph.json` — this repository's own knowledge graph, and the first place to look before grepping.** 1130 nodes: the AST symbols of `src/` (673, deterministic, no LLM) plus the named concepts of THIS file and `HANDOFF.md` (495) — and 38 of those doc concepts sit ON the code node they describe, so `packWorld` and "Gate 27: what a shared `.world` carries OUT" are one node, not two. Answer an architectural question with `graphify query "<question>"` before opening files; the graph already knows things no single file states, e.g. that `migrateLegacyKeys` is the bridge between the data model and three separate gate clusters. Refresh with `/graphify . --update` after code changes — the AST half is free, so the only costly refresh is when this file or `HANDOFF.md` changes substantially. The scope is deliberate and re-running it wider is a mistake already made once: `src/` plus the hand-written docs, NOT `.agents/` (an unrelated skill library, 525 files that would drown the graph) and not the generated licence dumps. Two known limits, written down so they are not rediscovered: 75 dangling edges (prose naming a symbol that is not exported), and the report's "Corpus Check" header quotes the pre-filter file count rather than the 65 files actually built.
+**`graphify-out/graph.json` — a knowledge graph of this repository, and the first place to look before grepping WHEN IT EXISTS.** It is a derived artifact and is NOT in the repository (`.gitignore`): a fresh clone has none, and `graphify query` will simply fail there until someone builds one. Where it exists it holds the AST symbols of `src/` (deterministic, no LLM) plus the named concepts of the hand-written docs — and the concepts that matter sit ON the code node they describe, so `packWorld` and "Gate 27: what a shared `.world` carries OUT" are one node, not two. That is the whole point: a graph where the prose and the code sat in separate components would be worth nothing. Answer an architectural question with `graphify query "<question>"` before opening files; it knows things no single file states, e.g. that `migrateLegacyKeys` is the bridge between the data model and three separate gate clusters. Refresh with `/graphify . --update` after code changes — the AST half is free, so the only costly refresh is a substantial edit to the prose. **The scope is chosen, not defaulted, and re-running it wider is a mistake already made once:** `src/` plus the hand-written docs, NOT `.agents/` (an unrelated skill library whose hundreds of files would drown the graph) and not the generated licence dumps. Two known limits, written down so they are not rediscovered: dangling edges where prose names a symbol that is not exported, and the report's "Corpus Check" header quoting the pre-filter file count rather than the files actually built.
 
 ## Architecture
 

@@ -6,3 +6,6 @@ out
 *.log*
 graphify-out
 HANDOFF.md
+# Per-machine agent configuration: absolute paths with the account name in them. This rule used
+# to live only in a personal global ignore file, which protects one machine and no clone.
+.claude/settings.local.json
