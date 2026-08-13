@@ -1,7 +1,7 @@
 WORLDBUILDER - TERMS OF USE
 ================================================================================
 
-Copyright (c) 2026 henryoferzincan. All rights reserved.
+Copyright (c) 2026 athinker24. All rights reserved.
 
 Please read this before installing. Installing or using Worldbuilder means you
 accept these terms. If you do not accept them, do not install it.
@@ -113,7 +113,4 @@ ships with; the version you already have keeps the terms it came with.
 10. CONTACT
 --------------------------------------------------------------------------------
 
-  henryoferzincan
-
-  (No public address is given here yet. Put the one you want people to use -
-  a project page, a release page or an email - before you publish.)
+  athinker24
