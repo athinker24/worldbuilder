@@ -19,18 +19,18 @@ files:
   # (The guidance that moved out of CLAUDE.md is covered too: the skills sit under `.claude/`
   # and `src/`, both excluded elsewhere in this list.)
   - '!{CLAUDE.md,HANDOFF.md,AGENTS.md}'
-  # The renderer-side check harness. It lives at the repo ROOT, which the excludes above do not
-  # cover — everything not named here ships. Harmless in itself, but a test that stubs the IPC
-  # bridge is a description of the bridge, and nothing that exists for development belongs in the
-  # app users get. Same rule as the dev CSP widening.
-  - '!check-api.mjs'
-  - '!check-corrupt.mjs'
-  - '!check-pack.mjs'
-  # The notice GENERATOR is development tooling and never ships; its OUTPUT does, but as an
-  # extraFile beside the exe, so keeping all four out of the asar leaves one copy rather than two.
-  # A licence the user cannot find has not been given to them, and one buried inside an archive
-  # they have no tool to open is exactly that.
-  - '!gen-notices.mjs'
+  # Development scripts: the check harnesses and the notice generator. Nothing above covers the
+  # repo root — everything not named here ships. Harmless in themselves, but a test that stubs the
+  # IPC bridge is a description of the bridge, and nothing that exists for development belongs in
+  # the app users get. Same rule as the dev CSP widening.
+  #
+  # This is a DIRECTORY rule on purpose. These were four separate filename excludes while the
+  # scripts sat at the root, which meant a fifth script was a silent addition to the asar unless
+  # someone remembered this list. A directory covers the ones written next year too.
+  - '!scripts'
+  # The notice generator's OUTPUT does ship, but as an extraFile beside the exe, so keeping legal/
+  # out of the asar leaves one copy rather than two. A licence the user cannot find has not been
+  # given to them, and one buried inside an archive they have no tool to open is exactly that.
   - '!legal/**'
   # Agent and editor configuration. Nothing above covers the repo root, and electron-builder ships
   # whatever it is not told to leave out — so `.claude/`, `.agents/`, `.mcp.json` and

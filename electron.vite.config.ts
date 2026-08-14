@@ -1,4 +1,3 @@
-import { resolve } from 'path'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
@@ -29,11 +28,6 @@ export default defineConfig({
   main: {},
   preload: {},
   renderer: {
-    resolve: {
-      alias: {
-        '@renderer': resolve('src/renderer/src')
-      }
-    },
     // Function names survive minification, which is what keeps an error report readable in the
     // build a user actually runs. React builds its component stack from `fn.name`, so without this
     // the `screen` row of a crash report — the field that names the screen that broke, and the one

@@ -10,7 +10,9 @@
 // Anything else — a dev tool, a doc, a cache, a future mistake shaped like this one — fails the
 // build instead of riding along silently.
 //
-// Run after `npm run build:unpack` or `npm run build:win`: node check-pack.mjs
+// Run from the repository root after `npm run build:unpack` or `npm run build:win`:
+//   node scripts/check-pack.mjs
+// The paths below are relative to the working directory, not to this file.
 import { listPackage } from '@electron/asar'
 import { existsSync } from 'fs'
 import { join } from 'path'

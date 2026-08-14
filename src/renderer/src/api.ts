@@ -328,7 +328,7 @@ export async function getHierConfig(): Promise<HierConfig> {
   // panel and Project Preferences down. `repairImportedJson` does not catch it either: it only
   // examines settings values that start with `{` or `[`. This was the one loader in the file
   // reading `parsed` without a coercion, and a hostile-value pass over every loader is what found
-  // it (check-api.mjs).
+  // it (scripts/check-api.mjs).
   const obj = asObject<Partial<HierConfig>>(parsed, {})
   return {
     govs: asArray<{ name?: unknown; tags?: unknown }>(obj.govs).map((g) => ({

@@ -12,7 +12,7 @@ globalThis.window = {
   }
 }
 
-const A = await import('./src/renderer/src/api.ts')
+const A = await import('../src/renderer/src/api.ts')
 
 const HOSTILE = [
   null,
@@ -154,7 +154,7 @@ for (const [key, save, ok] of ROUNDTRIP) {
     // pushRecentColor caches at module level, so each case needs the module's view reset. The only
     // handle a caller has is the getter, so the cache is refilled from the value under test first.
     if (key === 'recentColors') {
-      const mod = await import('./src/renderer/src/api.ts?bust=' + encodeURIComponent(String(v)))
+      const mod = await import('../src/renderer/src/api.ts?bust=' + encodeURIComponent(String(v)))
       try {
         await mod.pushRecentColor('#AABBCC')
       } catch (e) {
@@ -233,7 +233,7 @@ for (const [label, fn] of pure) {
 //   · an empty graph and a single node do not divide by zero
 globalThis.requestAnimationFrame = () => 0
 globalThis.cancelAnimationFrame = () => {}
-const { ForceLayout } = await import('./src/renderer/src/graphLayout.ts')
+const { ForceLayout } = await import('../src/renderer/src/graphLayout.ts')
 const settle = (ids, edges) => {
   const g = new ForceLayout()
   g.seed(ids, edges, 900, 600)
@@ -319,7 +319,9 @@ for (const [label, pass] of graph) {
  * `:root` only. A theme block overrides a SUBSET by design (Dark Teal changes eight), so the
  * question is whether the default defines everything, not whether each theme does.
  */
-const css = await readFile('./src/renderer/src/assets/main.css', 'utf8')
+// Resolved against THIS file, not the working directory — the imports above are module-relative
+// and a second convention in the same script is how one of them silently reads the wrong file.
+const css = await readFile(new URL('../src/renderer/src/assets/main.css', import.meta.url), 'utf8')
 const rootAt = css.indexOf(':root {')
 const root = css.slice(rootAt, css.indexOf('\n}', rootAt))
 const defined = new Set([...root.matchAll(/^\s+(--[\w-]+):/gm)].map((m) => m[1]))

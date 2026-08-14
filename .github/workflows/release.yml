@@ -36,8 +36,8 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: node src/main/db.ts # database self-check (schema + CRUD + undo + security asserts)
-      - run: node check-api.mjs # the renderer's settings loaders against hostile values
-      - run: node check-corrupt.mjs # 600 damaged .world files; the app must survive every one
+      - run: node scripts/check-api.mjs # the renderer's settings loaders against hostile values
+      - run: node scripts/check-corrupt.mjs # 600 damaged .world files; the app must survive every one
 
       # The notices file is generated, and a stale one is the failure this whole gate exists to
       # prevent from shipping: adding a dependency and forgetting to regenerate breaks nothing,
@@ -47,9 +47,9 @@ jobs:
       - name: Third-party notices are up to date
         shell: bash
         run: |
-          node gen-notices.mjs
+          node scripts/gen-notices.mjs
           git diff --exit-code --ignore-cr-at-eol -- legal/THIRD-PARTY-NOTICES.txt \
-            || { echo "::error::legal/THIRD-PARTY-NOTICES.txt is stale — run: node gen-notices.mjs"; exit 1; }
+            || { echo "::error::legal/THIRD-PARTY-NOTICES.txt is stale — run: node scripts/gen-notices.mjs"; exit 1; }
 
       # --publish never is inside the script (package.json), not here, so a local build on a tagged
       # commit behaves the same way. Without it electron-builder sees the git tag, decides on its
@@ -63,7 +63,7 @@ jobs:
       # security notes) was found shipping inside app.asar despite files: being written specifically
       # to keep that class of thing out. Runs after the build because it has nothing to check
       # before then.
-      - run: node check-pack.mjs
+      - run: node scripts/check-pack.mjs
 
       # Upload via GitHub's OWN 'gh' tool (preinstalled on the runner). Avoiding a third-party
       # action is deliberate: any external dependency granted contents:write is supply-chain

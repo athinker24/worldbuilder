@@ -6,6 +6,17 @@ out
 *.log*
 graphify-out
 HANDOFF.md
+
+# Both tsconfigs declare `composite: true`, which makes tsc write an incremental build-info file
+# beside them. The npm scripts pass `--composite false` so none exists today, but any editor or
+# plain `tsc -b` produces one, and it is a build artifact either way.
+*.tsbuildinfo
+
+# Editor and OS droppings. .vscode/ is deliberately NOT here — its three files are checked in on
+# purpose (debug launch configuration and the formatter choice).
+.vs/
+Thumbs.db
+desktop.ini
 # Per-machine agent configuration: absolute paths with the account name in them. This rule used
 # to live only in a personal global ignore file, which protects one machine and no clone.
 .claude/settings.local.json
@@ -13,11 +24,15 @@ HANDOFF.md
 # A skill-management CLI installs an unrelated marketing/design skill library here, outside this
 # project's control. Ignore everything it adds and allowlist only what this project actually owns
 # — a new marketing skill the tool installs later is ignored automatically, not swept in by a
-# careless `git add -A`. .claude/skills/<name> is a junction to .agents/skills/<name> for every
-# installed skill except the four below, which are real directories.
-.agents/skills/*
-!.agents/skills/agentation/
-!.agents/skills/agentation-self-driving/
+# careless `git add -A`.
+#
+# .agents/skills/ is that CLI's install root and is ignored WHOLE. It used to allowlist the two
+# agentation skills, which put a byte-identical second copy of each in the repository: git does
+# not store a junction, it stores the files it finds, so a clone got two real directories that
+# could drift apart with nothing to notice. `.claude/skills/` is the copy that is kept, because
+# that is the path skills are actually discovered from — the CLI can restore its own tree from
+# skills-lock.json, which records the source and hash of both.
+.agents/
 
 .claude/skills/*
 !.claude/skills/agentation/

@@ -1,0 +1,71 @@
+name: CI
+
+# The quality gate, on every change rather than only on a release.
+#
+# release.yml runs the same checks, but it is triggered by a version tag — so until this file
+# existed nothing verified a pull request or a push to master at all. A contributor could not tell
+# whether their change compiled, and a break was found at tag time, after it had been merged.
+#
+# Tags are excluded from the push trigger on purpose: a tagged commit already runs release.yml,
+# which repeats every step below and then builds and uploads. Without the exclusion both workflows
+# would run the whole gate twice for one push.
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+    tags-ignore:
+      - '**'
+
+# A new push to the same branch makes the previous run's answer irrelevant. Cancelling it keeps
+# the queue short without changing what is checked.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # windows-latest, matching release.yml, and not for symmetry alone: this app is Windows-only,
+    # and db.ts's own checks cover reserved device names, backslash paths and the drive-letter form
+    # of a traversal. On Linux those assertions would exercise a different code path than the one
+    # that ships, which is the kind of green run that means nothing.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Same reasoning as release.yml: the checkout action leaves a token in .git/config, and
+          # the next step runs the install scripts of every dependency. Nothing here needs it.
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # node:sqlite needs 22+ (the db self-check runs on it too)
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+      - run: npm run typecheck
+
+      # The three harnesses that stand in for a test framework here.
+      - run: node src/main/db.ts # schema + CRUD + undo + the security scenarios
+      - run: node scripts/check-api.mjs # the renderer's settings loaders against hostile values
+      - run: node scripts/check-corrupt.mjs # 600 damaged .world files; the app must survive each
+
+      # A stale notice file breaks nothing and ships anyway, which is why it is checked rather than
+      # trusted. --ignore-cr-at-eol because the runner checks these out with CRLF (see
+      # .gitattributes) while the blob is stored LF.
+      - name: Third-party notices are up to date
+        shell: bash
+        run: |
+          node scripts/gen-notices.mjs
+          git diff --exit-code --ignore-cr-at-eol -- legal/THIRD-PARTY-NOTICES.txt \
+            || { echo "::error::legal/THIRD-PARTY-NOTICES.txt is stale — run: node scripts/gen-notices.mjs"; exit 1; }
+
+      # Packaging is part of the gate, not only of the release. What ships is decided by
+      # electron-builder.yml's exclude list, and twice now something has ridden along that the list
+      # was written specifically to keep out (graphify-out/, the agent configuration) — both found
+      # by listing the built archive, neither catchable from the config or from git. --dir stops
+      # short of building an installer, which is the slow half.
+      - run: npm run build:unpack
+      - run: node scripts/check-pack.mjs

@@ -1,0 +1,57 @@
+name: Bug report
+description: Something broke or looks wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      # The whole reason this template exists. The app writes a session log designed to be pasted
+      # into a message — fixed columns, no file paths, no world content, and the last 50 things the
+      # app did before an error. Nothing in the README tells a user it is there, so without this
+      # they report from memory and the one artifact that would answer the question stays on disk.
+      value: |
+        **Please attach the session log.** It is the single most useful thing in a report here.
+
+        Use **Help ▸ Open Error Log** inside the app: it selects this session's file for you.
+        Failing that, take the newest `*_session.log` from `Documents\Worldbuilder\logs\`.
+
+        It contains no file paths and none of your world's content, only names and events. Have a
+        look before attaching it if you would rather check.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      # There is no About dialog; the log header carries the version, and so does the name of the
+      # downloaded file. Naming a menu item that does not exist is how a template wastes a report.
+      description: The `App` line in the log header, or the name of the file you downloaded.
+      placeholder: '0.0.1'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - Setup .exe (installer)
+        - Portable .zip
+        - Built from source
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Session log
+      description: Paste the log, or drag the file into this box.
+      render: text
+    validations:
+      required: false

@@ -9,11 +9,11 @@
 // bar is that the APP survives being asked: the working copy still readable AND writable
 // afterwards, nothing written outside assets/, and no failure that leaves the database closed.
 //
-// Run: node check-corrupt.mjs
+// Run from the repository root: node scripts/check-corrupt.mjs
 import { mkdtempSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { initDb, api, packWorld, unpackWorld } from './src/main/db.ts'
+import { initDb, api, packWorld, unpackWorld } from '../src/main/db.ts'
 
 const ROUNDS = 600
 const dir = mkdtempSync(join(tmpdir(), 'worldcorrupt-'))
