@@ -64,8 +64,7 @@ import { EmptyState, IconButton, Segmented } from './ui'
 import { useT } from './i18n'
 import Timeline from './Timeline'
 import MapToolbar from './MapToolbar'
-import { startPaneResize } from './paneResize'
-import ToolPanel, {
+import {
   ARROW_LABELS,
   DASH_LABELS,
   DEFAULT_DRAW,
@@ -84,7 +83,9 @@ import ToolPanel, {
   NavRoute,
   Tool,
   TravelMode
-} from './ToolPanel'
+} from './mapTypes'
+import { startPaneResize } from './paneResize'
+import ToolPanel from './ToolPanel'
 import { pushUndo } from './undo'
 import { endFrames, frame, logCrash, logEvent, logTime } from './log'
 

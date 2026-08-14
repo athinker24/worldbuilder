@@ -18,7 +18,7 @@ import {
   TimelineConfig,
   WorldMap
 } from './api'
-import { MapScale } from './ToolPanel'
+import { MapScale } from './mapTypes'
 import Icon from './icons'
 import { useT } from './i18n'
 import { EmptyState } from './ui'

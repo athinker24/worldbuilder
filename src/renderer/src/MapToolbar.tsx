@@ -1,6 +1,6 @@
 import Icon from './icons'
 import { useT } from './i18n'
-import { Tool, TOOLS } from './ToolPanel'
+import { Tool, TOOLS } from './mapTypes'
 
 // The floating map toolbar: CREATION tools only. Modifying an existing drawing (edit vertices,
 // move, delete) is a contextual action and lives in the feature's right-click menu instead.
