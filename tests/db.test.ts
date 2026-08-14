@@ -2175,6 +2175,22 @@ rmSync(dir, { recursive: true, force: true })
 {
   const html = readFileSync(join(import.meta.dirname, '../src/renderer/index.html'), 'utf8')
   const csp = /content="([^"]*Content-Security|[^"]*default-src[^"]*)"/.exec(html)?.[1] ?? html
+  // The policy split into directive -> its COMPLETE source list. The comparison below is against
+  // that whole list, not a substring of the policy, and the difference is the point: an
+  // `includes()` test passes for a directive that has GAINED a source, so `default-src 'self'`
+  // and `default-src 'self' https:` were indistinguishable — the second one permits every origin
+  // on the web and read as green. A directive that is missing entirely compares against
+  // `undefined` and fails the same way it always did.
+  const declared = new Map(
+    csp
+      .split(';')
+      .map((d) => d.trim())
+      .filter(Boolean)
+      .map((d) => {
+        const sp = d.indexOf(' ')
+        return sp === -1 ? ([d, ''] as const) : ([d.slice(0, sp), d.slice(sp + 1).trim()] as const)
+      })
+  )
   for (const directive of [
     "default-src 'self'",
     "script-src 'self'",
@@ -2186,14 +2202,24 @@ rmSync(dir, { recursive: true, force: true })
     "frame-src 'none'",
     "form-action 'none'",
     "base-uri 'none'"
-  ])
-    assert.ok(csp.includes(directive), `the CSP must keep ${directive}`)
+  ]) {
+    const sp = directive.indexOf(' ')
+    assert.equal(
+      declared.get(directive.slice(0, sp)),
+      directive.slice(sp + 1),
+      `the CSP must keep ${directive} with exactly those sources`
+    )
+  }
   // 'unsafe-eval' is what Pixi wants and what pixi.js/unsafe-eval exists to avoid needing; a
   // remote origin in script-src or connect-src would be a way to run or reach somebody else's
   // code. The dev-only widening for the annotation toolbar lives in electron.vite.config.ts and
   // is applied at serve time, which is exactly why it must not appear in this file.
   assert.ok(!/unsafe-eval/.test(csp), 'the CSP must never allow unsafe-eval')
-  assert.ok(!/https?:\/\//.test(csp), 'no remote origin belongs in the shipped policy')
+  // Matches the SCHEME, not `scheme://`. A bare `https:` is a source in its own right and permits
+  // every host over that scheme — the widest thing that fits in a policy — and the earlier
+  // `https?:\/\/` walked straight past it for want of two slashes. `world:` and `data:` are named
+  // schemes too and are deliberately untouched by this: it asks about http and https only.
+  assert.ok(!/\bhttps?:/.test(csp), 'no remote origin belongs in the shipped policy')
 
   // …and the dev-only widening, which the two assertions above can only say is absent from the
   // SOURCE html. What actually keeps it out of the shipped app is one line in the Vite config,
@@ -2215,9 +2241,17 @@ rmSync(dir, { recursive: true, force: true })
   // The widening REPLACES the real directive rather than inserting a second one (a duplicate is
   // not merged: the first occurrence wins). That only works while the string it searches for is
   // still the string the policy contains, and nothing else would notice it had stopped matching.
+  //
+  // Asserted as a LITERAL against the whole file, because that is exactly what the plugin does:
+  // `String.prototype.replace` with a string argument matches verbatim or not at all, and not at
+  // all is a silent no-op that leaves dev with an unwidened policy. The previous version stripped
+  // the trailing `;` before comparing, and searched the extracted attribute rather than the file
+  // being edited — which made it tolerant of the one thing it exists to detect: appending a source
+  // to connect-src leaves `connect-src 'self' world:` present as a substring while the literal
+  // `connect-src 'self' world:;` the plugin looks for is gone.
   const needle = /html\.replace\(\s*"([^"]+)"/.exec(vite)?.[1]
   assert.ok(
-    needle && csp.includes(needle.replace(/;$/, '')),
+    needle !== undefined && html.includes(needle),
     'the dev widening no longer matches the CSP it edits'
   )
 }
