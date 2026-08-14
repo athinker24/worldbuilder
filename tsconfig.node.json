@@ -1,6 +1,9 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
-  "include": ["electron.vite.config.*", "src/main/**/*", "src/preload/**/*"],
+  // tests/ is here so the harness is typechecked with the code it exercises. It used to live
+  // inside db.ts and was covered by src/main/**; leaving it out on the way to its own file would
+  // have quietly dropped 2155 lines from `npm run typecheck`.
+  "include": ["electron.vite.config.*", "src/main/**/*", "src/preload/**/*", "tests/**/*"],
   "compilerOptions": {
     "composite": true,
     // db.ts is run directly by node for the self-check, and node's ESM resolver needs the

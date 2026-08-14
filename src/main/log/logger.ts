@@ -1,11 +1,11 @@
 // The log's decisions: what level a thing is, whether it is slow, what an error report contains.
 //
-// Deliberately free of Electron. `node src/main/db.ts` is this project's only test harness and it
+// Deliberately free of Electron. `node tests/db.test.ts` is this project's only test harness and it
 // exercises this file directly; anything needing `app` or a window is passed IN (see `Meta` and
 // `context`). That is the same reason db.ts keeps its distance from Electron.
 
 import { homedir, release } from 'os'
-// `type` on the Level import is load-bearing: `node src/main/db.ts` runs this file by stripping
+// `type` on the Level import is load-bearing: `node tests/db.test.ts` runs this file by stripping
 // types, and a type pulled in through a value import has nothing left to resolve at runtime.
 import type { Level } from './format.ts'
 import { block, clip, eventLine, kv, stamp, tag } from './format.ts'

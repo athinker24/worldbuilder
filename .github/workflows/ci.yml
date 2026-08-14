@@ -48,7 +48,7 @@ jobs:
       - run: npm run typecheck
 
       # The three harnesses that stand in for a test framework here.
-      - run: node src/main/db.ts # schema + CRUD + undo + the security scenarios
+      - run: node tests/db.test.ts # schema + CRUD + undo + the security scenarios
       - run: node scripts/check-api.mjs # the renderer's settings loaders against hostile values
       - run: node scripts/check-corrupt.mjs # 600 damaged .world files; the app must survive each
 

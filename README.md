@@ -102,7 +102,7 @@ Other commands:
 ```bash
 npm run typecheck    # type checking
 npm run lint         # eslint
-node src/main/db.ts  # database self-check (schema + CRUD + undo + security asserts)
+node tests/db.test.ts # main-process test harness (schema + CRUD + undo + security asserts)
 ```
 
 Releasing: `git tag v1.0.1 && git push --tags` → GitHub Actions builds and attaches the

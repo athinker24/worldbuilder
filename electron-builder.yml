@@ -28,6 +28,11 @@ files:
   # scripts sat at the root, which meant a fifth script was a silent addition to the asar unless
   # someone remembered this list. A directory covers the ones written next year too.
   - '!scripts'
+  # The main process's test harness. It was 2155 lines at the end of db.ts, behind a
+  # `process.argv[1]` guard — a RUNTIME test, so no bundler could drop it and every packaged build
+  # carried the hostile-world builders and every assertion message naming a mitigation. Out here it
+  # is a file nothing imports, so this line is a second lock on a door that is already shut.
+  - '!tests'
   # The notice generator's OUTPUT does ship, but as an extraFile beside the exe, so keeping legal/
   # out of the asar leaves one copy rather than two. A licence the user cannot find has not been
   # given to them, and one buried inside an archive they have no tool to open is exactly that.

@@ -17,7 +17,7 @@
 // A second destination — a crash reporter, an uploader — is a sibling of sink.ts and nothing else
 // changes. That is the whole reason for the shape.
 //
-// NO ELECTRON, here or below. `node src/main/db.ts` is this project's only test harness and it
+// NO ELECTRON, here or below. `node tests/db.test.ts` is this project's only test harness and it
 // exercises the logger directly; anything needing `app` or a window is passed in from index.ts.
 
 import type { Level } from './log/format.ts'

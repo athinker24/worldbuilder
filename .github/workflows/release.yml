@@ -35,7 +35,7 @@ jobs:
       # Quality gate before the build: a broken release must never ship
       - run: npm run lint
       - run: npm run typecheck
-      - run: node src/main/db.ts # database self-check (schema + CRUD + undo + security asserts)
+      - run: node tests/db.test.ts # database self-check (schema + CRUD + undo + security asserts)
       - run: node scripts/check-api.mjs # the renderer's settings loaders against hostile values
       - run: node scripts/check-corrupt.mjs # 600 damaged .world files; the app must survive every one
 
