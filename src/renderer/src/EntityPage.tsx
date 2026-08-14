@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Marked, type Tokens } from 'marked'
 import {
   api,
   assetUrl,
@@ -28,6 +27,7 @@ import FamilyTree from './FamilyTree'
 import Icon from './icons'
 import Select from './Select'
 import { useT } from './i18n'
+import { renderMarkdown } from './markdown'
 import { randomName } from './names'
 import { IconButton, Row, Section } from './ui'
 import { pushUndo } from './undo'
@@ -56,44 +56,6 @@ interface Props {
   onChanged: () => void
   onDeleted: () => void
   onLocateFeature?: (mapId: number, featureId: number) => void // jump to a feature from map history
-}
-
-// URL schemes allowed in links. marked copies `[click](javascript:…)` into <a href> verbatim;
-// clicking it would run code in the renderer context (window.api → the whole database). A
-// shared .world can carry that, so an allow-list is mandatory.
-// '#' is the wiki links' own href; 'world:' is a local image embedded in a note (![x](world://data/…)).
-const SAFE_URL = /^(https?:|world:|mailto:|#)/i
-const safeHref = (href: string): string => (SAFE_URL.test(href.trim()) ? href : '#')
-// Sanitising at PARSER LEVEL: the URL is checked on the token BEFORE any HTML exists. (The
-// previous version regexed href="…" in the generated HTML; correct today, but a marked release
-// emitting single quotes or another order would have silently defeated it — cut at the source,
-// not filter the output.) escapeAttr: the URL lands inside quotes, and we do not trust
-// marked's own escaping.
-const escapeAttr = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
-const safeMarked = new Marked({
-  renderer: {
-    link(this: { parser: { parseInline: (t: Tokens.Generic[]) => string } }, token: Tokens.Link) {
-      const t = token.title ? ` title="${escapeAttr(token.title)}"` : ''
-      const inner = this.parser.parseInline(token.tokens)
-      return `<a href="${escapeAttr(safeHref(token.href))}"${t}>${inner}</a>`
-    },
-    image(token: Tokens.Image) {
-      const t = token.title ? ` title="${escapeAttr(token.title)}"` : ''
-      return `<img src="${escapeAttr(safeHref(token.href))}" alt="${escapeAttr(token.text)}"${t}>`
-    }
-  }
-})
-// [[Entity Name]] → clickable wiki link (converted before markdown)
-// '<' is escaped first: raw HTML typed into a note (<img onerror=...> and such) can never
-// run as script — content arriving in a shared world.db stays safe too.
-function renderMarkdown(content: string): string {
-  const withWiki = content
-    .replace(/</g, '&lt;')
-    .replace(
-      /\[\[([^\]]+)\]\]/g,
-      (_, name: string) => `<a href="#" data-wiki="${escapeAttr(name)}">${name}</a>`
-    )
-  return safeMarked.parse(withWiki, { async: false })
 }
 
 // Tabbed notes region: lives in the fields['notes'] JSON (no schema change; the fields['parent'] pattern)
