@@ -539,13 +539,19 @@ export class LabelLayer {
       return w
     })
     const total = widths.reduce((a, b) => a + b, 0)
-    // Same geometry as labelDivIcon: a chord of the text's own width, bent by `curve`.
+    // Same geometry as labelDivIcon: a chord of the text's own width, bent by `curve`. Anchored the
+    // same way too — labelDivIcon's own comment is explicit that the arc's MIDPOINT (t=0.5), not
+    // its endpoints, sits on the drop point (`cy = H/2 + sag`). The unshifted Bézier below has its
+    // endpoints at y=0 and its midpoint at y=-sag; `+ sag` moves the midpoint back to 0, which is
+    // what `group.position.set(s.x, s.y)` then places at the drop point. Left at the endpoints (as
+    // it was), the whole arc sat visibly off from where a straight label centers — every curved
+    // label read as pinned a bit above (or below, for a negative curve) the spot it was dropped on.
     const sag = (s.curve / 100) * total * 0.3
     const x0 = -total / 2
     const x1 = total / 2
     const at = (u: number): { x: number; y: number } => ({
       x: (1 - u) * (1 - u) * x0 + 2 * (1 - u) * u * 0 + u * u * x1,
-      y: (1 - u) * (1 - u) * 0 + 2 * (1 - u) * u * -2 * sag + u * u * 0
+      y: (1 - u) * (1 - u) * 0 + 2 * (1 - u) * u * -2 * sag + u * u * 0 + sag
     })
     const N = 64
     const pts: { x: number; y: number }[] = []
