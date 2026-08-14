@@ -3,10 +3,11 @@
 Guidance for `src/renderer`. Two pointers before anything else:
 
 - **Before editing `MapView.tsx`, `pixiLabels.ts`, `pixiShapes.ts`, `ToolPanel.tsx`, `Timeline.tsx`
-  or `HierarchyPanel.tsx`, load the `map-internals` skill.** It carries the rendering split, the
-  measured performance findings and the list of fixes that were tried and reverted.
-- Markdown, asset names and anything read out of a `.world` are untrusted — the rules are in the
-  `security-gates` skill.
+  or `HierarchyPanel.tsx`, read [`docs/map-internals.md`](../../docs/map-internals.md).** It
+  carries the rendering split, the measured performance findings and the list of fixes that were
+  tried and reverted.
+- Markdown, asset names and anything read out of a `.world` are untrusted — the rules are in
+  [`docs/security-gates.md`](../../docs/security-gates.md).
 
 **Undo/redo (`src/renderer/src/undo.ts`):** double stack (`undoStack`/`redoStack`); every mutation is recorded as an `{undo, redo}` pair. A deleted-then-restored row gets a new database id, so identity is kept in sync across closures via a mutable `{id}` ref object (see the `pm:create`/`pm:remove` handlers in `MapView.tsx`). Extend undo/redo without breaking this pattern. A failing step pushes the entry back on its stack and returns false — it must never corrupt the stacks. **Every entry also carries a `label` (+ optional `params`), and the ENGLISH TEXT IS THE KEY** — `History.tsx` translates at render, so a list read after switching languages is not half Turkish; a drawing's kind is part of the key rather than a parameter, or the raw English word lands inside a Turkish sentence. `undo.ts` is a **store**: `subscribeHistory` + a cached snapshot for `useSyncExternalStore` (rebuilt only on a real change — returning a fresh object per call re-renders forever). `goTo(n)` walks ONE STEP AT A TIME: every entry's closures assume the state the step before it left, and identity drift means out-of-order replay mends the wrong row; it stops at the first failure, where `run` has already put the entry back. **The History panel lives in the map toolbar** beside Layers and Boards — most of what it lists are drawings, so leaving the map to step back through them is the one thing it must not require. It scrolls itself to the current step and dims (never strikes through) the undone ones: they are not deleted, they are what continuing from here would cost.
 

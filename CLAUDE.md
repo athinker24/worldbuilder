@@ -55,15 +55,21 @@ On Windows, `dist/` files are locked while the packaged `Worldbuilder.exe` is ru
 **Where the rest of this file went.** Three bodies of guidance moved out of the always-loaded
 file so a session pays for them only when it needs them. Nothing was deleted.
 
-- **`.claude/skills/security-gates`** — the 41 numbered gates. A shared `.world` is HOSTILE input:
-  it is someone else's SQLite database opened over yours, its text is rendered, its images are
-  written to disk, and what you save is handed to other people. **Load that skill before editing
-  `src/main/db.ts`, `src/main/index.ts`, the CSP, the IPC write boundary or anything that parses a
-  file the user did not write** — and never weaken a gate to make a feature work.
-- **`.claude/skills/map-internals`** — the map screen: Leaflet/CRS.Simple, the WebGL split, the
-  base-image texture, timeline, rank and paint modes, and the measured dead ends.
+- **[`docs/security-gates.md`](docs/security-gates.md)** — the 41 numbered gates. A shared `.world`
+  is HOSTILE input: it is someone else's SQLite database opened over yours, its text is rendered,
+  its images are written to disk, and what you save is handed to other people. **Read it before
+  editing `src/main/db.ts`, `src/main/index.ts`, the CSP, the IPC write boundary or anything that
+  parses a file the user did not write** — and never weaken a gate to make a feature work.
+- **[`docs/map-internals.md`](docs/map-internals.md)** — the map screen: Leaflet/CRS.Simple, the
+  WebGL split, the base-image texture, timeline, rank and paint modes, and the measured dead ends.
 - **`src/main/CLAUDE.md`** and **`src/renderer/CLAUDE.md`** — loaded automatically when working
-  under those directories.
+  under those directories, and left there on purpose: each sits beside the code it describes.
+
+The two `docs/` files are the canonical copies. `.claude/skills/security-gates` and
+`.claude/skills/map-internals` still exist, and still trigger at the right moment for an agent that
+loads skills — but each is now a few lines pointing at `docs/`. They were 86 KB of the project's own
+architecture prose living inside a directory a human contributor reads as vendor configuration, and
+the README sends *users* to the security gates.
 
 **Process split:** `src/main` (Electron main process — node:sqlite, file system, window management), `src/preload` (the single bridge exposed to the renderer: `window.api.invoke(method, ...args)`), `src/renderer/src` (React UI). Every renderer access to main goes through that one IPC channel; the `mainApi` object in `src/main/index.ts` defines the entire surface exposed to the renderer — adding a main-process capability means adding a method there, never opening a separate IPC channel. **One channel runs the other way:** `menu` (preload `onMenu`), carrying application-menu clicks as opaque command-id strings. Main only forwards the click; the renderer maps the id onto the function its own UI already calls, so a command never grows a second implementation. Extend that channel by adding a command id, not a second channel.
 

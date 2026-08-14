@@ -19,6 +19,11 @@ files:
   # (The guidance that moved out of CLAUDE.md is covered too: the skills sit under `.claude/`
   # and `src/`, both excluded elsewhere in this list.)
   - '!{CLAUDE.md,HANDOFF.md,AGENTS.md}'
+  # docs/ is the same material one level down: the 41 security gates and the map internals, i.e.
+  # a list of every mitigation and the measured weak points around them. It used to sit under
+  # .claude/ and was covered by the exclude for that directory; moving it somewhere a human
+  # contributor would actually look also moved it out from behind that rule.
+  - '!docs'
   # Development scripts: the check harnesses and the notice generator. Nothing above covers the
   # repo root — everything not named here ships. Harmless in themselves, but a test that stubs the
   # IPC bridge is a description of the bridge, and nothing that exists for development belongs in

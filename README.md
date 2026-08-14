@@ -81,7 +81,7 @@ The complete list lives on the **⌨ Shortcuts** page inside the app.
 The files are designed to be shared, so their contents are treated as **untrusted input**:
 note content cannot run HTML/JavaScript, embedded images cannot write outside the `assets\`
 folder, and corrupt data is repaired instead of locking the app up. Details:
-[.claude/skills/security-gates/SKILL.md](.claude/skills/security-gates/SKILL.md).
+[docs/security-gates.md](docs/security-gates.md).
 
 Still — give a file from a stranger the same suspicion you would give an unknown program.
 

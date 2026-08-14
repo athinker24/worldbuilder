@@ -1,8 +1,8 @@
 # Main process
 
-Guidance for `src/main`. The security gates that govern this side live in the `security-gates`
-skill — load it before touching `db.ts`, `index.ts`, `unpackWorld`, `packWorld`, the CSP or the
-IPC write boundary.
+Guidance for `src/main`. The security gates that govern this side are in
+[`docs/security-gates.md`](../../docs/security-gates.md) — read them before touching `db.ts`,
+`index.ts`, `unpackWorld`, `packWorld`, the CSP or the IPC write boundary.
 
 **Legacy-key migration:** the codebase was Turkish once and its persisted keys were too. `migrateLegacyKeys()` (db.ts) renames them in place on every launch and after every `.world` unpack (üst→parent, sancak→banner, notlar→notes, hiyerarşi→hierarchy, yönetim→government, yönetici→ruler, hane→house, renk→color, cinsiyet→gender, doğum→birth, ölüm→death; links.relation anne/baba/eş→mother/father/spouse; gender values erkek/kadın→male/female). Idempotent; never overwrites an existing English key; leaves user-defined map-mode dimensions (din, dil…) untouched — those are the user's vocabulary. Asserted in the db self-check with a legacy world.
 

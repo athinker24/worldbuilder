@@ -7,10 +7,11 @@ It is not in the repository (`.gitignore`) — a fresh clone has no copy, and no
 before changing anything. This file is a pointer, not a summary.**
 
 `CLAUDE.md` is short on purpose. Three bodies of guidance load only when they are needed: the
-security gates (`.claude/skills/security-gates`), the map and rendering internals
-(`.claude/skills/map-internals`), and the per-directory `src/main/CLAUDE.md` and
-`src/renderer/CLAUDE.md`. If your harness does not load skills by itself, read those files
-directly before touching the areas they name.
+security gates ([`docs/security-gates.md`](docs/security-gates.md)), the map and rendering
+internals ([`docs/map-internals.md`](docs/map-internals.md)), and the per-directory
+`src/main/CLAUDE.md` and `src/renderer/CLAUDE.md`. Read them directly before touching the areas
+they name — the two under `.claude/skills/` with the same names are trigger stubs pointing here,
+not second copies.
 
 That indirection is deliberate. This file used to hold its own copy of the project's purpose,
 development commands and architecture, and the copy had silently fallen behind: it still described

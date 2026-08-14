@@ -2044,6 +2044,22 @@ rmSync(dir, { recursive: true, force: true })
       existsSync(join(import.meta.dirname, '../scripts', harness)),
       `${harness} must live under scripts/, which is what the '!scripts' exclude covers`
     )
+  // Same shape for the other two directories that exist only for development. `tests` holds this
+  // file — the thing whose whole point was to stop shipping — and `docs` holds the 41 gates and
+  // the map internals, i.e. a list of every mitigation in the app and the measured weak points
+  // around them. Both are asserted the same way as scripts/: the rule, and something real inside
+  // the directory it names, so neither can pass while guarding an empty folder.
+  for (const [rule, proof] of [
+    ["'!tests'", 'tests/db.test.ts'],
+    ["'!docs'", 'docs/security-gates.md'],
+    ["'!docs'", 'docs/map-internals.md']
+  ]) {
+    assert.ok(yml.includes(rule), `development material must stay out of the asar: ${rule}`)
+    assert.ok(
+      existsSync(join(import.meta.dirname, '..', proof)),
+      `${proof} must exist where ${rule} covers it`
+    )
+  }
   // The developer's own setup. `.claude/settings.local.json` holds absolute paths with the
   // account name in them, and the log has a whole gate about not leaking that name — shipping it
   // inside the binary is the same leak in every copy, permanently.
