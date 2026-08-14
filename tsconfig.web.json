@@ -8,6 +8,10 @@
   ],
   "compilerOptions": {
     "composite": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    // api.ts imports domain.ts with the extension, for the same reason src/main/db.ts imports
+    // ./log.ts: scripts/check-api.mjs runs these files through bare node, and node's ESM resolver
+    // does not guess an extension. Vite rewrites it at build time; this lets tsc accept it.
+    "allowImportingTsExtensions": true
   }
 }

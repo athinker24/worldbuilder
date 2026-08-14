@@ -1,4 +1,14 @@
 // Typed client wrapper around the narrow main-process API.
+//
+// The world's own rules — parent chains, ring area, derived colours, the calendar — moved to
+// domain.ts, which knows nothing about IPC. They are re-exported below so that every existing
+// `from './api'` still resolves; new code should import them from './domain.ts'. The dependency runs
+// one way: this file imports domain.ts, never the reverse.
+export * from './domain.ts'
+
+import type { HierConfig, TimelineConfig } from './domain.ts'
+import { MAX_LIST_ITEMS, TIMELINE_DEFAULT } from './domain.ts'
+
 const inv = <T>(method: string, ...args: unknown[]): Promise<T> =>
   window.api.invoke(method, ...args) as Promise<T>
 
@@ -87,11 +97,6 @@ export interface Hierarchy {
     gov: string | null
     tags: string[]
   }[]
-}
-
-// Hierarchy configuration: a top→bottom rank ladder per government form
-export interface HierConfig {
-  govs: { name: string; tags: string[] }[] // each government form's own ordered ladder
 }
 
 // Encode each path segment separately, for file names containing spaces etc.
@@ -341,190 +346,6 @@ export async function getHierConfig(): Promise<HierConfig> {
 export const saveHierConfig = (cfg: HierConfig): Promise<void> =>
   api.setSetting('hierarchyConfig', JSON.stringify(cfg))
 
-// Built-in starter presets for the rank ladders. Merged, never forced (the "everything
-// renameable" rule): a first-time user loads one to see how the ladder system works, then renames
-// or reorders freely. The tags are only example ranks.
-export const HIER_PRESETS: { name: string; govs: HierConfig['govs'] }[] = [
-  {
-    name: 'Medieval',
-    govs: [
-      { name: 'feudal', tags: ['#empire', '#kingdom', '#duchy', '#county', '#barony'] },
-      { name: 'tribal', tags: ['#confederation', '#tribe', '#clan'] }
-    ]
-  },
-  {
-    name: 'Modern',
-    govs: [
-      { name: 'unitary', tags: ['#state', '#province', '#district'] },
-      { name: 'federal', tags: ['#federation', '#state', '#county'] }
-    ]
-  }
-]
-
-// Add an empty ladder to the config for government forms newly discovered on entities
-export function mergeHierConfig(cfg: HierConfig, discoveredGovs: string[]): HierConfig {
-  const missing = discoveredGovs.filter((g) => !cfg.govs.some((x) => x.name === g))
-  return missing.length
-    ? { ...cfg, govs: [...cfg.govs, ...missing.map((name) => ({ name, tags: [] }))] }
-    : cfg
-}
-
-// De-jure parent chain: the entity's year-based parent history lives as JSON in fields["parent"].
-// Conquest = appending a {from, id} record; drag the slider back and the old parent returns by itself.
-export interface ParentRec {
-  from: number | null // null = since the beginning
-  id: number // the parent entity's id (survives renames)
-}
-
-/**
- * Read the year-based {from, id} list in fields[key] (parent chain, ruler history…).
- *
- * The ELEMENTS are checked, not just the array, and this is the one list where that is not
- * pedantry: `parentAt` reads `r.from` in a loop that runs per base polygon on every year tick, so
- * a single null in a shared world's `fields.parent` throws inside `applyYear` — which is the map.
- * `repairImportedJson` cannot reach it either: that gate proves `fields` parses to an object, and
- * this list lives as a JSON string INSIDE one of its values, a level below where it looks.
- *
- * `from` is allowed to be absent as well as null — an older world wrote `{id}` alone, and
- * `parentAt` has always read it as "since the beginning".
- */
-export function getYearRecs(fieldsJson: string, key: string): ParentRec[] {
-  try {
-    const f = JSON.parse(fieldsJson || '{}') as Record<string, string>
-    const p: unknown = JSON.parse(f[key] ?? '[]')
-    if (!Array.isArray(p)) return []
-    return (p.slice(0, MAX_LIST_ITEMS) as unknown[]).filter((r): r is ParentRec => {
-      if (!r || typeof r !== 'object') return false
-      const rec = r as { from?: unknown; id?: unknown }
-      return (
-        typeof rec.id === 'number' &&
-        (rec.from === null || rec.from === undefined || typeof rec.from === 'number')
-      )
-    })
-  } catch {
-    return []
-  }
-}
-
-export const getParents = (fieldsJson: string): ParentRec[] => getYearRecs(fieldsJson, 'parent')
-
-/**
- * Gender inference (person id → 'M'|'F'). Priority:
- *   1. explicit `fields.gender` ('male'/'female')
- *   2. role: someone's father → male, mother → female
- *   3. spouse's opposite: a man's spouse → female and vice versa (propagated to a fixed point)
- * Used by both the family-tree display and the add-child relation (mother/father pick).
- */
-export function inferGenders(
-  entities: { id: number; fields: string }[],
-  links: { from_id: number; to_id: number; relation: string }[]
-): Map<number, 'M' | 'F'> {
-  const fatherSet = new Set<number>()
-  const motherSet = new Set<number>()
-  const spousesOf = new Map<number, number[]>()
-  const pushSpouse = (a: number, b: number): void => {
-    const arr = spousesOf.get(a) ?? []
-    arr.push(b)
-    spousesOf.set(a, arr)
-  }
-  for (const l of links) {
-    if (l.relation === 'father') fatherSet.add(l.to_id)
-    else if (l.relation === 'mother') motherSet.add(l.to_id)
-    else if (l.relation === 'spouse') {
-      pushSpouse(l.from_id, l.to_id)
-      pushSpouse(l.to_id, l.from_id)
-    }
-  }
-  const g = new Map<number, 'M' | 'F'>()
-  for (const e of entities) {
-    const c = (JSON.parse(e.fields || '{}') as Record<string, string>)['gender']
-    if (c === 'male') g.set(e.id, 'M')
-    else if (c === 'female') g.set(e.id, 'F')
-    else if (fatherSet.has(e.id)) g.set(e.id, 'M')
-    else if (motherSet.has(e.id)) g.set(e.id, 'F')
-  }
-  // Propagate from spouses: assign the opposite gender where the spouse is known (fixed point)
-  let changed = true
-  while (changed) {
-    changed = false
-    for (const [pid, sps] of spousesOf) {
-      if (g.has(pid)) continue
-      for (const s of sps) {
-        const sg = g.get(s)
-        if (sg) {
-          g.set(pid, sg === 'M' ? 'F' : 'M')
-          changed = true
-          break
-        }
-      }
-    }
-  }
-  return g
-}
-
-/** Parent in year Y: the record with the largest from <= Y (null = -∞). */
-export function parentAt(recs: ParentRec[], year: number): number | null {
-  let best: ParentRec | null = null
-  for (const r of recs) {
-    const from = r.from ?? -Infinity
-    if (from <= year && (best === null || from > (best.from ?? -Infinity))) best = r
-  }
-  return best?.id ?? null
-}
-
-/** Is a feature/event visible in its year range (from/to; empty = unbounded). */
-export const inYearRange = (
-  from: number | undefined,
-  to: number | undefined,
-  year: number
-): boolean => (from ?? -Infinity) <= year && year <= (to ?? Infinity)
-
-/** Base set: entities carrying the LAST tag of each government form's ladder (map base
- *  polygons + Atlas share this set — single source). */
-export function lowestRungSet(
-  cfg: HierConfig,
-  entities: { id: number; gov: string | null; tags: string[] }[]
-): Set<number> {
-  const s = new Set<number>()
-  for (const g of cfg.govs) {
-    const lowest = g.tags[g.tags.length - 1]
-    if (!lowest) continue
-    for (const e of entities)
-      if (e.tags.includes(lowest) && (!e.gov || e.gov === g.name)) s.add(e.id)
-  }
-  return s
-}
-
-/** The TOP of the parent chain in that year (cycle-guarded). parentsOf: entity id to its
- *  year-based parent records — the caller feeds it from raw fields (Atlas) or a pre-parsed ref
- *  (MapView hot-path) besler. */
-export function rootAtYear(
-  eid: number,
-  year: number,
-  parentsOf: (id: number) => ParentRec[]
-): number {
-  let cur = eid
-  const seen = new Set<number>()
-  while (!seen.has(cur)) {
-    seen.add(cur)
-    const p = parentAt(parentsOf(cur), year)
-    if (p === null) break
-    cur = p
-  }
-  return cur
-}
-
-/** Area of a polygon ring (shoelace, unsigned). CRS.Simple is a flat plane — no projection. */
-export function ringArea(ring: number[][]): number {
-  let s = 0
-  for (let i = 0; i < ring.length; i++) {
-    const [x1, y1] = ring[i]
-    const [x2, y2] = ring[(i + 1) % ring.length]
-    s += x1 * y2 - x2 * y1
-  }
-  return Math.abs(s) / 2
-}
-
 // Map modes: user-defined dimensions (religion, language…) and colors per dimension+value.
 // The value is read from the entity's fields[dim]; autoColor kicks in when no color is assigned.
 export interface MapModes {
@@ -578,7 +399,6 @@ const parseSetting = (raw: string | null | undefined, fallback: unknown): unknow
  * lists in a real world runs to a few dozen, and anyone who reaches five thousand map-mode
  * dimensions has stopped building a world.
  */
-const MAX_LIST_ITEMS = 5000
 // Nullish elements are dropped as well as the array being bounded. Almost every consumer reads a
 // field off each item (`p.name`, `f.id`, `r.from`), so one `null` in a shared world's list is a
 // throw during render — and none of these lists has ever legitimately held one.
@@ -819,28 +639,6 @@ export const saveMapBoards = async (mapId: number, data: MapBoards): Promise<voi
   await api.setSetting('mapBoards', JSON.stringify(all))
 }
 
-// Timeline: the epoch is entirely user-defined (no BC/AD imposed).
-// Years are signed integers: negative = before the epoch. year = the slider's last position (persisted).
-export interface TimelineConfig {
-  before: string // era abbreviation before the epoch (e.g. "BC", or an invented one)
-  after: string // era abbreviation after the epoch
-  min: number
-  max: number
-  year: number
-  periods: { name: string; from: number; to: number }[] // named eras (Early Age…)
-  events: { name: string; year: number; fid?: number; mid?: number }[] // events; fid/mid = linked feature and its map
-}
-
-const TIMELINE_DEFAULT: TimelineConfig = {
-  before: 'BC', // defaults only — the user renames these freely in the timeline settings
-  after: 'AD',
-  min: -500,
-  max: 1500,
-  year: 0,
-  periods: [],
-  events: []
-}
-
 export async function getTimeline(): Promise<TimelineConfig> {
   const raw = await api.getSetting('timeline')
   if (!raw) return TIMELINE_DEFAULT
@@ -883,9 +681,6 @@ export async function getMapYear(mapId: number): Promise<number | undefined> {
 
 export const saveMapYear = (mapId: number, year: number): Promise<void> =>
   savePerMap('mapYears', mapId, Math.round(year))
-
-export const formatYear = (y: number, cfg: TimelineConfig): string =>
-  y < 0 ? `${-y} ${cfg.before}` : `${y} ${cfg.after}`
 
 // Language and theme are APPLICATION preferences, so they live in userData/prefs.json rather than
 // the settings table: a row there would ride inside a shared .world (opening someone else's world
@@ -945,55 +740,4 @@ export async function pushRecentColor(hex: string): Promise<string[]> {
   recentColors = list
   await api.setSetting('recentColors', JSON.stringify(list))
   return list
-}
-
-// Deterministic color from a string for unassigned values (hex — ColorPicker-compatible)
-/**
- * A polygon's OUTLINE, from its fill colour: darker and less saturated.
- *
- * Drawing both with one colour makes the outline glow against its own fill — worst on light
- * colours, where a saturated stroke at full strength reads as neon against a pale interior. Every
- * paper map does the opposite: the line is the darker relative of the area it encloses.
- *
- * Derived rather than picked, so it follows whatever colour the user chooses and needs no second
- * control. Polygons only — on a path or a pin the stroke IS the content, and dimming what someone
- * picked would be answering a question they did not ask.
- */
-export function outlineColor(fill: string): string {
-  const m = /^#?([\da-f]{6})$/i.exec(fill.trim())
-  if (!m) return fill // a pattern url, a css name, anything not a plain hex: leave it alone
-  const n = parseInt(m[1], 16)
-  const rgb = [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-  // Toward the colour's own grey (its luminance) takes the saturation out without shifting hue,
-  // then a flat multiply darkens it. Both are small on purpose: this must read as the same colour.
-  const grey = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
-  return (
-    '#' +
-    rgb
-      .map((v) => Math.round((v + (grey - v) * 0.25) * 0.72))
-      .map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0'))
-      .join('')
-  )
-}
-
-export function autoColor(seed: string): string {
-  let hash = 0
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0
-  const h = ((hash % 360) + 360) % 360
-  const s = 0.55
-  const l = 0.55
-  const f = (n: number): number => {
-    const k = (n + h / 30) % 12
-    return l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1))
-  }
-  return (
-    '#' +
-    [f(0), f(8), f(4)]
-      .map((v) =>
-        Math.round(v * 255)
-          .toString(16)
-          .padStart(2, '0')
-      )
-      .join('')
-  )
 }
