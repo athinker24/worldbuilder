@@ -469,6 +469,13 @@ const MAX_BASE_PX = 8192
 // Derived-mode label (rank/paint): a base font (map units) below this means the region is too
 // small, so no label is drawn — a name wider than the region it names is noise
 const LABEL_MIN = 5
+// Same fraction-of-the-map's-own-span cap and floor rebuildDerivedLabels uses for rank/paint
+// labels, applied to a polygon's OWN name and the ROOT-view carrier override — both still sized
+// off a fixed 200px cap / 8px floor until now. On a map bigger than ~4444px (0.045 * span > 200)
+// that cap alone made a root-view name top out well below what rank mode allowed on the SAME map,
+// which is what reads as "the words spread out in duchy view but get stuck in the default one."
+const spanLabelSize = (raw: number, mapSpan: number): number =>
+  Math.min(mapSpan * 0.045, Math.max(LABEL_MIN, mapSpan * 0.005, raw))
 // The text is user input embedded into an html string → must be escaped (no XSS from a shared
 // world.db; same rationale as blocking raw HTML in markdown).
 const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
@@ -983,6 +990,16 @@ export default function MapView({
   // filtered to it, so a realm drawn only on another map stops appearing under a rank chip here.
   // Filled in reloadFeatures beside mosaicManaged; see the comment there for what it contains.
   const [mapScope, setMapScope] = useState<Set<number>>(new Set())
+  // A second reload signal for HierarchyPanel, alongside the `reloadToken` prop from App. That one
+  // only advances on undo/redo, because it also remounts the open EntityPage (it is part of that
+  // component's `key`) and nothing else editing a hierarchy tag should pay for that. reloadFeatures
+  // already re-fetches hierarchy()/getHierConfig() on every call — including the ones the map's OWN
+  // embedded inspector triggers after an edit (`reloadFeatures('article')`) — so bumping this right
+  // where mapScope is set means the panel's rank list and the map's own painting go stale and go
+  // fresh together, without the panel needing a fetch of its own to notice. Summed into the prop
+  // below rather than replacing it: either source changing must be enough to refresh, and two
+  // monotonically increasing counters summed can only go up when one of them does.
+  const [featGen, setFeatGen] = useState(0)
   // Climb the parent chain to the ancestor carrying `level` (null level = the entity itself).
   // Returns null when that year's chain has no such ancestor. Cycle-guarded.
   const levelAncestor = (eid: number, level: string | null, year: number): number | null => {
@@ -2034,6 +2051,7 @@ export default function MapView({
       const scope = new Set<number>(mosaicManaged.current)
       for (const f of wm.features) if (f.entity_id !== null) scope.add(f.entity_id)
       setMapScope(scope)
+      setFeatGen((g) => g + 1)
     }
     // A parent's own polygon is hidden in a derived view because the mosaic of what lies UNDER it
     // already draws that land, and two images of the same region is the thing the mosaic exists to
@@ -2070,6 +2088,8 @@ export default function MapView({
     }
     const chYears = new Set<number>()
     const derived = paint ?? rank // derived modes: base polygons only, no labels
+    // For spanLabelSize below — same span rebuildDerivedLabels computes for the same reason.
+    const mapSpan = Math.max(wm.width ?? MAX_BASE_PX, wm.height ?? MAX_BASE_PX)
     for (const f of wm.features) {
       const isPolygon = f.geometry.includes('"Polygon"')
       const isLine = f.geometry.includes('"LineString"')
@@ -2298,9 +2318,9 @@ export default function MapView({
             // until it is.
             const font = cssFont(style.font)
             const b = (layer as L.Polygon).getBounds()
-            const base = Math.min(
-              200,
-              Math.max(8, (b.getEast() - b.getWest()) / Math.max(4, f.entity_name.length))
+            const base = spanLabelSize(
+              (b.getEast() - b.getWest()) / Math.max(4, f.entity_name.length),
+              mapSpan
             )
             const ring = (JSON.parse(f.geometry) as { coordinates: number[][][] }).coordinates[0]
             const [cx, cy] = ringAreaCentroid(ring)
@@ -2972,6 +2992,9 @@ export default function MapView({
     // Default (root) view: base polygons painted in the color of the entity at the TOP of
     // that year's chain (no parent = top); the root's name becomes one label over its largest piece.
     const topOnly = activeModeRef.current === null
+    // For spanLabelSize below, sizing the carrier's label — same span rebuildDerivedLabels uses.
+    const wmr = worldMapRef.current
+    const mapSpan = Math.max(wmr?.width ?? MAX_BASE_PX, wmr?.height ?? MAX_BASE_PX)
     // Climb the parent chain by year to the entity that HOLDS this one at the displayed rank
     // (cycle-guarded). We deliberately keep climbing past the first match and return the TOPMOST
     // one: after a same-rank conquest (duchy A takes duchy B) B still carries the rank tag, so
@@ -3155,10 +3178,7 @@ export default function MapView({
             shownLabels.push({
               ...spec,
               text: name,
-              size: Math.min(
-                200,
-                Math.max(8, (b.getEast() - b.getWest()) / Math.max(4, name.length))
-              )
+              size: spanLabelSize((b.getEast() - b.getWest()) / Math.max(4, name.length), mapSpan)
             })
           } else if (spec) shownLabels.push(spec)
         }
@@ -5563,7 +5583,7 @@ export default function MapView({
               <HierarchyPanel
                 active={activeMode}
                 scope={mapScope}
-                reloadToken={reloadToken}
+                reloadToken={reloadToken + featGen}
                 onMode={(m) => {
                   activeModeRef.current = m
                   setActiveMode(m)
