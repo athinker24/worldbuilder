@@ -2156,6 +2156,16 @@ kbd {
   filter: drop-shadow(0 0 1.25px rgb(0 0 0 / 0.55));
 }
 
+/* …except on a LINE. The reasoning above holds for a region, whose rim reads as its edge, and
+   inverts for a road: the shading lands around a stroke rather than around a filled shape, so it
+   IS the second darker road the note above warns about. On a dotted line it was worse than that —
+   a dot is a round cap on a zero-length dash, and a shading around each one merged into a
+   continuous dark line, which is what "it goes black when selected" was. The width boost below is
+   left alone: that is the whole mark now, and it is drawn in the line's own colour. */
+.sel-feature.sel-line {
+  filter: none;
+}
+
 /* The contextual map inspector. RAISED, not floating: it is docked, and it keeps
    exactly one border — the real edge where it meets the map. Width is set inline
    by MapView (drag-resizable, remembered in prefs.json). */

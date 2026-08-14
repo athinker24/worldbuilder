@@ -451,7 +451,14 @@ export class ShapeLayer {
       // leaving a rim rather than a repaint. The old SVG did this with a drop-shadow, which is the
       // one thing that must not come back — filters were the single most expensive item on the map.
       // Screen-sized whatever the stroke under it is doing: a highlight is interface, not terrain.
-      if (s.selected) {
+      //
+      // CLOSED SHAPES ONLY, matching `.sel-feature.sel-line` in the stylesheet — the primary
+      // selection is drawn by Leaflet and the rest here, so the two renderers have to agree about
+      // this or one selected road would look different from the next. Around a filled region the
+      // rim reads as its edge; around a road it is a second, darker road, and around the round
+      // caps of a DOTTED one the rims merge into a solid dark line — which is what selecting a
+      // dotted path used to do to it. The width boost above is left for both.
+      if (s.selected && s.closed) {
         trace(g, s)
         g.stroke({
           width: w + SEL_HALO_PX / this.strokeScale,

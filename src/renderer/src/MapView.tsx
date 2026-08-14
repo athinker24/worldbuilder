@@ -469,13 +469,24 @@ const MAX_BASE_PX = 8192
 // Derived-mode label (rank/paint): a base font (map units) below this means the region is too
 // small, so no label is drawn — a name wider than the region it names is noise
 const LABEL_MIN = 5
-// Same fraction-of-the-map's-own-span cap and floor rebuildDerivedLabels uses for rank/paint
-// labels, applied to a polygon's OWN name and the ROOT-view carrier override — both still sized
-// off a fixed 200px cap / 8px floor until now. On a map bigger than ~4444px (0.045 * span > 200)
-// that cap alone made a root-view name top out well below what rank mode allowed on the SAME map,
-// which is what reads as "the words spread out in duchy view but get stuck in the default one."
-const spanLabelSize = (raw: number, mapSpan: number): number =>
-  Math.min(mapSpan * 0.045, Math.max(LABEL_MIN, mapSpan * 0.005, raw))
+/**
+ * A polygon name's base font, in map units — the same arithmetic rebuildDerivedLabels uses for a
+ * rank/paint label, so the two views size a name the same way.
+ *
+ * The root view had its own, older version of this and it was smaller in two independent ways.
+ * The CAP was a fixed 200 rather than a fraction of the map's own span, so on anything past about
+ * 4444px (where 0.045 * span passes 200) root-view names hit a ceiling that rank mode did not have
+ * on the identical map. And the SPREAD factors were missing: rank mode fills 80% of the axis and
+ * divides by 0.62 em per letter, which together make a name ~1.29x larger than the bare
+ * width / letters this used. Both are why the words spread out in duchy view and looked stuck in
+ * the default one.
+ *
+ * The floor stays a flat 8, deliberately NOT the span fraction rebuildDerivedLabels floors at:
+ * there it is a SKIP threshold (too small to name, draw nothing), here there is nothing to skip to
+ * — a realm must keep its name — so raising it would only inflate the labels of small regions.
+ */
+const spanLabelSize = (axis: number, textLen: number, mapSpan: number): number =>
+  Math.min(mapSpan * 0.045, Math.max(8, (axis * 0.8) / (0.62 * Math.max(4, textLen))))
 // The text is user input embedded into an html string → must be escaped (no XSS from a shared
 // world.db; same rationale as blocking raw HTML in markdown).
 const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
@@ -2318,10 +2329,7 @@ export default function MapView({
             // until it is.
             const font = cssFont(style.font)
             const b = (layer as L.Polygon).getBounds()
-            const base = spanLabelSize(
-              (b.getEast() - b.getWest()) / Math.max(4, f.entity_name.length),
-              mapSpan
-            )
+            const base = spanLabelSize(b.getEast() - b.getWest(), f.entity_name.length, mapSpan)
             const ring = (JSON.parse(f.geometry) as { coordinates: number[][][] }).coordinates[0]
             const [cx, cy] = ringAreaCentroid(ring)
             // Stored in zoom-0 layer space, which is what the WebGL layer draws in — so a zoom
@@ -2949,10 +2957,16 @@ export default function MapView({
   // layers, so it is called again at the end; the diff is applied (no full layer scan).
   const markSelection = (): void => {
     const cls = (fid: number, on: boolean): void => {
-      for (const l of allLayers.current.get(fid) ?? [])
-        (l as { getElement?: () => Element | null | undefined })
-          .getElement?.()
-          ?.classList.toggle('sel-feature', on)
+      // A LINE carries a second class, and the stylesheet uses it to drop the dark rim. On a
+      // polygon the rim reads as an edge around a filled region; on a road it is a second, darker
+      // road drawn under the first, and on a dotted one it was the only thing visible. The width
+      // boost stays for both — that is what says "this one", and it is the drawing's own colour.
+      const line = featKind.current.get(fid) === 'line'
+      for (const l of allLayers.current.get(fid) ?? []) {
+        const el = (l as { getElement?: () => Element | null | undefined }).getElement?.()
+        el?.classList.toggle('sel-feature', on)
+        el?.classList.toggle('sel-line', on && line)
+      }
     }
     for (const fid of markedSel.current) cls(fid, false)
     markedSel.current = selIdsRef.current
@@ -3128,11 +3142,22 @@ export default function MapView({
           weight: st.weight ?? 2,
           arrow: arrow === 'end',
           selected: selIdsRef.current.includes(fid),
+          // ZERO IS KEPT, and it is the whole of `dotted`. lineDashArray writes "0 <gap>" for that
+          // style — a zero-length dash that a round cap turns into a round dot, which is how
+          // Leaflet has always drawn it. Filtering `n > 0` dropped exactly that entry and left a
+          // one-element pattern, and a single length alternates on/off at equal intervals: a
+          // DASHED line. It only showed with no tool active, because a tool hands every shape back
+          // to Leaflet, whose own parser keeps the zero — the same path looked dotted while
+          // drawing and dashed the moment you left the tool.
+          //
+          // What the filter was actually for — junk out of a shared `.world` — is unchanged: NaN
+          // and negatives still go. An all-zero pattern cannot hang the walk either; dashRing
+          // floors every entry at a fraction of the ring's own length, which is what bounds it.
           dash: st.dashArray
             ? String(st.dashArray)
                 .split(/[ ,]+/)
                 .map(Number)
-                .filter((n) => n > 0)
+                .filter((n) => Number.isFinite(n) && n >= 0)
             : []
         })
       for (const l of layers) {
@@ -3178,7 +3203,7 @@ export default function MapView({
             shownLabels.push({
               ...spec,
               text: name,
-              size: spanLabelSize((b.getEast() - b.getWest()) / Math.max(4, name.length), mapSpan)
+              size: spanLabelSize(b.getEast() - b.getWest(), name.length, mapSpan)
             })
           } else if (spec) shownLabels.push(spec)
         }
