@@ -11,7 +11,7 @@ that itself is worth reporting.
 --------------------------------------------------------------------------------
 
 Expect bugs. The save/data-safety side of the app has had real attention (see
-TERMS.txt and PRIVACY.txt for the details), but that does not mean nothing
+NOTICE.txt and PRIVACY.txt for the details), but that does not mean nothing
 will go wrong. It means that when something does, the app should tell you
 rather than fail silently. If it ever doesn't, that is the most useful kind
 of report you can send.

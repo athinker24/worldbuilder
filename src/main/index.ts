@@ -373,13 +373,21 @@ function noteUiState(scope: string, data: Record<string, unknown> | undefined): 
  * packaging — packaged it would be the asar itself, so the two cases differ.
  */
 function openLegal(
-  name: 'TERMS.txt' | 'PRIVACY.txt' | 'THIRD-PARTY-NOTICES.txt' | 'ALPHA-README.txt'
+  name:
+    'LICENSE.txt' | 'NOTICE.txt' | 'PRIVACY.txt' | 'THIRD-PARTY-NOTICES.txt' | 'ALPHA-README.txt'
 ): void {
   // These live in a `legal/` folder now (both in the repo and in what ships — see
   // electron-builder.yml's extraFiles), kept separate from `name` itself so the message below
   // still names just the file, not its folder.
+  //
+  // The licence is the one exception, and only in DEV: its source is `LICENSE` at the repository
+  // root, because that is where GitHub, npm and every other tool look for it. electron-builder
+  // copies it to `legal/LICENSE.txt` on the way out, so the packaged layout is uniform. One file,
+  // two homes — deliberately not a second copy checked into legal/, which would be free to drift.
   const file = is.dev
-    ? join(app.getAppPath(), 'legal', name)
+    ? name === 'LICENSE.txt'
+      ? join(app.getAppPath(), 'LICENSE')
+      : join(app.getAppPath(), 'legal', name)
     : join(dirname(app.getPath('exe')), 'legal', name)
   if (!existsSync(file)) {
     // Worth saying rather than doing nothing: an empty click on a legal document reads as the app
@@ -534,7 +542,8 @@ const MENU_TR: Record<string, string> = {
   'Keyboard Shortcuts': 'Klavye Kısayolları',
   'Open Error Log': 'Hata Kaydını Aç',
   'Alpha Notes': 'Alfa Notları',
-  'Terms of Use': 'Kullanım Şartları',
+  Notice: 'Bilgilendirme',
+  License: 'Lisans',
   'Privacy Policy': 'Gizlilik Politikası',
   'Third-Party Notices': 'Üçüncü Taraf Bildirimleri',
   'No log could be written.': 'Kayıt dosyası yazılamadı.',
@@ -701,7 +710,10 @@ function buildMenu(): void {
           },
           { type: 'separator' },
           { label: ml('Alpha Notes'), click: () => openLegal('ALPHA-README.txt') },
-          { label: ml('Terms of Use'), click: () => openLegal('TERMS.txt') },
+          // Notice before Licence on purpose: the first answers "what does this mean for me and my
+          // worlds", the second is the MIT text. A user opening this menu wants the first.
+          { label: ml('Notice'), click: () => openLegal('NOTICE.txt') },
+          { label: ml('License'), click: () => openLegal('LICENSE.txt') },
           { label: ml('Privacy Policy'), click: () => openLegal('PRIVACY.txt') },
           { label: ml('Third-Party Notices'), click: () => openLegal('THIRD-PARTY-NOTICES.txt') },
           { type: 'separator' },

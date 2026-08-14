@@ -117,12 +117,14 @@ A personal hobby project, evolving continuously. If something breaks or looks wr
 
 ## License
 
-Closed source, free to use. The full terms are in [legal/TERMS.txt](legal/TERMS.txt), which the
-installer shows as a page you must accept and which ships in a `legal\` folder beside the
-executable in the portable zip too.
+**MIT** — see [LICENSE](LICENSE). Use it, change it, redistribute it, sell what you make from it.
+The installer shows the licence as a page you must accept, and it ships as `legal\LICENSE.txt`
+beside the executable in the portable zip too.
 
-The world you build with it — your `.world` files, maps and entries — is **entirely yours**.
-Nothing in those terms claims any right over it, and you may publish or sell it freely.
+The world you build with it — your `.world` files, maps and entries — is **entirely yours**. The
+licence covers the software and claims nothing over your content; you may publish or sell it
+freely. [legal/NOTICE.txt](legal/NOTICE.txt) says that and the other things a licence does not:
+back up your work, and treat a `.world` from a stranger like any other downloaded document.
 
 - [legal/PRIVACY.txt](legal/PRIVACY.txt) — the app makes no network requests, has no accounts and
   collects nothing. It also says what the log records, and what is stripped from a `.world` you

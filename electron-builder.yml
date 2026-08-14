@@ -11,7 +11,11 @@ files:
   - '!**/.vscode/*'
   - '!src/**' # '!src/*' only excluded DIRECT children — src/main/… could have shipped
   - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  # SECURITY.md is here with README.md for the same reason: repository documentation, written for
+  # someone reading the source, with no job inside the binary. It was caught by check-pack rather
+  # than remembered — the third time a new root file has tried to ride along (graphify-out/ and
+  # .claude/ were the first two), which is the argument for running that check on every build.
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md,SECURITY.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   # Dev notes never ship to users: a detailed map of the internals + every security
@@ -73,7 +77,13 @@ asarUnpack:
 # index.ts). The string form (not {from, to}) preserves the `legal/` prefix in the output, matching
 # the source layout — so the source path and the shipped path are the same path.
 extraFiles:
-  - legal/TERMS.txt
+  # The licence goes out as a FILE beside the exe as well as being the installer's page: the
+  # portable zip has no installer, and MIT's own terms require the notice to travel with the
+  # software. `{from, to}` here and not the string form the others use, because this one's source
+  # path is the repository root while its shipped path is inside legal/ with the rest.
+  - from: LICENSE
+    to: legal/LICENSE.txt
+  - legal/NOTICE.txt
   - legal/PRIVACY.txt
   - legal/THIRD-PARTY-NOTICES.txt
   - legal/ALPHA-README.txt
@@ -121,11 +131,13 @@ fileAssociations:
     description: Worldbuilder world file (old extension)
 nsis:
   artifactName: Worldbuilder-${version}-Setup.${ext}
-  # The terms, as a page the installer will not go past until it is accepted. This is the one
-  # moment the user is guaranteed to be looking, and it is why the file is written to be read
-  # rather than scrolled past. The ZIP has no equivalent moment, which is what extraFiles and the
-  # Help menu are for.
-  license: legal/TERMS.txt
+  # The licence, as a page the installer will not go past until it is accepted. This is the one
+  # moment the user is guaranteed to be looking. It was TERMS.txt, a proprietary document, until
+  # the project moved to MIT; what a user needs to be told that a licence does NOT say — their
+  # worlds are their own, back them up, a .world from a stranger is someone else's document — is
+  # legal/NOTICE.txt now, and it ships beside this rather than in front of it. The ZIP has no
+  # equivalent moment, which is what extraFiles and the Help menu are for.
+  license: LICENSE
   # A wizard opens and asks for the install folder (not a one-click silent install)
   oneClick: false
   allowToChangeInstallationDirectory: true
