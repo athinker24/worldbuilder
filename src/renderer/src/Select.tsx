@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Icon from './icons'
 
 // A dropdown we actually control.
@@ -12,6 +13,18 @@ import Icon from './icons'
 // full-screen overlay to catch the outside click. Absolute positioning would be
 // clipped by the scrolling panels these live in (the map inspector, the tool
 // popover), which is exactly where most of them sit.
+//
+// The list is portaled to document.body, not rendered where the trigger sits in the
+// tree. `position: fixed` is only fixed to the VIEWPORT while every ancestor is free
+// of a transform, filter or similar — CSS gives any of those a side effect of also
+// becoming the containing block for its fixed-position descendants. The conquest
+// hint bar centers itself with `transform: translateX(-50%)` (map-internals' own
+// note on why: an unknown-width element can't be centered with `left` alone), so a
+// Select rendered inside it had `pos.left/top` — computed from
+// `getBoundingClientRect()`, which IS viewport-relative — applied against that
+// bar's box instead, landing the open list far from the trigger that opened it.
+// Portaling out from under any such ancestor is the fix that holds regardless of
+// which container a Select ends up inside next.
 
 export interface SelectOption {
   value: string
@@ -115,33 +128,36 @@ export default function Select({
         </span>
         <Icon name="chevron-down" size={13} />
       </button>
-      {open && pos && (
-        <>
-          <div className="select-backdrop" onMouseDown={() => setOpen(false)} />
-          <div
-            className="select-list"
-            role="listbox"
-            style={{ left: pos.left, top: pos.top, minWidth: pos.width }}
-          >
-            {options.map((o, i) => (
-              <button
-                key={o.value}
-                type="button"
-                role="option"
-                aria-selected={o.value === value}
-                className={`select-option ${o.value === value ? 'selected' : ''} ${
-                  i === active ? 'active' : ''
-                }`}
-                style={o.style}
-                onMouseEnter={() => setActive(i)}
-                onClick={() => pick(o.value)}
-              >
-                {o.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
+      {open &&
+        pos &&
+        createPortal(
+          <>
+            <div className="select-backdrop" onMouseDown={() => setOpen(false)} />
+            <div
+              className="select-list"
+              role="listbox"
+              style={{ left: pos.left, top: pos.top, minWidth: pos.width }}
+            >
+              {options.map((o, i) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  role="option"
+                  aria-selected={o.value === value}
+                  className={`select-option ${o.value === value ? 'selected' : ''} ${
+                    i === active ? 'active' : ''
+                  }`}
+                  style={o.style}
+                  onMouseEnter={() => setActive(i)}
+                  onClick={() => pick(o.value)}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </>,
+          document.body
+        )}
     </>
   )
 }
