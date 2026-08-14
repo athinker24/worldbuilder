@@ -474,7 +474,13 @@ export class ShapeLayer {
               g.lineTo(b[0], b[1])
             }
           )
-        g.stroke({ width: w, color: s.stroke, alpha: s.strokeAlpha, cap: 'butt' })
+        // ROUND, not butt: dotted is `lineDashArray`'s "0 " + gap (see mapTypes.ts) — a zero-length
+        // dash that only becomes a visible dot with a round cap. Leaflet's own default path option
+        // is `lineCap: 'round'`, which is what made the trick work before paths moved to WebGL; a
+        // butt cap here drew every dot as a zero-area sliver, invisible, and left the black
+        // selection halo (drawn just above, unconditionally) as the only thing that showed —
+        // read as the whole path going flat black the moment it was selected.
+        g.stroke({ width: w, color: s.stroke, alpha: s.strokeAlpha, cap: 'round' })
       } else if (s.weight > 0) {
         trace(g, s)
         g.stroke({ width: w, color: s.stroke, alpha: s.strokeAlpha, join: 'round', cap: 'round' })
