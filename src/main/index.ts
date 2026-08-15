@@ -80,6 +80,21 @@ protocol.registerSchemesAsPrivileged([
 // exportMapImage needs the window for capturePage; assigned in createWindow
 let mainWindow: BrowserWindow | null = null
 
+/**
+ * A renderer measurement in DIP, which is the unit the window APIs here speak.
+ *
+ * The renderer measures in CSS pixels. `capturePage`'s rect is DIP, and the two are only the same
+ * number while the interface scale is 100% — `applyUiScale` sets a page zoom factor, and that
+ * factor IS the ratio between them. At any other scale the export asked for a region shifted left
+ * of the map and smaller than it, and arrived with a strip of the SIDEBAR down its left edge: the
+ * right-hand column of entry counts, legible in the PNG. Nothing in the renderer was wrong; it was
+ * handing over a number in its own unit and nothing converted it.
+ *
+ * One conversion, at the boundary, because this is the boundary — the renderer has no business
+ * knowing what unit a window API wants.
+ */
+const toDip = (cssPx: number): number => cssPx * (mainWindow?.webContents.getZoomFactor() ?? 1)
+
 // --- The document model: the working copy (DATA_DIR) is saved instantly at all times,
 // Ctrl+S packs it into a single .world file, Open unpacks a file over the working copy.
 // currentFile = the Ctrl+S target, kept in memory here and nowhere else; dirty = changes since
@@ -914,11 +929,13 @@ const mainApi = {
       filters: [{ name: 'PNG', extensions: ['png'] }]
     })
     if (r.canceled || !r.filePath) return null
-    // The rect is CSS pixels from the renderer's own getBoundingClientRect. Sanity-checked
-    // because it is handed to the compositor: a NaN takes the capture out, and an enormous one
-    // asks the GPU process for a bitmap the size of the number.
+    // The rect is CSS pixels from the renderer's own getBoundingClientRect — converted to DIP
+    // here (see toDip) and sanity-checked, because it is handed to the compositor: a NaN takes the
+    // capture out, and an enormous one asks the GPU process for a bitmap the size of the number.
     const n = (v: unknown, max: number): number =>
-      typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(0, Math.round(v))) : 0
+      typeof v === 'number' && Number.isFinite(v)
+        ? Math.min(max, Math.max(0, Math.round(toDip(v))))
+        : 0
     const [winW, winH] = mainWindow.getContentSize()
     const safeRect = {
       x: n(rect?.x, winW),
