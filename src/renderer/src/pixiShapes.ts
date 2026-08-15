@@ -446,7 +446,13 @@ export class ShapeLayer {
           : Math.max(s.weight, MIN_STROKE_PX / this.strokeScale)) +
         // Screen pixels either way — the boost says "this one" and belongs to the interface, so it
         // is the same amount at every zoom whichever unit the stroke under it is in.
-        (s.selected ? SEL_BOOST_PX / this.strokeScale : 0)
+        //
+        // CLOSED SHAPES ONLY, matching `path.sel-feature:not(.sel-line)` in the stylesheet, and
+        // for the reason written out there: a line's dash is a map measurement while this is a
+        // screen one, so on a dotted road the two drift apart with the zoom and the dots close
+        // into a bar. A selected line is now the same line — the selection shows in the inspector
+        // and, in edit mode, in its vertex handles.
+        (s.selected && s.closed ? SEL_BOOST_PX / this.strokeScale : 0)
       // The selection halo goes down FIRST so the feature's own colour draws over the top of it,
       // leaving a rim rather than a repaint. The old SVG did this with a drop-shadow, which is the
       // one thing that must not come back — filters were the single most expensive item on the map.

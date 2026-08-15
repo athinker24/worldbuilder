@@ -294,7 +294,7 @@ const stockSimplify = (L.Polyline.prototype as unknown as Simplifiable)._simplif
 //    nobody calls, so --w was never written and every stroke fell back to the CSS default of 3:
 //    the thickness sliders did nothing and weight-2 outlines drew at 3. Hence the hop through
 //    _renderer here.
-type Styled = { _path?: SVGElement; options: { weight?: number } }
+type Styled = { _path?: SVGElement; options: { weight?: number; dashArray?: string | number[] } }
 type SvgRenderer = { _updateStyle(layer: Styled): void }
 const stockUpdateStyle = (L.SVG.prototype as unknown as SvgRenderer)._updateStyle
 ;(L.SVG.prototype as unknown as SvgRenderer)._updateStyle = function (
@@ -310,6 +310,25 @@ const stockUpdateStyle = (L.SVG.prototype as unknown as SvgRenderer)._updateStyl
     // weight of ZERO is a choice, not a small number, and the floor was quietly turning it back
     // into a 1px line. An inline width beats the stylesheet and says exactly that.
     path.style.strokeWidth = layer.options.weight === 0 ? '0' : ''
+    // THE DASH IS A MAP MEASUREMENT TOO, and it was the one stroke property that had stayed a
+    // screen one. `vector-effect: non-scaling-stroke` (see the stylesheet) makes the browser
+    // measure both the width and the dash in screen pixels; the width is multiplied back up by
+    // --mz there, and the dash was not. So the gap stayed 7.5px at every zoom while the stroke
+    // grew past it, and a dotted road's round caps closed into a solid bar as you zoomed in —
+    // which is what "selected paths change with zoom" was, since the selected one is the only
+    // path Leaflet still draws. The WebGL layer never had this: it measures its dash in map units
+    // (dashRing's scale argument), which is what made the same road look right unselected.
+    //
+    // Handed to the stylesheet as two variables rather than written here, for the same reason --w
+    // is: one declaration per path when the STYLE changes, and the zoom arrives through --mz on
+    // the pane. Nothing per frame.
+    const d = layer.options.dashArray
+    const parts = (typeof d === 'string' ? d.split(/[ ,]+/).map(Number) : (d ?? [])).filter(
+      (n) => Number.isFinite(n) && n >= 0
+    )
+    path.style.setProperty('--don', String(parts[0] ?? 0))
+    // A one-value pattern means equal on and off, which is what SVG does with it too.
+    path.style.setProperty('--doff', String(parts[1] ?? parts[0] ?? 0))
   }
 }
 

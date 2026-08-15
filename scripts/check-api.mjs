@@ -326,9 +326,9 @@ const rootAt = css.indexOf(':root {')
 const root = css.slice(rootAt, css.indexOf('\n}', rootAt))
 const defined = new Set([...root.matchAll(/^\s+(--[\w-]+):/gm)].map((m) => m[1]))
 // Set per ELEMENT rather than globally — by a rule further down the file, or by the renderer as an
-// inline style (--w and --mz from the stroke-width patch, --lz on a label, --guide on a sidebar
-// row). :root has no business defining these.
-const LOCAL = new Set(['--w', '--mz', '--lz', '--canvas-grid', '--guide'])
+// inline style (--w, --don and --doff from the stroke patch, --mz on the pane, --lz on a label,
+// --guide on a sidebar row). :root has no business defining these.
+const LOCAL = new Set(['--w', '--don', '--doff', '--mz', '--lz', '--canvas-grid', '--guide'])
 const undef = [...new Set([...css.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]))]
   .filter((v) => !LOCAL.has(v) && !defined.has(v))
   .sort()

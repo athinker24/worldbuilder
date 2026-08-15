@@ -4555,6 +4555,15 @@ a {
 .leaflet-overlay-pane path {
   stroke-width: max(0.75px, calc(var(--w, 3) * var(--mz, 1) * 1px));
   vector-effect: non-scaling-stroke;
+  /* The dash rides the same zoom as the width, and for the same reason. non-scaling-stroke makes
+     the browser measure BOTH in screen pixels; the width is scaled back to map units by --mz just
+     above, and the dash was left behind — so a dotted road's gap stayed 7.5px while its dots grew
+     past it and merged into a solid bar on the way in. Only the selected path shows it, because
+     that is the only one Leaflet still draws; the WebGL layer has always measured its dash in map
+     units. --don/--doff come from the _updateStyle patch (MapView), like --w.
+     All-zero means solid, which is what SVG already does with a zero dash. */
+  stroke-dasharray: calc(var(--don, 0) * var(--mz, 1) * 1px)
+    calc(var(--doff, 0) * var(--mz, 1) * 1px);
 }
 
 /* The selected drawing's own stroke thickens — SEL_BOOST_PX in pixiShapes, which draws whichever
@@ -4562,7 +4571,13 @@ a {
    interface, so it is the same amount at every zoom whatever unit the stroke under it uses.
    A weight of 0 keeps its inline `stroke-width: 0` from the _updateStyle patch, which beats this
    — no outline is a choice, and selecting something must not draw a line its author turned off. */
-.leaflet-overlay-pane path.sel-feature {
+/* :not(.sel-line) — a LINE keeps its exact unselected width, so a selected road is the same road.
+   The boost is a flat +2 SCREEN pixels while a dotted line's gap is a MAP measurement, so the two
+   fall out of proportion as you zoom: the dots are their own stroke width across, and adding 2px
+   to that without adding to the gap closes them into a bar at low zoom. A region has no such
+   relationship — its dash, if any, is screen-fixed like its stroke — so it keeps the boost. What
+   marks a selected path now is the inspector opening and, in edit mode, its vertex handles. */
+.leaflet-overlay-pane path.sel-feature:not(.sel-line) {
   stroke-width: max(0.75px, calc(var(--w, 3) * var(--mz, 1) * 1px + 2px));
 }
 
