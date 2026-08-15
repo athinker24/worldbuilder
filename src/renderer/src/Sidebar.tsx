@@ -154,10 +154,22 @@ export default function Sidebar({
   // allow = the map/board group being drawn (null outside grouping: the whole tree).
   const entitiesOf = (folderId: string | null, allow: Set<number> | null): EntityRow[] =>
     entities.filter((e) => folderOf(e) === folderId && (!allow || allow.has(e.id))).sort(entSort)
+  // A folder holding nothing at all: no entries of its own and no subfolder. Not the same
+  // question as "nothing in THIS group", which is what folderShown asks below.
+  const folderEmpty = (id: string): boolean =>
+    !entities.some((e) => folderOf(e) === id) && !folders.some((f) => f.parent === id)
   // A folder is drawn in a group only if the group actually holds something inside it —
   // otherwise every group would repeat the entire folder tree with most branches empty.
+  //
+  // With ONE exception, and it is the exception that makes the New folder button work: a folder
+  // with nothing in it anywhere has nothing to repeat, so the rule above saves nobody anything by
+  // hiding it. A folder made while a map group was on screen used to be written to settings and
+  // opened for renaming and never drawn — the button did its whole job invisibly, which from the
+  // outside is a button that does nothing. It shows in every group until something goes into it,
+  // and that is the cost: empty folders are the transient kind, so it is a short-lived one.
   const folderShown = (id: string, allow: Set<number> | null): boolean =>
     !allow ||
+    folderEmpty(id) ||
     entities.some((e) => folderOf(e) === id && allow.has(e.id)) ||
     folders.some((f) => f.parent === id && folderShown(f.id, allow))
 
