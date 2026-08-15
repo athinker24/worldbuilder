@@ -66,8 +66,8 @@ output format changed — cut at the source, not filter. All attributes includin
 
 ## Gate 2 — Embedded image names are validated, never repaired
 
-`unpackWorld` VALIDATES every embedded image name against `assetName` (db.ts) and refuses what
-fails; it never repairs one. It used to reduce the name to `basename`, which closed the escape
+`unpackWorld` VALIDATES every embedded image name against `assetName` (`valueGuards.ts`, re-exported
+by `db.ts`) and refuses what fails; it never repairs one. It used to reduce the name to `basename`, which closed the escape
 (`../../x.png`, `C:\…`) and nothing else: the extension and the content were free, so a shared world
 could drop `setup.exe`, a `.dll` or a `.lnk` into a folder inside the user's Documents — past the
 app's own rule for that folder, since `importAsset` has always taken images only. Both writers now
@@ -445,8 +445,8 @@ EXIF holds GPS coordinates to a few metres, the camera's serial number and the s
 opened; XMP holds the author's name and an editing history; IPTC holds a creator line. `importAsset`
 copies a file byte for byte and `packWorld` embeds it byte for byte, so every one of those rode
 inside every `.world` handed to anybody — the same shape as gate 27's disk path, and the same
-answer. `stripImageMetadata` (db.ts) covers ALL FOUR formats `importAsset` accepts, which is the
-point — the one most likely to carry GPS today is a phone photo saved as `.webp`, and that was the
+answer. `stripImageMetadata` (`imageMeta.ts`, re-exported by `db.ts`) covers ALL FOUR formats
+`importAsset` accepts, which is the point — the one most likely to carry GPS today is a phone photo saved as `.webp`, and that was the
 format with no stripper. JPEG loses APP1/APP13/COM, PNG `tEXt`/`zTXt`/`iTXt`/`eXIf`/`tIME`, WebP the
 `EXIF` and `XMP ` RIFF chunks (the container size is rewritten — the only byte any stripper edits
 rather than omits), GIF its comment extensions and an XMP application extension, but NOT
@@ -556,7 +556,9 @@ its own working copy that its own `repairImportedJson` would reset on the next o
 would hand that row to whoever the world was shared with. The four predicates (`depthOk`,
 `isPlainObject`, `isArray`, `isGeometry`) were closures inside `repairImportedJson`; they are pure,
 so they moved to module scope and `assertFeaturePatch` uses THE SAME ones — a rule this exact would
-drift on the first change if it existed twice. Deliberately NOT stricter than the open: undo writes
+drift on the first change if it existed twice. They now live in `valueGuards.ts` with `assetName`,
+which is the same move one step further: pure, so they belong where nothing around them can write
+anything. Both gates are still exercised through `db.ts`'s own surface, which did not change. Deliberately NOT stricter than the open: undo writes
 back the string the file arrived with, so a narrower rule here would make Ctrl+Z fail on a world
 that opened cleanly (non-finite coordinates are the concrete case — `1e999` passes both gates, on
 purpose). `style` gets `isPlainObject` and no more, because that is the entire contract its

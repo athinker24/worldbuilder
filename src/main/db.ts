@@ -17,6 +17,18 @@ import {
 // harness exercising the logger, and went to tests/db.test.ts with it — as did mkdtempSync,
 // utimesSync, homedir, tmpdir, assert and the two log thresholds, which nothing here ever used.
 import { logEvent } from './log.ts'
+// Pure helpers that used to live in this file. `.ts` extensions for the same reason `./log.ts`
+// carries one: `node tests/db.test.ts` runs this under bare node, whose ESM resolver does not
+// guess an extension.
+//
+// RE-EXPORTED, not merely imported. Both are part of what this module has always offered — the
+// self-check imports them from here, and packaging, the write gates and the notes on them all
+// name db.ts. Keeping the surface identical is what makes "the move changed no behaviour and lost
+// no coverage" a thing the harness can demonstrate rather than a claim in a commit message.
+import { stripImageMetadata } from './imageMeta.ts'
+import { assetName, isArray, isGeometry, isPlainObject, MAX_ASSET_NAME } from './valueGuards.ts'
+export { stripImageMetadata } from './imageMeta.ts'
+export { assetName } from './valueGuards.ts'
 
 // Kept free of Electron imports so `node tests/db.test.ts` can run the self-check standalone.
 let db!: DatabaseSync
@@ -269,208 +281,6 @@ export function backupIfNeeded(): void {
 // The working copy (world.db + assets/) is untouched by this — Save packs, Open unpacks.
 // settings.worldFile is the Ctrl+S target in the WORKING COPY only — packWorld strips it, so a
 // shared file never carries the path it was saved to. See there.
-
-/**
- * Image metadata that describes the PERSON rather than the picture, removed from what LEAVES.
- *
- * A photo carries more than pixels. EXIF holds GPS coordinates to a few metres, the camera's
- * serial number and the exact second the shutter opened; XMP holds the author's name and an
- * editing history; IPTC holds a creator and a copyright line. `importAsset` copies the file byte
- * for byte and `packWorld` embeds it byte for byte, so any of that travelled inside every
- * `.world` handed to anybody — the same shape as the author's disk path, and the same answer.
- *
- * Stripped on the way OUT, not on the way in. The user's own copy in `assets/` keeps whatever it
- * came with, which is theirs; only the file they hand to someone else is cleaned. That also covers
- * every image imported before this existed, at no extra cost, because packWorld already reads all
- * of them.
- *
- * ICC (APP2) and Adobe (APP14) are KEPT: those describe the colour, and dropping them changes how
- * the picture looks. Anything unexpected — a truncated file, a marker where none belongs — returns
- * the original bytes untouched. A cleaner that can corrupt an image is worse than the metadata.
- */
-const JPEG_DROP = new Set([0xe1, 0xed, 0xfe]) // APP1 (EXIF, XMP), APP13 (IPTC), COM
-const PNG_DROP = new Set(['tEXt', 'zTXt', 'iTXt', 'eXIf', 'tIME'])
-const WEBP_DROP = new Set(['EXIF', 'XMP ']) // the two RIFF chunks that describe the photographer
-export function stripImageMetadata(buf: Buffer): Buffer {
-  try {
-    if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8) return stripJpeg(buf)
-    if (buf.length > 8 && buf.readUInt32BE(0) === 0x89504e47) return stripPng(buf)
-    // RIFF....WEBP — the four bytes between are the file size, so the check is split.
-    if (
-      buf.length > 12 &&
-      buf.toString('latin1', 0, 4) === 'RIFF' &&
-      buf.toString('latin1', 8, 12) === 'WEBP'
-    )
-      return stripWebp(buf)
-    if (buf.length > 6 && buf.toString('latin1', 0, 3) === 'GIF') return stripGif(buf)
-  } catch {
-    /* not the shape we thought: hand back exactly what came in */
-  }
-  return buf
-}
-
-/** Rebuild only if something was actually removed. Every stripper ends here: the common case is a
- *  picture with no metadata at all, and Buffer.concat on it would allocate a second copy of the
- *  whole image on every save — this app's base maps run to a hundred megabytes. */
-const rebuilt = (buf: Buffer, out: Buffer[], dropped: boolean): Buffer =>
-  dropped ? Buffer.concat(out) : buf
-
-function stripJpeg(buf: Buffer): Buffer {
-  const out: Buffer[] = [buf.subarray(0, 2)] // SOI
-  let dropped = false
-  let i = 2
-  while (i + 1 < buf.length) {
-    // Encoders may pad between segments with 0xff; those are fill bytes, not markers.
-    while (i + 1 < buf.length && buf[i] === 0xff && buf[i + 1] === 0xff) i++
-    if (buf[i] !== 0xff) return buf // lost the marker chain — do not rewrite what we cannot read
-    const marker = buf[i + 1]
-    // Standalone markers: no length, no payload.
-    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) {
-      out.push(buf.subarray(i, i + 2))
-      i += 2
-      continue
-    }
-    // SOS starts the entropy-coded data and EOI ends the image; in both cases the rest of the file
-    // is not a segment chain any more. EOI used to fall through to the length read below, so on a
-    // file with an EOI before its first SOS the walk desynchronised into image data — and if the
-    // bytes it landed on happened to look like an APP1 marker it deleted a span of the PICTURE and
-    // still returned it as successfully stripped. Copy the remainder and stop.
-    if (marker === 0xda || marker === 0xd9) {
-      out.push(buf.subarray(i))
-      return rebuilt(buf, out, dropped)
-    }
-    if (i + 3 >= buf.length) return buf
-    const len = buf.readUInt16BE(i + 2)
-    if (len < 2 || i + 2 + len > buf.length) return buf
-    if (JPEG_DROP.has(marker)) dropped = true
-    else out.push(buf.subarray(i, i + 2 + len))
-    i += 2 + len
-  }
-  // Ran out of bytes without ever reaching SOS or EOI. That is not a JPEG this function followed
-  // to the end, so it hands back the original rather than a version it has quietly shortened.
-  return buf
-}
-
-function stripPng(buf: Buffer): Buffer {
-  const out: Buffer[] = [buf.subarray(0, 8)] // signature
-  let dropped = false
-  let i = 8
-  while (i + 12 <= buf.length) {
-    const len = buf.readUInt32BE(i)
-    if (len > 0x7fffffff) return buf
-    const end = i + 12 + len // length + type + data + crc
-    if (end > buf.length) return buf
-    const type = buf.toString('latin1', i + 4, i + 8)
-    // Whole chunks are dropped, so no CRC has to be recomputed — every chunk kept is byte-identical.
-    if (PNG_DROP.has(type)) dropped = true
-    else out.push(buf.subarray(i, end))
-    i = end
-    if (type === 'IEND') {
-      // Some tools append data after IEND. It is not a chunk and we do not know what it is, so it
-      // is carried over VERBATIM — not dropped, and not made a reason to give up on the whole
-      // file, which would let the metadata ride along in exactly the files that are already
-      // unusual. Removing metadata is the job; shortening an image is not.
-      if (i < buf.length) out.push(buf.subarray(i))
-      return rebuilt(buf, out, dropped)
-    }
-  }
-  return buf
-}
-
-/**
- * WebP, which is where this matters most now: a phone photo saved or converted to .webp keeps its
- * EXIF, and `importAsset` has always accepted the extension — so the format most likely to carry
- * GPS was the one format with no stripper.
- *
- * RIFF is a flat chunk list: 'RIFF', a 32-bit size, 'WEBP', then fourcc + size + payload, each
- * payload padded to an even length. Dropping a chunk means the container size in the header no
- * longer matches, so it is rewritten — the ONE place any stripper here edits a byte rather than
- * omitting one, and it is four bytes of arithmetic on a length we just recomputed.
- */
-function stripWebp(buf: Buffer): Buffer {
-  const body: Buffer[] = [buf.subarray(8, 12)] // 'WEBP'
-  let dropped = false
-  let i = 12
-  while (i + 8 <= buf.length) {
-    const size = buf.readUInt32LE(i + 4)
-    if (size > 0x7fffffff) return buf
-    const end = i + 8 + size + (size % 2) // odd payloads carry a pad byte
-    if (end > buf.length) return buf
-    if (WEBP_DROP.has(buf.toString('latin1', i, i + 4))) dropped = true
-    else body.push(buf.subarray(i, end))
-    i = end
-  }
-  // The walk has to land exactly on the end, or this is not a chunk list we followed.
-  if (i !== buf.length || !dropped) return buf
-  const rest = Buffer.concat(body)
-  const head = Buffer.alloc(8)
-  head.write('RIFF', 0, 'latin1')
-  head.writeUInt32LE(rest.length, 4)
-  return Buffer.concat([head, rest])
-}
-
-/**
- * GIF. The comment extension is the metadata block — generator strings, and occasionally whatever
- * someone typed. Application extensions are KEPT except XMP: NETSCAPE2.0 is what makes an animated
- * GIF loop, and dropping it would change how the picture plays.
- *
- * Walking a GIF means walking its whole block structure, because a comment can sit between frames:
- * header, logical screen descriptor, an optional global colour table, then blocks until the
- * trailer. Anything unexpected returns the original.
- */
-function stripGif(buf: Buffer): Buffer {
-  const sub = (at: number): number => {
-    // Sub-block chain: one length byte, that many bytes, repeated, ended by a zero length.
-    let j = at
-    while (j < buf.length) {
-      const n = buf[j]
-      if (n === 0) return j + 1
-      j += 1 + n
-    }
-    return -1
-  }
-  if (buf.length < 13) return buf
-  const flags = buf[10]
-  // Global colour table: 3 bytes per entry, 2^(N+1) entries, present only when the top flag is set.
-  let i = 13 + (flags & 0x80 ? 3 * (1 << ((flags & 0x07) + 1)) : 0)
-  const out: Buffer[] = []
-  let keptFrom = 0
-  let dropped = false
-  while (i < buf.length) {
-    const b = buf[i]
-    if (b === 0x3b) {
-      // trailer
-      out.push(buf.subarray(keptFrom))
-      return rebuilt(buf, out, dropped)
-    }
-    let next: number
-    let drop = false
-    if (b === 0x21) {
-      // extension: label, then either a fixed block or a sub-block chain
-      const label = buf[i + 1]
-      if (label === 0xfe) drop = true // comment
-      if (label === 0xff) {
-        // application extension — only XMP is metadata; NETSCAPE2.0 drives looping and stays
-        if (buf.toString('latin1', i + 3, i + 11) === 'XMP Data') drop = true
-        next = sub(i + 3 + buf[i + 2])
-      } else next = label === 0xfe ? sub(i + 2) : sub(i + 3 + buf[i + 2])
-    } else if (b === 0x2c) {
-      // image descriptor: 10 bytes, an optional local colour table, LZW min code size, sub-blocks
-      if (i + 10 > buf.length) return buf
-      const lf = buf[i + 9]
-      const after = i + 10 + (lf & 0x80 ? 3 * (1 << ((lf & 0x07) + 1)) : 0)
-      next = sub(after + 1)
-    } else return buf // not a block boundary we understand
-    if (next < 0 || next > buf.length) return buf
-    if (drop) {
-      out.push(buf.subarray(keptFrom, i))
-      keptFrom = next
-      dropped = true
-    }
-    i = next
-  }
-  return buf // ran out before the trailer
-}
 
 /** Pack the working copy (db + the images in assets/) into a single .world file. */
 export function packWorld(targetPath: string): void {
@@ -890,45 +700,6 @@ export function unpackWorld(sourcePath: string): void {
 }
 
 /**
- * The only names `assets/` accepts — the one rule shared by both writers into that folder.
- *
- * `importAsset` is handed a path the USER picked in a native dialog. `unpackWorld` is handed a
- * name a SHARED `.world` carries, and it used to reduce whatever it was given to `basename()` and
- * write it. Confinement was never the hole there — basename closed that — but the CONTENT and the
- * EXTENSION were free: a world could drop arbitrary bytes into a folder inside the user's
- * Documents under any name it liked. `setup.exe` next to the map images, a `.dll` beside an
- * executable the user might later run from there, a `.lnk`, a `.url`. Nothing has to run for that
- * to be worth refusing, and the app was already refusing it on the other side of the same folder:
- * importAsset has always taken images only, so a `.world` was the way past the app's own rule.
- *
- * Nothing legitimate is lost. `importAsset` is the only thing that ever PUT a file in assets/, so
- * every name a real world carries is already an image name that passed this test once.
- *
- * The name is validated, never repaired. A name that needs fixing is not a name our own save
- * wrote, and silently turning `../logo.png` into `logo.png` writes over the image that IS ours.
- *
- * - the character class covers separators (escape), `:` (an NTFS alternate data stream, which
- *   `basename` leaves intact) and the control range (a newline in a filename)
- * - CON/NUL/COM1… are devices on Windows whatever the extension: writing `nul.png` writes nowhere
- * - the length bound is per component, well under the 255 a filesystem accepts
- */
-// The control range is the point: a newline or a NUL inside a filename is exactly what this
-// refuses, so it has to be spelled out rather than left to a shorthand.
-/** Longest name assets/ accepts. importAsset clips to it when it disambiguates — see there. */
-const MAX_ASSET_NAME = 200
-// eslint-disable-next-line no-control-regex
-const ASSET_NAME = /^[^\\/:*?"<>|\u0000-\u001f]+\.(png|jpe?g|webp|gif)$/i
-const WIN_DEVICE = /^(con|prn|aux|nul|com\d|lpt\d)\./i
-export function assetName(raw: unknown): string | null {
-  return typeof raw === 'string' &&
-    raw.length <= MAX_ASSET_NAME &&
-    ASSET_NAME.test(raw) &&
-    !WIN_DEVICE.test(raw)
-    ? raw
-    : null
-}
-
-/**
  * Can this database actually be WRITTEN to through our schema?
  *
  * `CREATE TABLE IF NOT EXISTS` is a no-op when a table of that name already exists, WHATEVER
@@ -975,93 +746,6 @@ function probeWritable(): void {
       /* the savepoint is already gone */
     }
   }
-}
-
-/**
- * WHAT THE APP ACCEPTS IN A JSON COLUMN — one definition, used by both gates.
- *
- * These four were closures inside `repairImportedJson`, which was right while the entry gate was
- * the only place that asked the question. It is not any more: `updateFeature` writes the same
- * columns from the renderer and used to check nothing at all, so the app could put a row into its
- * own working copy that its own open would then reset (see assertFeaturePatch). Two copies of a
- * rule this exact would drift on the first change to either, so there is one copy and both callers
- * use it.
- *
- * They are pure — a string in, a boolean out, no database, no state — which is what makes lifting
- * them out mechanical rather than a redesign.
- *
- * Nesting depth, counted by scanning rather than parsing. Whether a deeply nested value parses at
- * all depends on how much STACK is left, so the gate and the consumer can disagree:
- * `{"a":{"a":…}}` 10000 deep parses fine here in main and then throws RangeError in the renderer,
- * underneath React's own call stack. Measured with a 208 KB file — it opened cleanly and left the
- * map and the entity page unable to render. Parsing to find out is therefore the wrong test; the
- * depth has to be bounded before anyone parses.
- *
- * 64 is far above anything this app writes: notes are an array of flat objects (3), the parent
- * history is an array of pairs (2), a GeoJSON polygon is 4. Quote-aware, because a brace inside a
- * string is not nesting; backslash skips the next character so an escaped quote does not end the
- * string early.
- */
-const MAX_JSON_DEPTH = 64
-function depthOk(v: string): boolean {
-  let depth = 0
-  let inStr = false
-  for (let i = 0; i < v.length; i++) {
-    const c = v[i]
-    if (inStr) {
-      if (c === '\\') i++
-      else if (c === '"') inStr = false
-    } else if (c === '"') inStr = true
-    else if (c === '{' || c === '[') {
-      if (++depth > MAX_JSON_DEPTH) return false
-    } else if (c === '}' || c === ']') depth--
-  }
-  return true
-}
-function isPlainObject(v: string): boolean {
-  if (!depthOk(v)) return false
-  try {
-    const p: unknown = JSON.parse(v)
-    return typeof p === 'object' && p !== null && !Array.isArray(p)
-  } catch {
-    return false
-  }
-}
-function isArray(v: string): boolean {
-  if (!depthOk(v)) return false
-  try {
-    return Array.isArray(JSON.parse(v))
-  } catch {
-    return false
-  }
-}
-/** The geometry types the app draws. A `.world` may name no other. */
-const GEOM_TYPES = new Set([
-  'Point',
-  'LineString',
-  'Polygon',
-  'MultiPoint',
-  'MultiLineString',
-  'MultiPolygon'
-])
-/**
- * `isPlainObject` is not enough for the geometry column, and it is the only one where that is
- * true. `{"type":"Polygon","coordinates":"x"}` is a perfectly good object, and it is what Leaflet
- * is handed: L.geoJSON walks `coordinates` and throws inside the reload, which is the same dead
- * map the syntax check exists to prevent, one step further in. So the shape is checked too,
- * shallowly: a known type and an array of coordinates.
- *
- * Nothing deeper, and that is a decision rather than an omission. The numbers themselves are
- * tolerated everywhere downstream (a NaN draws nothing; it does not throw), and a gate that walked
- * every ring of every polygon on open would cost more than it saves. It also has to stay this
- * shallow for the WRITE path to be able to share it: undo writes back the string the file came
- * with, so a rule stricter here than at the open would make Ctrl+Z fail on a world that opened
- * cleanly.
- */
-function isGeometry(v: string): boolean {
-  if (!isPlainObject(v)) return false
-  const g = JSON.parse(v) as { type?: unknown; coordinates?: unknown }
-  return typeof g.type === 'string' && GEOM_TYPES.has(g.type) && Array.isArray(g.coordinates)
 }
 
 /**
