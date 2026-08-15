@@ -79,9 +79,9 @@ protocol.registerSchemesAsPrivileged([
 
 // captureMapImage needs the window for capturePage; assigned in createWindow
 let mainWindow: BrowserWindow | null = null
-// The content size to put back after a hi-res export grew the window (see beginHiResExport).
+// The window state to put back after a hi-res export grew it (see beginHiResExport).
 // Non-null only for the length of one capture.
-let hiResPrevSize: [number, number] | null = null
+let hiResPrev: { size: [number, number]; maximized: boolean } | null = null
 
 /**
  * A renderer measurement in DIP, which is the unit the window APIs here speak.
@@ -973,16 +973,23 @@ const mainApi = {
    * Returns the content size the window ENDED UP at, which is not necessarily the one asked for —
    * a window manager is free to clamp, and on some setups will. The renderer computes the real
    * factor from this rather than assuming, so a partial grant produces a slightly smaller export
-   * instead of a wrongly framed one. The previous size is remembered HERE rather than handed back
+   * instead of a wrongly framed one. The previous state is remembered HERE rather than handed back
    * and passed in again: a renderer that crashed between the two calls could otherwise leave the
    * window at a size the user never chose and no longer fits their screen.
+   *
+   * A MAXIMIZED WINDOW IGNORES setContentSize on Windows, and says nothing about it. That is what
+   * made the first version of this produce a 2× export byte-for-byte the same size as a 1× one —
+   * and a maximized window is what a map app is in, most of the time. So it is unmaximised first
+   * and put back at the end; the size asked for is still measured from the maximized content size,
+   * so the framing stays the one the user was looking at rather than the restored window's.
    */
   async beginHiResExport(addW: number, addH: number): Promise<[number, number] | null> {
     if (!mainWindow) return null
     const n = (v: unknown): number =>
-      typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0
+      typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.round(toDip(v))) : 0
     const [w, h] = mainWindow.getContentSize()
-    if (!hiResPrevSize) hiResPrevSize = [w, h]
+    if (!hiResPrev) hiResPrev = { size: [w, h], maximized: mainWindow.isMaximized() }
+    if (mainWindow.isMaximized()) mainWindow.unmaximize()
     // A ceiling on both sides: past this the GPU process is being asked for a bitmap measured in
     // hundreds of megabytes, and the answer to "the export is not big enough" stops being a
     // bigger window.
@@ -993,8 +1000,11 @@ const mainApi = {
   // Idempotent, and called from a finally: the window must come back whatever went wrong in
   // between, including nothing having been changed in the first place.
   async endHiResExport(): Promise<void> {
-    if (mainWindow && hiResPrevSize) mainWindow.setContentSize(hiResPrevSize[0], hiResPrevSize[1])
-    hiResPrevSize = null
+    if (mainWindow && hiResPrev) {
+      mainWindow.setContentSize(hiResPrev.size[0], hiResPrev.size[1])
+      if (hiResPrev.maximized) mainWindow.maximize()
+    }
+    hiResPrev = null
   }
 }
 
