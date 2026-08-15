@@ -412,6 +412,7 @@ function openLegal(
     // hiding it, and the realistic cause is a portable copy where only the exe was moved.
     dialog.showMessageBoxSync({
       type: 'warning',
+      title: APP_NAME,
       message: ml('{name} was not found.', { name }),
       detail: ml(
         'It should be in the "legal" folder next to the application. If this is a portable copy, move the whole folder.'
@@ -583,7 +584,10 @@ const MAIN_TR: Record<string, string> = {
   // `Save` is already above, for the File menu — one key, both places, which is the point of
   // keying on the English text.
   "Don't Save": 'Kaydetme',
-  Cancel: 'Vazgeç',
+  // Windows substitutes its OWN localised label on whichever button is `cancelId`, which is
+  // where the English dialog in the screenshot still showed a Turkish İptal. Ours matches the
+  // platform's word so the two cannot disagree on the rare path where ours is the one shown.
+  Cancel: 'İptal',
   'There are unsaved changes. Save before closing?':
     'Kaydedilmemiş değişiklikler var. Kapatmadan önce kaydedilsin mi?',
   'Could not save, so the app has not closed.': 'Kaydedilemedi, bu yüzden uygulama kapanmadı.',
@@ -1180,6 +1184,7 @@ function createWindow(): void {
     if (!dirty) return
     const r = dialog.showMessageBoxSync(win, {
       type: 'warning',
+      title: APP_NAME,
       buttons: [ml('Save'), ml("Don't Save"), ml('Cancel')],
       defaultId: 0,
       cancelId: 2,
@@ -1293,6 +1298,7 @@ app.on('second-instance', (_e, argv) => {
   if (dirty) {
     const r = dialog.showMessageBoxSync(mainWindow, {
       type: 'warning',
+      title: APP_NAME,
       buttons: [ml('Open (discard changes)'), ml('Cancel')],
       defaultId: 1,
       cancelId: 1,
@@ -1520,6 +1526,7 @@ app.whenReady().then(() => {
     mainWindow.once('ready-to-show', () =>
       dialog.showMessageBox(mainWindow!, {
         type: 'warning',
+        title: APP_NAME,
         message: ml('The world could not be prepared for this session.'),
         detail:
           `${startupWarning}\n\n` +
