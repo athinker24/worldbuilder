@@ -1357,6 +1357,12 @@ export default function MapView({
     try {
       if (scale > 1) {
         await api.beginHiResExport(before.width * (scale - 1), before.height * (scale - 1))
+        // The resize lands in main synchronously and reaches this document as an event; the new
+        // box does not exist until a frame has passed. Measured before that, the host still
+        // reports its old width, the factor comes out 1, and the export is framed for a window it
+        // no longer has — the failure mode this whole measure-don't-assume design exists to avoid,
+        // reintroduced by reading a beat too early.
+        await settled()
         // Leaflet sizes itself from a cached container size; without this the map keeps drawing
         // into the old box and the grown edges come out empty.
         map.invalidateSize(false)
@@ -1385,9 +1391,12 @@ export default function MapView({
       // gets its grid and its toolbars back. endHiResExport is idempotent and safe after a 1×
       // export that never grew anything.
       if (scale > 1) {
-        await api.endHiResExport()
-        map.invalidateSize(false)
+        // Zoom back BEFORE the window shrinks, and shrink before invalidateSize: each step then
+        // sees the state the next one assumes. maxZoom last, since setZoom would be clamped by it.
         map.setZoom(z0, { animate: false })
+        await api.endHiResExport()
+        await settled()
+        map.invalidateSize(false)
         map.setMaxZoom(maxZoom0)
       }
       host.classList.remove('exporting')
