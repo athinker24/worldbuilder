@@ -557,9 +557,10 @@ export default function App(): React.JSX.Element {
   }, [discardOk])
 
   // The live map's PNG exporter, handed up by MapView while it is mounted (see onExportReady).
-  // A plain () => void: no Leaflet type crosses the boundary, so the containment rule holds.
-  const exportMapRef = useRef<(() => void) | null>(null)
-  const handleExportReady = useCallback((fn: (() => void) | null): void => {
+  // A plain (scale: number) => void: no Leaflet type crosses the boundary, so the containment
+  // rule holds. `scale` is 1 for the screen-resolution export and 2 for the hi-res one.
+  const exportMapRef = useRef<((scale: number) => void) | null>(null)
+  const handleExportReady = useCallback((fn: ((scale: number) => void) | null): void => {
     exportMapRef.current = fn
   }, [])
 
@@ -583,10 +584,11 @@ export default function App(): React.JSX.Element {
         case 'file.close':
           return void closeWorld()
         case 'file.exportMap':
+        case 'file.exportMap2x':
           // Enabled even off a map view — greying it out would mean rebuilding the
           // native menu on every view change. Swap to a menu rebuild if that ever grates.
           return exportMapRef.current && viewRef.current.kind === 'map'
-            ? exportMapRef.current()
+            ? exportMapRef.current(cmd === 'file.exportMap2x' ? 2 : 1)
             : showToast(translate(lang, 'Open a map first.'))
         case 'file.exportNotes':
           return void api.exportNotes().then(({ files, skipped }) => {

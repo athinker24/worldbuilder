@@ -185,7 +185,10 @@ only the stack, which is exactly why the gap survived.
 
 ## Gate 13 — `savePrefs` allow-lists its keys
 
-and `exportMapImage` takes `basename()` of the name and clamps the rect.
+and the export path takes `basename()` of the name (`chooseExportPath`) while the capture clamps
+the rect (`captureMapImage`). `beginHiResExport` clamps the same way and caps the resulting content
+size at 8192 per side — the rect and the window size both end up at the compositor, where a NaN
+takes the capture out and a large number is a bitmap request measured in hundreds of megabytes.
 
 <a id="gate-14"></a>
 

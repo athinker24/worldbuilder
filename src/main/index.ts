@@ -77,8 +77,11 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-// exportMapImage needs the window for capturePage; assigned in createWindow
+// captureMapImage needs the window for capturePage; assigned in createWindow
 let mainWindow: BrowserWindow | null = null
+// The content size to put back after a hi-res export grew the window (see beginHiResExport).
+// Non-null only for the length of one capture.
+let hiResPrevSize: [number, number] | null = null
 
 /**
  * A renderer measurement in DIP, which is the unit the window APIs here speak.
@@ -532,6 +535,7 @@ const MENU_TR: Record<string, string> = {
   'Save As…': 'Farklı Kaydet…',
   Export: 'Dışa Aktar',
   'Current Map as Image…': 'Geçerli Haritayı Görsel Olarak…',
+  'Current Map as Image, 2×…': 'Geçerli Haritayı Görsel Olarak, 2×…',
   'Notes…': 'Notlar…',
   'Back Up Now': 'Şimdi Yedekle',
   'Close Project': 'Projeyi Kapat',
@@ -632,6 +636,9 @@ function buildMenu(): void {
             label: ml('Export'),
             submenu: [
               { label: ml('Current Map as Image…'), click: () => send('file.exportMap') },
+              // Same frame, twice the pixels — the window grows for the length of the capture
+              // (beginHiResExport) because that is the only place more pixels can come from.
+              { label: ml('Current Map as Image, 2×…'), click: () => send('file.exportMap2x') },
               { label: ml('Notes…'), click: () => send('file.exportNotes') }
             ]
           },
@@ -914,12 +921,10 @@ const mainApi = {
     if (r.canceled || !r.filePaths[0]) return null
     return importAsset(r.filePaths[0])
   },
-  // Exports what is on screen (rect: CSS pixels, the .leaflet-host bounds) as a PNG.
-  // Export, as opposed to save: not editable, a one-way sharing artifact.
-  async exportMapImage(
-    rect: { x: number; y: number; width: number; height: number },
-    defaultName: string
-  ): Promise<string | null> {
+  // Where the exported PNG goes. Asked BEFORE the capture, not after, so the map is not left
+  // stripped of its toolbars for as long as the user takes to pick a filename — and so a cancel
+  // costs nothing at all.
+  async chooseExportPath(defaultName: string): Promise<string | null> {
     if (!mainWindow) return null
     // basename: the name comes from the renderer and only ever names a map. A path in it would
     // silently move where the dialog opens — the user still has to accept it, but a save dialog
@@ -928,7 +933,15 @@ const mainApi = {
       defaultPath: `${basename(String(defaultName ?? 'map')).slice(0, 80) || 'map'}.png`,
       filters: [{ name: 'PNG', extensions: ['png'] }]
     })
-    if (r.canceled || !r.filePath) return null
+    return r.canceled || !r.filePath ? null : r.filePath
+  },
+  // Writes what is on screen (rect: CSS pixels, the .leaflet-host bounds) to filePath as a PNG.
+  // Export, as opposed to save: not editable, a one-way sharing artifact.
+  async captureMapImage(
+    rect: { x: number; y: number; width: number; height: number },
+    filePath: string
+  ): Promise<string | null> {
+    if (!mainWindow || typeof filePath !== 'string' || !filePath) return null
     // The rect is CSS pixels from the renderer's own getBoundingClientRect — converted to DIP
     // here (see toDip) and sanity-checked, because it is handed to the compositor: a NaN takes the
     // capture out, and an enormous one asks the GPU process for a bitmap the size of the number.
@@ -945,8 +958,43 @@ const mainApi = {
     }
     if (!safeRect.width || !safeRect.height) return null
     const image = await mainWindow.webContents.capturePage(safeRect)
-    await writeFile(r.filePath, image.toPNG())
-    return r.filePath
+    await writeFile(filePath, image.toPNG())
+    return filePath
+  },
+  /**
+   * Grow the window so a capture has more pixels to read, and report what was actually granted.
+   *
+   * `capturePage` reads the window's compositor surface, so the ONLY way to get an image denser
+   * than the screen is for the window to be bigger while it is taken. There is no scale parameter
+   * anywhere in Electron for this, and the two obvious substitutes are both dead ends: zoomFactor
+   * trades CSS pixels for device pixels one-for-one and nets nothing, and resizing the bitmap
+   * afterwards adds no detail.
+   *
+   * Returns the content size the window ENDED UP at, which is not necessarily the one asked for —
+   * a window manager is free to clamp, and on some setups will. The renderer computes the real
+   * factor from this rather than assuming, so a partial grant produces a slightly smaller export
+   * instead of a wrongly framed one. The previous size is remembered HERE rather than handed back
+   * and passed in again: a renderer that crashed between the two calls could otherwise leave the
+   * window at a size the user never chose and no longer fits their screen.
+   */
+  async beginHiResExport(addW: number, addH: number): Promise<[number, number] | null> {
+    if (!mainWindow) return null
+    const n = (v: unknown): number =>
+      typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0
+    const [w, h] = mainWindow.getContentSize()
+    if (!hiResPrevSize) hiResPrevSize = [w, h]
+    // A ceiling on both sides: past this the GPU process is being asked for a bitmap measured in
+    // hundreds of megabytes, and the answer to "the export is not big enough" stops being a
+    // bigger window.
+    const CAP = 8192
+    mainWindow.setContentSize(Math.min(CAP, w + n(addW)), Math.min(CAP, h + n(addH)))
+    return mainWindow.getContentSize() as [number, number]
+  },
+  // Idempotent, and called from a finally: the window must come back whatever went wrong in
+  // between, including nothing having been changed in the first place.
+  async endHiResExport(): Promise<void> {
+    if (mainWindow && hiResPrevSize) mainWindow.setContentSize(hiResPrevSize[0], hiResPrevSize[1])
+    hiResPrevSize = null
   }
 }
 

@@ -379,7 +379,7 @@ interface Props {
   // Hands the PNG exporter up to App so File > Export can fire it, and null on unmount.
   // Deliberately an opaque () => void — capturePage needs the live .leaflet-host element, which
   // only exists here, and no Leaflet type may leave this file.
-  onExportReady?: (fn: (() => void) | null) => void
+  onExportReady?: (fn: ((scale: number) => void) | null) => void
   // Tab / Shift+Tab, driven from App: hidePanels covers the inspector and the tool
   // settings popover, hideTools additionally hides the floating tool palette.
   /** False while another workspace is on screen. The map stays MOUNTED so returning
@@ -1319,9 +1319,34 @@ export default function MapView({
   // conquest/event hints) temporarily leaves the render — a one-way, non-editable PNG
   // (saving already happens automatically on every edit).
   const [exporting, setExporting] = useState(false)
-  const exportMap = async (): Promise<void> => {
+  const settled = (): Promise<void> =>
+    new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+  /**
+   * `scale` 1 exports the frame at screen resolution; 2 asks for twice the pixels along each side.
+   *
+   * Twice the pixels can only come from a bigger window — capturePage reads the compositor's
+   * surface for this window and Electron has no scale parameter anywhere on that path. So the
+   * window grows by exactly one frame's worth, the map zooms in by the same factor, and the two
+   * cancel: the same region, the same framing, twice the detail. What the extra detail is made of
+   * differs by layer, and it is worth being honest about — the polygons, roads, pins and names are
+   * all redrawn at the higher zoom and are genuinely sharper; the base image is a raster and can
+   * only be interpolated once the export passes its own resolution.
+   *
+   * The window manager is allowed to refuse part of the growth, so the factor is MEASURED off the
+   * host afterwards rather than assumed. A partial grant then yields a smaller export, correctly
+   * framed, instead of 2× framing over 1.4× of a picture.
+   */
+  const exportMap = async (scale = 1): Promise<void> => {
     const host = divRef.current
-    if (!host) return
+    const map = mapRef.current
+    if (!host || !map) return
+    // The dialog first: a cancel then costs nothing, and nobody watches a stripped map while they
+    // pick a filename.
+    const path = await api.chooseExportPath(worldMap?.name ?? 'map')
+    if (!path) return
+    const before = host.getBoundingClientRect()
+    const z0 = map.getZoom()
+    const maxZoom0 = map.getMaxZoom()
     setExporting(true)
     // The drafting grid is a working surface, not part of the world — it says "this is where you
     // may draw", which an exported picture has nobody left to say it to. Toggled on the element
@@ -1329,22 +1354,42 @@ export default function MapView({
     // which is the same reason Leaflet's own classes survive on it, and rendering the class would
     // have handed React an attribute Leaflet also writes.
     host.classList.add('exporting')
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
-    const rect = host.getBoundingClientRect()
     try {
-      const path = await api.exportMapImage(
+      if (scale > 1) {
+        await api.beginHiResExport(before.width * (scale - 1), before.height * (scale - 1))
+        // Leaflet sizes itself from a cached container size; without this the map keeps drawing
+        // into the old box and the grown edges come out empty.
+        map.invalidateSize(false)
+        const grown = host.getBoundingClientRect()
+        const got = Math.min(grown.width / before.width, grown.height / before.height)
+        // The map's own ceiling is a decision about how far a user may zoom, not about how large
+        // a picture may be, so it is lifted for the capture and put back after.
+        const target = z0 + Math.log2(Math.max(1, got))
+        if (target > maxZoom0) map.setMaxZoom(target)
+        map.setZoom(target, { animate: false })
+      }
+      await settled()
+      const rect = host.getBoundingClientRect()
+      const saved = await api.captureMapImage(
         {
           x: Math.round(rect.x),
           y: Math.round(rect.y),
           width: Math.round(rect.width),
           height: Math.round(rect.height)
         },
-        worldMap?.name ?? 'map'
+        path
       )
-      if (path) alertDialog(t('Exported to {path}', { path }))
+      if (saved) alertDialog(t('Exported to {path}', { path: saved }))
     } finally {
-      // A save dialog the user cancels, a capture that throws — the map must not be left without
-      // its grid and without its toolbars either way.
+      // Whatever went wrong in between, the window comes back, the zoom comes back, and the map
+      // gets its grid and its toolbars back. endHiResExport is idempotent and safe after a 1×
+      // export that never grew anything.
+      if (scale > 1) {
+        await api.endHiResExport()
+        map.invalidateSize(false)
+        map.setZoom(z0, { animate: false })
+        map.setMaxZoom(maxZoom0)
+      }
       host.classList.remove('exporting')
       setExporting(false)
     }
@@ -1357,7 +1402,7 @@ export default function MapView({
     exportLatest.current = exportMap
   })
   useEffect(() => {
-    onExportReady?.(() => void exportLatest.current())
+    onExportReady?.((scale) => void exportLatest.current(scale))
     return () => onExportReady?.(null)
   }, [onExportReady])
 

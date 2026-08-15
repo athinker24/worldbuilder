@@ -300,10 +300,18 @@ export const api = {
   // it describes how you like the app, not what the world contains.
   getPrefs: () => inv<UiPrefs>('getPrefs'),
   savePrefs: (patch: UiPrefs) => inv<void>('savePrefs', patch),
-  exportMapImage: (
+  // Export is three calls rather than one: the save dialog first (so a cancel costs nothing and
+  // the map is not left stripped while a filename is chosen), then the capture. The window grows
+  // in between only for a hi-res export — see beginHiResExport in main for why that is the only
+  // way to get an image denser than the screen.
+  chooseExportPath: (defaultName: string) => inv<string | null>('chooseExportPath', defaultName),
+  captureMapImage: (
     rect: { x: number; y: number; width: number; height: number },
-    defaultName: string
-  ) => inv<string | null>('exportMapImage', rect, defaultName)
+    filePath: string
+  ) => inv<string | null>('captureMapImage', rect, filePath),
+  beginHiResExport: (addW: number, addH: number) =>
+    inv<[number, number] | null>('beginHiResExport', addW, addH),
+  endHiResExport: () => inv<void>('endHiResExport')
 }
 
 export async function getHierConfig(): Promise<HierConfig> {
