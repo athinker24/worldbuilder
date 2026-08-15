@@ -409,7 +409,7 @@ interface DrawInstance {
   _removeLastVertex?: () => void
   /** The vertices placed so far — geoman disables the whole session when the last one goes. */
   _markers?: unknown[]
-  setOptions?: (o: { markerStyle?: L.MarkerOptions }) => void
+  setOptions?: (o: { markerStyle?: L.MarkerOptions; snapDistance?: number }) => void
   setPathOptions?: (o: L.PathOptions) => void
   _hintMarker?: L.Marker
   _layer?: { setStyle?: (o: L.PathOptions) => void }
@@ -418,6 +418,24 @@ interface DrawInstance {
 // Pin = colored round badge with a white cartographic icon inside (divIcon). Center anchor:
 // the badge sits centered on the point. Base diameter PIN_BASE; zoom scaling in updateOverlaySizes.
 const PIN_BASE = 28
+/**
+ * How near the cursor has to be for geoman to snap, in SCREEN pixels — and it has to be told, per
+ * zoom, because geoman's default cannot know what this map does.
+ *
+ * Geoman's 20px is written for a web map, where a marker is a fixed-size icon at every zoom. Here
+ * a pin scales with the world (updateOverlaySizes): PIN_BASE across at zoom 0, eight times that
+ * three zooms in. So the catch radius stayed a fraction of the pin's own body while the body grew,
+ * and "the road will not attach to the pin" is what that feels like — you aim at the pin you can
+ * see, land sixty pixels from its centre, and nothing happens. Nothing was ever switched off; the
+ * target got bigger and the radius did not follow.
+ *
+ * So the radius is the pin's own on-screen radius, floored at geoman's 20 (below that the pin is a
+ * speck and 20px is the friendlier number) and capped, because past roughly this much a snap stops
+ * reading as "the thing under the cursor" and starts pulling vertices in from places the user was
+ * not pointing at. Holding Alt suppresses snapping outright — geoman's own escape hatch, and the
+ * reason a generous radius is the safe direction to err in.
+ */
+const snapRadius = (scale: number): number => Math.min(90, Math.max(20, (PIN_BASE * scale) / 2))
 // LOD for polygon/line borders: Leaflet's built-in per-zoom simplification (smoothFactor,
 // pixel-space Douglas–Peucker) drops vertices when zoomed out and restores full detail when zoomed
 // in — cutting the SVG path-string rebuilt every wheel-zoom frame. Display-only: geoman editing and
@@ -1283,6 +1301,15 @@ export default function MapView({
   }
 
   /**
+   * What every `pm.enable()` here is given. Built per call rather than held as a constant, because
+   * `snapDistance` follows the zoom (see snapRadius) and geoman reads these once, at the call.
+   */
+  const editOpts = (): object => ({
+    ...EDIT_OPTS,
+    snapDistance: snapRadius(2 ** (mapRef.current?.getZoom() ?? 0))
+  })
+
+  /**
    * Feed the WebGL layer the vertex dots for whatever is being edited, read LIVE off the Leaflet
    * layer so a vertex being dragged carries its dot with it. Empty when not editing.
    *
@@ -1345,7 +1372,7 @@ export default function MapView({
         ).pm
         if (!pm) continue
         const isOn = pm.enabled?.() ?? false
-        if (want && !isOn) pm.enable(EDIT_OPTS)
+        if (want && !isOn) pm.enable(editOpts())
         else if (!want && isOn) pm.disable()
       }
     }
@@ -1487,10 +1514,12 @@ export default function MapView({
             lineCap: 'round' as const,
             fill: false
           }
+    const snapDistance = snapRadius(2 ** map.getZoom())
     if (live) {
       inst?.setPathOptions?.(pathOptions)
       inst?._layer?.setStyle?.(pathOptions)
-    } else map.pm.enableDraw(shape, { pathOptions })
+      inst?.setOptions?.({ snapDistance })
+    } else map.pm.enableDraw(shape, { pathOptions, snapDistance })
   }
 
   // Close every geoman mode and open the requested tool; a second press on the same tool closes it
@@ -1739,6 +1768,14 @@ export default function MapView({
     // zoom. Once per zoom commit, not per frame: the gesture itself scales the pane it sits in.
     if (toolRef.current === 'label') styleHintLabel(scale)
     else if (toolRef.current === 'marker') styleHintPin(scale)
+    // A zoom in the middle of drawing a road changes what a pin measures on screen, so the snap
+    // radius has to move with it — geoman reads the option per mousemove, not once at enable.
+    // setOptions is an object merge on the one draw instance, not the layer walk setGlobalOptions
+    // does, which is why this is affordable from here.
+    else if (toolRef.current === 'polygon' || toolRef.current === 'line')
+      drawInst(toolRef.current === 'polygon' ? 'Polygon' : 'Line')?.setOptions?.({
+        snapDistance: snapRadius(scale)
+      })
   }
 
   // Delete + undo record; used by geoman's removal mode, the context menu and the Del key.
@@ -2639,7 +2676,7 @@ export default function MapView({
             ).pm
             if (pm?.enabled?.()) {
               pm.disable()
-              pm.enable(EDIT_OPTS)
+              pm.enable(editOpts())
             }
           }
           dragPartners.current = []
@@ -3185,7 +3222,7 @@ export default function MapView({
           // markers back (measured) → refresh manually when edit mode is on. ONLY for the
           // selected feature (not global — that was the source of the lag).
           if (toolRef.current === 'edit' && selectedRef.current?.id === fid)
-            (l as unknown as { pm?: { enable: (o?: object) => void } }).pm?.enable(EDIT_OPTS)
+            (l as unknown as { pm?: { enable: (o?: object) => void } }).pm?.enable(editOpts())
         } else if ((!visible || !inDom) && fg.hasLayer(l)) fg.removeLayer(l)
         if (visible && st && (l as L.Path).setStyle) {
           // dashArray returns to canonical — the conquest highlight's dashed edge must not
@@ -3575,7 +3612,7 @@ export default function MapView({
         if (shown && !fg.hasLayer(l)) {
           fg.addLayer(l)
           if (toolRef.current === 'edit' && selectedRef.current?.id === fid)
-            (l as unknown as { pm?: { enable: (o?: object) => void } }).pm?.enable(EDIT_OPTS)
+            (l as unknown as { pm?: { enable: (o?: object) => void } }).pm?.enable(editOpts())
         } else if (!shown && fg.hasLayer(l)) fg.removeLayer(l)
       }
     }
