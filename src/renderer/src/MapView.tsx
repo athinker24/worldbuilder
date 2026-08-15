@@ -1323,19 +1323,31 @@ export default function MapView({
     const host = divRef.current
     if (!host) return
     setExporting(true)
+    // The drafting grid is a working surface, not part of the world — it says "this is where you
+    // may draw", which an exported picture has nobody left to say it to. Toggled on the element
+    // rather than through React: this div's className is a static string React never rewrites,
+    // which is the same reason Leaflet's own classes survive on it, and rendering the class would
+    // have handed React an attribute Leaflet also writes.
+    host.classList.add('exporting')
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
     const rect = host.getBoundingClientRect()
-    const path = await api.exportMapImage(
-      {
-        x: Math.round(rect.x),
-        y: Math.round(rect.y),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height)
-      },
-      worldMap?.name ?? 'map'
-    )
-    setExporting(false)
-    if (path) alertDialog(t('Exported to {path}', { path }))
+    try {
+      const path = await api.exportMapImage(
+        {
+          x: Math.round(rect.x),
+          y: Math.round(rect.y),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height)
+        },
+        worldMap?.name ?? 'map'
+      )
+      if (path) alertDialog(t('Exported to {path}', { path }))
+    } finally {
+      // A save dialog the user cancels, a capture that throws — the map must not be left without
+      // its grid and without its toolbars either way.
+      host.classList.remove('exporting')
+      setExporting(false)
+    }
   }
   // Publish the exporter to App (File > Export > Current Map as Image). exportMap is a fresh
   // closure every render because it reads worldMap, so hand up a STABLE wrapper over a useLatest

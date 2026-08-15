@@ -2104,6 +2104,15 @@ kbd {
   background-size: 40px 40px;
 }
 
+/* Set on the host for the length of a capture (exportMap). The grid says "this is a surface you
+   may draw on", which is a thing to tell someone who is working, and nobody is working inside a
+   PNG. The flat canvas colour stays: capturePage composites the window, so there is no
+   transparency to be had here — what would replace it is not nothing, it is whatever is behind
+   the window. */
+.leaflet-host.exporting {
+  background-image: none;
+}
+
 /* The pane the smooth zoom transforms, promoted BEFORE the first gesture.
  *
  * Measured: the first wheel gesture after a launch has a 60-66ms worst frame and the fourth has
