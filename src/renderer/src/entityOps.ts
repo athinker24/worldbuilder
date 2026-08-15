@@ -44,11 +44,16 @@ export async function deleteEntityWithUndo(id: number): Promise<boolean> {
  * Delete several entities with one confirm + one undo record. The restore order
  * (rows → links → features) lives in db.restoreEntities so a link between two deleted
  * entities cannot violate the FK. Returns true when the deletion happened.
+ *
+ * `message` overrides the confirm text, for the one caller whose keypress deletes more than
+ * entities: the sidebar's bulk bar takes folders too, and it has to say so in the same dialog.
+ * The confirm stays HERE rather than moving out to that caller, because every other caller would
+ * then have to remember to ask.
  */
-export async function deleteEntitiesWithUndo(ids: number[]): Promise<boolean> {
+export async function deleteEntitiesWithUndo(ids: number[], message?: string): Promise<boolean> {
   if (!ids.length) return false
   const lang = await getLanguage()
-  if (!(await confirmDialog(translate(lang, 'Delete {n} entries?', { n: ids.length }))))
+  if (!(await confirmDialog(message ?? translate(lang, 'Delete {n} entries?', { n: ids.length }))))
     return false
 
   const rows: Parameters<typeof api.restoreEntities>[0] = []

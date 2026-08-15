@@ -49,9 +49,11 @@ export interface SidebarProps {
   mapId: number | null
   search: string
   setSearch: (s: string) => void
-  /** Multi-select for the bulk bar. App owns it because the Del shortcut is App's. */
+  /** Multi-select for the bulk bar. App owns both because the Del shortcut is App's. */
   selected: Set<number>
   setSelected: React.Dispatch<React.SetStateAction<Set<number>>>
+  selectedFolders: Set<string>
+  setSelectedFolders: React.Dispatch<React.SetStateAction<Set<string>>>
   deleteSelected: () => void
   refresh: () => Promise<void>
   openEntity: (id: number) => void
@@ -75,6 +77,8 @@ export default function Sidebar({
   setSearch,
   selected,
   setSelected,
+  selectedFolders,
+  setSelectedFolders,
   deleteSelected,
   refresh,
   openEntity,
@@ -269,6 +273,50 @@ export default function Sidebar({
       return next
     })
 
+  /** Everything a folder holds at any depth — itself included, so it reads as one list. */
+  const contentsOf = (id: string): { folders: string[]; entities: number[] } => {
+    const fs = [id, ...descendantFolders(id)]
+    const inside = new Set(fs)
+    return {
+      folders: fs,
+      entities: entities.filter((e) => inside.has(folderOf(e) ?? '')).map((e) => e.id)
+    }
+  }
+  /**
+   * A folder's checkbox takes its contents with it, in both directions.
+   *
+   * Ticking a folder is a statement about what is INSIDE it — deleting one deletes its entries
+   * too — so the ticks have to show that. Anything else would let the dialog announce a number
+   * the checkboxes never agreed to.
+   */
+  const toggleFolderSel = (id: string): void => {
+    const { folders: fs, entities: es } = contentsOf(id)
+    const on = !selectedFolders.has(id)
+    setSelectedFolders((prev) => {
+      const next = new Set(prev)
+      for (const f of fs) {
+        if (on) next.add(f)
+        else next.delete(f)
+      }
+      return next
+    })
+    setSelected((prev) => {
+      const next = new Set(prev)
+      for (const e of es) {
+        if (on) next.add(e)
+        else next.delete(e)
+      }
+      return next
+    })
+  }
+  // Something inside is ticked but the folder itself is not — the box says "part of this", which
+  // is the only honest third state once a tick cascades.
+  const folderPartial = (id: string): boolean => {
+    if (selectedFolders.has(id)) return false
+    const { folders: fs, entities: es } = contentsOf(id)
+    return fs.some((f) => selectedFolders.has(f)) || es.some((e) => selected.has(e))
+  }
+
   // --- Sidebar folder tree actions ---
   const toggleCollapse = (id: string): void =>
     setCollapsed((prev) => {
@@ -332,6 +380,14 @@ export default function Sidebar({
         .filter((f) => f.id !== folder.id)
         .map((f) => (f.parent === folder.id ? { ...f, parent } : f))
     )
+    // A folder deleted from the context menu while it was ticked would otherwise leave its id in
+    // the selection, and the bulk bar would go on counting a row that is not there any more.
+    setSelectedFolders((prev) => {
+      if (!prev.has(folder.id)) return prev
+      const next = new Set(prev)
+      next.delete(folder.id)
+      return next
+    })
     for (const e of entities.filter((e) => e.folder === folder.id))
       await setEntityFolder(e.id, parent)
     refresh()
@@ -478,7 +534,7 @@ export default function Sidebar({
     return (
       <div key={`f-${folder.id}`}>
         <div
-          className="side-folder"
+          className={`side-folder ${selectedFolders.has(folder.id) ? 'selected' : ''}`}
           style={{ paddingLeft: 6 + depth * 12 }}
           draggable={renamingFolder !== folder.id}
           onDragStart={(ev) => {
@@ -494,6 +550,18 @@ export default function Sidebar({
           onClick={() => toggleCollapse(folder.id)}
           onContextMenu={(ev) => folderMenu(ev, folder)}
         >
+          {/* `indeterminate` is a DOM property with no attribute, so it can only be written on the
+              element — React has no prop for it. */}
+          <input
+            type="checkbox"
+            className="sel-box"
+            checked={selectedFolders.has(folder.id)}
+            ref={(el) => {
+              if (el) el.indeterminate = folderPartial(folder.id)
+            }}
+            onClick={(ev) => ev.stopPropagation()}
+            onChange={() => toggleFolderSel(folder.id)}
+          />
           <span className={`tree-caret ${open ? 'open' : ''}`}>
             <Icon name="chevron-right" size={12} />
           </span>
@@ -667,12 +735,26 @@ export default function Sidebar({
           <span>{t('Entries')}</span>
           <span className="side-group-count">{entities.length}</span>
         </div>
-        {selected.size > 0 && (
+        {(selected.size > 0 || selectedFolders.size > 0) && (
           <div className="bulk-bar">
             <button className="mini danger" onClick={deleteSelected}>
-              <Icon name="trash" size={12} /> {t('Delete selected ({n})', { n: selected.size })}
+              <Icon name="trash" size={12} />{' '}
+              {/* The folder count only appears once there IS one — a bar that always said
+                  "and 0 folders" would be a worse label for the common case. */}
+              {selectedFolders.size
+                ? t('Delete selected ({n} + {f})', {
+                    n: selected.size,
+                    f: selectedFolders.size
+                  })
+                : t('Delete selected ({n})', { n: selected.size })}
             </button>
-            <button className="mini" onClick={() => setSelected(new Set())}>
+            <button
+              className="mini"
+              onClick={() => {
+                setSelected(new Set())
+                setSelectedFolders(new Set())
+              }}
+            >
               {t('Clear')}
             </button>
           </div>

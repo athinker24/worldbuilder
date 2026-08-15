@@ -443,7 +443,10 @@ const TR: Record<string, string> = {
   'Ruling house': 'Yöneten hane',
   'ruling house': 'yöneten hane',
   'Delete selected ({n})': 'Seçilenleri sil ({n})',
+  'Delete selected ({n} + {f})': 'Seçilenleri sil ({n} madde + {f} klasör)',
   'Delete {n} entries?': '{n} madde silinsin mi?',
+  'Delete {n} entries and {f} folders? Deleting a folder cannot be undone.':
+    '{n} madde ve {f} klasör silinsin mi? Klasör silme geri alınamaz.',
   Clear: 'Temizle',
   Cancel: 'İptal',
   Family: 'Aile',

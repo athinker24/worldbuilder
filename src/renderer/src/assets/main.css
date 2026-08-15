@@ -726,12 +726,16 @@ button.side-label:hover {
   accent-color: var(--accent);
 }
 .side-item:hover .sel-box,
+.side-folder:hover .sel-box,
 .sel-box:checked,
 .sel-box:indeterminate {
   visibility: visible;
 }
 
-.side-item.selected {
+/* Folder rows carry the same mark as entry rows, because they are the same selection: ticking a
+   folder ticks what is inside it, and one keypress deletes the lot. */
+.side-item.selected,
+.side-folder.selected {
   background: var(--accent-soft);
   box-shadow: inset 2px 0 0 var(--accent);
 }

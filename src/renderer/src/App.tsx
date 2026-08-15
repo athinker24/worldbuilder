@@ -9,6 +9,7 @@ import {
   getTheme,
   Lang,
   MapRow,
+  saveEntityFolders,
   Theme
 } from './api'
 import ContextMenu, { MenuState } from './ContextMenu'
@@ -41,9 +42,12 @@ export default function App(): React.JSX.Element {
   const [bump, setBump] = useState(0) // reload the open page after an undo
   const [lang, setLang] = useState<Lang>('en')
   const [theme, setTheme] = useState<Theme>('dark')
-  // Multi-select, and it lives here rather than in the sidebar that draws the checkboxes because
-  // the Del shortcut below deletes it from anywhere in the app.
+  // Multi-select, in two sets because the two kinds of row have two kinds of id. Both live here
+  // rather than in the sidebar that draws the checkboxes, because the Del shortcut below deletes
+  // them from anywhere in the app. Checking a folder puts its whole contents in BOTH — see
+  // Sidebar's toggleFolderSel — so what is deleted is exactly what is ticked.
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [selectedFolders, setSelectedFolders] = useState<Set<string>>(new Set())
   // Folders group articles (membership = each article's fields['folder']). Owned here because
   // four screens read them — the sidebar, the entity page, the map and the palette all colour by
   // folder; the sidebar's own state (collapse, rename, drag) is the sidebar's.
@@ -54,11 +58,20 @@ export default function App(): React.JSX.Element {
     { entity_id: number; map_id: number; board: string | null }[]
   >([])
   const histRef = useRef<{ stack: View[]; idx: number }>({ stack: [], idx: -1 })
-  // Read the current selection/view for the Del shortcut without a stale closure
+  // What the Del shortcut needs, without a stale closure — and without putting any of it in
+  // deleteSelected's dependency list, which the keydown effect below depends on in turn: `folders`
+  // is a fresh array out of every refresh(), so a dependency on it would re-register the window
+  // listener after every edit in the app.
   const selectedRef = useRef(selected)
+  const selectedFoldersRef = useRef(selectedFolders)
+  const foldersRef = useRef(folders)
+  const langRef = useRef(lang)
   const viewRef = useRef(view)
   useEffect(() => {
     selectedRef.current = selected
+    selectedFoldersRef.current = selectedFolders
+    foldersRef.current = folders
+    langRef.current = lang
     viewRef.current = view
   })
   const t = (s: string, params?: Record<string, string | number>): string =>
@@ -297,15 +310,46 @@ export default function App(): React.JSX.Element {
   }, [maps, openMap, refresh, lang])
 
   // Delete the selected entities (button + Del shortcut share this) — one confirm + one undo
+  /**
+   * The bulk bar and the Del key: delete everything ticked, entries and folders together.
+   *
+   * ONE dialog for both, which is why the message is built here and handed to
+   * deleteEntitiesWithUndo rather than left to its own. Two confirms for one keypress is worse
+   * than either of the things it is asking about.
+   *
+   * The message says the undo is partial because it is, and that is a consequence of folders
+   * being organisation rather than content: entry deletion is undoable and folder deletion is
+   * not, so Ctrl+Z brings the entries back and leaves them at the root. Better said in the
+   * dialog than discovered afterwards.
+   *
+   * Folders go only after the entries have actually been deleted — a cancelled or failed entry
+   * delete must not take the folders with it.
+   */
   const deleteSelected = useCallback(async (): Promise<void> => {
     const sel = selectedRef.current
-    if (!sel.size) return
-    if (await deleteEntitiesWithUndo([...sel])) {
-      const v = viewRef.current
-      if (v.kind === 'entity' && sel.has(v.id)) setView({ kind: 'empty' })
-      setSelected(new Set())
-      refresh()
+    const fsel = selectedFoldersRef.current
+    if (!sel.size && !fsel.size) return
+    const tr = (s: string, p?: Record<string, string | number>): string =>
+      translate(langRef.current, s, p)
+    const msg = fsel.size
+      ? tr('Delete {n} entries and {f} folders? Deleting a folder cannot be undone.', {
+          n: sel.size,
+          f: fsel.size
+        })
+      : undefined
+    if (sel.size && !(await deleteEntitiesWithUndo([...sel], msg))) return
+    // Only folders ticked: nothing above asked, so this asks.
+    if (!sel.size && !(await confirmDialog(msg!))) return
+    if (fsel.size) {
+      const next = foldersRef.current.filter((f) => !fsel.has(f.id))
+      setFolders(next)
+      saveEntityFolders(next)
     }
+    const v = viewRef.current
+    if (v.kind === 'entity' && sel.has(v.id)) setView({ kind: 'empty' })
+    setSelected(new Set())
+    setSelectedFolders(new Set())
+    refresh()
   }, [refresh])
 
   // Jump to the entity's first drawing on a map
@@ -634,9 +678,9 @@ export default function App(): React.JSX.Element {
       } else if (
         (e.key === 'Delete' || e.key === 'Backspace') &&
         !typing &&
-        selectedRef.current.size > 0
+        (selectedRef.current.size > 0 || selectedFoldersRef.current.size > 0)
       ) {
-        // Delete selected entities with Del/Backspace (map feature deletion is separate, in MapView)
+        // Delete the selection with Del/Backspace (map feature deletion is separate, in MapView)
         e.preventDefault()
         deleteSelected()
       } else if (e.altKey && e.key === 'ArrowLeft') {
@@ -685,6 +729,8 @@ export default function App(): React.JSX.Element {
           setSearch={setSearch}
           selected={selected}
           setSelected={setSelected}
+          selectedFolders={selectedFolders}
+          setSelectedFolders={setSelectedFolders}
           deleteSelected={deleteSelected}
           refresh={refresh}
           openEntity={openEntity}
