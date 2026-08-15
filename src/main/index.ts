@@ -412,9 +412,10 @@ function openLegal(
     // hiding it, and the realistic cause is a portable copy where only the exe was moved.
     dialog.showMessageBoxSync({
       type: 'warning',
-      message: `${name} was not found.`,
-      detail:
+      message: ml('{name} was not found.', { name }),
+      detail: ml(
         'It should be in the "legal" folder next to the application. If this is a portable copy, move the whole folder.'
+      )
     })
     return
   }
@@ -574,9 +575,48 @@ const MAIN_TR: Record<string, string> = {
   'Third-Party Notices': 'Üçüncü Taraf Bildirimleri',
   'No log could be written.': 'Kayıt dosyası yazılamadı.',
   'Check that the Worldbuilder folder in Documents can be written to.':
-    'Belgeler içindeki Worldbuilder klasörünün yazılabilir olduğunu kontrol edin.'
+    'Belgeler içindeki Worldbuilder klasörünün yazılabilir olduğunu kontrol edin.',
+
+  // The native dialogs. These were English literals until now, which meant the single most
+  // consequential question the app ever asks — whether to save before closing — was asked in a
+  // language the user had already told the app they do not read it in.
+  // `Save` is already above, for the File menu — one key, both places, which is the point of
+  // keying on the English text.
+  "Don't Save": 'Kaydetme',
+  Cancel: 'Vazgeç',
+  'There are unsaved changes. Save before closing?':
+    'Kaydedilmemiş değişiklikler var. Kapatmadan önce kaydedilsin mi?',
+  'Could not save, so the app has not closed.': 'Kaydedilemedi, bu yüzden uygulama kapanmadı.',
+  'Nothing is lost — the world is still open. Try Save As to a different folder.':
+    'Hiçbir şey kaybolmadı, dünya hâlâ açık. Farklı Kaydet ile başka bir klasörü deneyin.',
+  'Open (discard changes)': 'Aç (değişiklikleri at)',
+  'There are unsaved changes. Opening another world will discard them.':
+    'Kaydedilmemiş değişiklikler var. Başka bir dünya açmak bunları atacak.',
+  'The world could not be opened, so the app cannot start.':
+    'Dünya açılamadı, bu yüzden uygulama başlayamıyor.',
+  'Dated copies of your world are kept in:\n{dir}':
+    'Dünyanızın tarihli kopyaları şurada tutuluyor:\n{dir}',
+  'If world.db itself is damaged: close the app, move it out of the folder above its backups folder, and copy one of those copies in its place under the name world.db.':
+    'world.db dosyasının kendisi bozulduysa: uygulamayı kapatın, dosyayı yukarıdaki klasörün ' +
+    'dışına taşıyın ve o kopyalardan birini onun yerine world.db adıyla kopyalayın.',
+  'The world could not be prepared for this session.': 'Dünya bu oturum için hazırlanamadı.',
+  'This usually means another copy of the app is already open and holding the world file. The app has started with whatever was already there — save to a .world before making changes you care about.':
+    'Bu genellikle uygulamanın başka bir kopyasının açık olduğu ve dünya dosyasını tuttuğu ' +
+    'anlamına gelir. Uygulama orada ne varsa onunla başladı — önemsediğiniz değişiklikleri ' +
+    'yapmadan önce bir .world dosyasına kaydedin.',
+  '{name} was not found.': '{name} bulunamadı.',
+  'It should be in the "legal" folder next to the application. If this is a portable copy, move the whole folder.':
+    'Uygulamanın yanındaki "legal" klasöründe olmalı. Bu taşınabilir bir kopyaysa klasörün ' +
+    'tamamını taşıyın.',
+  Images: 'Görseller'
 }
-const ml = (s: string): string => (readPrefs().language === 'tr' ? (MAIN_TR[s] ?? s) : s)
+/** `{name}`-style parameters, the same convention as the renderer's `t` — a dialog that names a
+ *  file cannot be a plain key, and interpolating outside the lookup would leave half the sentence
+ *  untranslatable in a language that orders it differently. */
+const ml = (s: string, params?: Record<string, string>): string => {
+  const out = readPrefs().language === 'tr' ? (MAIN_TR[s] ?? s) : s
+  return params ? out.replace(/\{(\w+)\}/g, (m, k: string) => params[k] ?? m) : out
+}
 
 /** Every other Recent entry is a name the USER chose when they saved. `last-session-<stamp>.world`
  *  is the one kind nobody named — it exists so a session closed without saving is not invisible
@@ -922,7 +962,7 @@ const mainApi = {
   },
   async pickImage(): Promise<string | null> {
     const r = await dialog.showOpenDialog({
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+      filters: [{ name: ml('Images'), extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
       properties: ['openFile']
     })
     if (r.canceled || !r.filePaths[0]) return null
@@ -1140,10 +1180,10 @@ function createWindow(): void {
     if (!dirty) return
     const r = dialog.showMessageBoxSync(win, {
       type: 'warning',
-      buttons: ['Save', "Don't Save", 'Cancel'],
+      buttons: [ml('Save'), ml("Don't Save"), ml('Cancel')],
       defaultId: 0,
       cancelId: 2,
-      message: 'There are unsaved changes. Save before closing?'
+      message: ml('There are unsaved changes. Save before closing?')
     })
     if (r === 2) {
       e.preventDefault()
@@ -1186,11 +1226,11 @@ function createWindow(): void {
         dialog.showMessageBoxSync(win, {
           type: 'error',
           title: APP_NAME,
-          message: 'Could not save, so the app has not closed.',
+          message: ml('Could not save, so the app has not closed.'),
           detail:
             `${err instanceof Error ? err.message : String(err)}
 
-` + 'Nothing is lost — the world is still open. Try Save As to a different folder.'
+` + ml('Nothing is lost — the world is still open. Try Save As to a different folder.')
         })
         return
       }
@@ -1253,10 +1293,10 @@ app.on('second-instance', (_e, argv) => {
   if (dirty) {
     const r = dialog.showMessageBoxSync(mainWindow, {
       type: 'warning',
-      buttons: ['Open (discard changes)', 'Cancel'],
+      buttons: [ml('Open (discard changes)'), ml('Cancel')],
       defaultId: 1,
       cancelId: 1,
-      message: 'There are unsaved changes. Opening another world will discard them.'
+      message: ml('There are unsaved changes. Opening another world will discard them.')
     })
     if (r !== 0) return
   }
@@ -1317,12 +1357,16 @@ app.whenReady().then(() => {
     dialog.showMessageBoxSync({
       type: 'error',
       title: APP_NAME,
-      message: 'The world could not be opened, so the app cannot start.',
+      message: ml('The world could not be opened, so the app cannot start.'),
       detail:
         `${err instanceof Error ? err.message : String(err)}\n\n` +
-        `Dated copies of your world are kept in:\n${join(DATA_DIR, 'backups')}\n\n` +
-        'If world.db itself is damaged: close the app, move it out of the folder above its ' +
-        'backups folder, and copy one of those copies in its place under the name world.db.'
+        ml('Dated copies of your world are kept in:\n{dir}', {
+          dir: join(DATA_DIR, 'backups')
+        }) +
+        '\n\n' +
+        ml(
+          'If world.db itself is damaged: close the app, move it out of the folder above its backups folder, and copy one of those copies in its place under the name world.db.'
+        )
     })
     app.exit(1)
     return
@@ -1476,12 +1520,12 @@ app.whenReady().then(() => {
     mainWindow.once('ready-to-show', () =>
       dialog.showMessageBox(mainWindow!, {
         type: 'warning',
-        message: 'The world could not be prepared for this session.',
+        message: ml('The world could not be prepared for this session.'),
         detail:
           `${startupWarning}\n\n` +
-          'This usually means another copy of the app is already open and holding the world ' +
-          'file. The app has started with whatever was already there — save to a .world before ' +
-          'making changes you care about.'
+          ml(
+            'This usually means another copy of the app is already open and holding the world file. The app has started with whatever was already there — save to a .world before making changes you care about.'
+          )
       })
     )
   }
