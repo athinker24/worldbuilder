@@ -2295,7 +2295,10 @@ export default function MapView({
         if (isPolygon) {
           const b = (layer as L.Polygon).getBounds()
           featArea.current.set(f.id, (b.getEast() - b.getWest()) * (b.getNorth() - b.getSouth()))
-          if (derived) {
+          // The root view groups by chain top through the SAME machinery, so it needs the summary
+          // too — for the base set, which is what it groups. `derived` already implies shows()
+          // here, since anything it does not show was skipped at the top of the loop.
+          if (derived || (f.entity_id !== null && baseSet.current.has(f.entity_id))) {
             // Geometry summary for derived labels. Grid rounding (EPS=0.01) is the same
             // tolerance as the weld's Chebyshev compare; snapping makes coordinates exactly
             // equal, so cells hold. A vertex pair within EPS but across a cell
@@ -2789,17 +2792,20 @@ export default function MapView({
   //
   // They now obey LOD_HIDE_ABOVE like every other name — zoom past the region and its name goes,
   // which is what a map is expected to do and what polygon names already did.
-  const rebuildDerivedLabels = (
-    year: number,
-    rungOwnerAt: (eid: number) => number | null
-  ): void => {
+  //
+  // THE ROOT VIEW USES THIS TOO, with the chain top as the owner. It used to write its own label
+  // instead: one carrier polygon per realm, sized to that piece's bounding box. A realm drawn as
+  // twelve counties therefore got a name sized to the biggest county, which is why "all" looked
+  // cramped next to the rank modes that had the merged extent all along. The fix is the caller
+  // passing a different `ownerOf`, not a second sizing formula — two of those would drift.
+  const rebuildDerivedLabels = (year: number, ownerOf: (eid: number) => number | null): void => {
     const map = mapRef.current
     const mode = activeModeRef.current
     const clear = (): void => {
       derivedSpecs.current = []
       derivedSig.current = ''
     }
-    if (!map || !mode || !layersRef.current.label) {
+    if (!map || !layersRef.current.label) {
       clear()
       return
     }
@@ -2814,15 +2820,17 @@ export default function MapView({
       if (eid === undefined) continue
       let key: string
       let text: string
-      if (mode.kind === 'paint') {
+      if (mode?.kind === 'paint') {
         const v = dimValue.current.get(eid)
         if (!v) continue
         key = 'b' + v
         text = v
       } else {
-        const o = rungOwnerAt(eid)
+        const o = ownerOf(eid)
         if (o === null) continue
-        key = 'k' + o
+        // The prefix separates the three views' keys, which is what makes the signature below
+        // notice a mode switch: a rung owner and a chain top can be the same entity id.
+        key = (mode ? 'k' : 'r') + o
         text = entNames.current.get(o) ?? ''
       }
       items.push({ fid, key })
@@ -3028,12 +3036,9 @@ export default function MapView({
     const tl = toolRef.current
     const editSession = tl !== null && tl !== 'scale' && tl !== 'nav'
     const rankOn = activeModeRef.current?.kind === 'rank'
-    // Default (root) view: base polygons painted in the color of the entity at the TOP of
-    // that year's chain (no parent = top); the root's name becomes one label over its largest piece.
+    // Default (root) view: base polygons painted in the color of the entity at the TOP of that
+    // year's chain (no parent = top); the root's name is one derived label over the whole of it.
     const topOnly = activeModeRef.current === null
-    // For spanLabelSize below, sizing the carrier's label — same span rebuildDerivedLabels uses.
-    const wmr = worldMapRef.current
-    const mapSpan = Math.max(wmr?.width ?? MAX_BASE_PX, wmr?.height ?? MAX_BASE_PX)
     // Climb the parent chain by year to the entity that HOLDS this one at the displayed rank
     // (cycle-guarded). We deliberately keep climbing past the first match and return the TOPMOST
     // one: after a same-rank conquest (duchy A takes duchy B) B still carries the rank tag, so
@@ -3080,24 +3085,9 @@ export default function MapView({
       const y = layerYears.current.get(fid)
       return !y || inYearRange(y.from, y.to, year)
     }
-    // Pass 1 (root view only): group visible base polygons by root, pick each root's label
-    // carrier (the largest piece)
-    const carrier = new Map<number, number>() // rootId → fid
-    if (topOnly) {
-      for (const [fid] of allLayers.current) {
-        const eid = featEnt.current.get(fid)
-        if (eid === undefined || !baseSet.current.has(eid) || !inYears(fid)) continue
-        if (!onActiveBoard(fid)) continue // a feature on another board joins no label
-        if (!featArea.current.has(fid)) continue // polygons only
-        const root = rootOf(eid)
-        const cur = carrier.get(root)
-        if (
-          cur === undefined ||
-          (featArea.current.get(fid) ?? 0) > (featArea.current.get(cur) ?? 0)
-        )
-          carrier.set(root, fid)
-      }
-    }
+    // The root view's realm names come from rebuildDerivedLabels now, like every other view's.
+    // A "carrier" pass used to run here instead — largest piece per root, label sized to THAT
+    // piece's box — and that is what made a twelve-county duchy wear a one-county name.
     for (const [fid, layers] of allLayers.current) {
       let visible = inYears(fid)
       // Board (drawing layer): a feature on an inactive board is never shown
@@ -3111,7 +3101,7 @@ export default function MapView({
       const eid = featEnt.current.get(fid)
       const isBase = eid !== undefined && baseSet.current.has(eid) && featArea.current.has(fid)
       let st = renderStyle.current.get(fid)
-      let labelRoot: number | null = null // root id when carrier; -1 = hide the base label
+      let hideBaseLabel = false
       if (topOnly && eid !== undefined) {
         if (isBase) {
           // Only the color comes from the root; opacity/weight stay the feature's own
@@ -3119,7 +3109,10 @@ export default function MapView({
           const root = rootOf(eid)
           const c = entColors.current.get(root) ?? '#666666'
           if (st) st = { ...st, color: outlineColor(c), fillColor: c, fillImg: undefined }
-          labelRoot = carrier.get(root) === fid ? root : -1
+          // A county in the mosaic does not write its own name — the realm's name is the derived
+          // label over the whole component. Same rule the rank modes have always had, where the
+          // base polygons never get a polySpec in the first place.
+          hideBaseLabel = true
         } else if (featArea.current.has(fid)) {
           // Hiding rules apply to POLYGON borders only: when a parent's hand-drawn border is
           // represented by the mosaic there must be no double image. Pins and paths (whoever
@@ -3215,22 +3208,12 @@ export default function MapView({
           const el = (l as L.Path).getElement?.() as SVGElement | null
           el?.setAttribute('marker-end', 'url(#worldArrow)')
         }
-        // Polygon name labels: all hidden when the layers panel says so; in the root view the
-        // carrier bears the root's name, other base labels stay hidden. A label that is not
-        // pushed here is simply not drawn — there is no element to hide.
-        if (visible && layersRef.current.label && labelRoot !== -1) {
+        // Polygon name labels: all hidden when the layers panel says so, and a base polygon in
+        // the root view writes no name of its own (the realm's derived label covers it). A label
+        // that is not pushed here is simply not drawn — there is no element to hide.
+        if (visible && layersRef.current.label && !hideBaseLabel) {
           const spec = polySpec.current.get(fid)
-          if (spec && labelRoot !== null) {
-            // The carrier speaks for the whole realm, so it takes the root's name and is sized
-            // to it rather than to the piece it happens to sit on.
-            const name = entNames.current.get(labelRoot) ?? ''
-            const b = (l as L.Polygon).getBounds()
-            shownLabels.push({
-              ...spec,
-              text: name,
-              size: spanLabelSize(b.getEast() - b.getWest(), name.length, mapSpan)
-            })
-          } else if (spec) shownLabels.push(spec)
+          if (spec) shownLabels.push(spec)
         }
       }
     }
@@ -3239,8 +3222,10 @@ export default function MapView({
     shapeLayer.current?.setHidden(editingId)
     drawShapes()
     // Derived region labels are built BEFORE the hand-off, because they go out in the same call:
-    // one list, one diff, one draw. It clears itself when no mode is active.
-    rebuildDerivedLabels(year, rungOwnerAt)
+    // one list, one diff, one draw. Which entity a polygon's name comes from is the ONE thing
+    // that differs between the views, so it is the one thing passed in: the rung's holder under a
+    // rank mode, the top of the chain in the root view.
+    rebuildDerivedLabels(year, topOnly ? rootOf : rungOwnerAt)
     labelLayer.current?.setLabels(shownLabels.concat(derivedSpecs.current))
     // The estimate above is a placeholder until the glyphs have been laid out; this is the real
     // size. Only free labels have a box to correct — a polygon's name is not clickable.
