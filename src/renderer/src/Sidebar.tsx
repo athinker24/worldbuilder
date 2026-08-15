@@ -446,7 +446,21 @@ export default function Sidebar({
       draggable
       onDragStart={(ev) => {
         dragItem.current = { kind: 'entity', id: e.id }
-        ev.dataTransfer.effectAllowed = 'move'
+        /**
+         * Two drags in one gesture, and the second one costs a line.
+         *
+         * Inside the tree this is a MOVE, resolved from `dragItem` by the folder drops — the
+         * payload below is ignored there. Dropped into a text editor it is a WIKI LINK, and
+         * nothing in this app handles that: a textarea inserts `text/plain` at the drop caret by
+         * itself, so there is no drop handler on the other side to write or to keep in step. The
+         * editors are uncontrolled (defaultValue + save on blur), so the inserted text is in
+         * `el.value` when blur reads it and saves like anything typed.
+         *
+         * `copyMove` because the same drag now means both, and the tree's own dragOver pins
+         * dropEffect back to 'move' so the cursor inside the sidebar does not start saying copy.
+         */
+        ev.dataTransfer.setData('text/plain', `[[${e.name}]]`)
+        ev.dataTransfer.effectAllowed = 'copyMove'
       }}
       onClick={() => openEntity(e.id)}
       onContextMenu={(ev) => {
@@ -541,7 +555,13 @@ export default function Sidebar({
             dragItem.current = { kind: 'folder', id: folder.id }
             ev.dataTransfer.effectAllowed = 'move'
           }}
-          onDragOver={(ev) => ev.preventDefault()}
+          onDragOver={(ev) => {
+            // The row also carries a wiki-link payload (see onDragStart), so effectAllowed is
+            // copyMove — without pinning it here the cursor would offer 'copy' inside the tree,
+            // where the only thing a drop does is move.
+            ev.preventDefault()
+            ev.dataTransfer.dropEffect = 'move'
+          }}
           onDrop={(ev) => {
             ev.preventDefault()
             ev.stopPropagation()
@@ -762,7 +782,13 @@ export default function Sidebar({
         {/* The file tree. Dropping on empty space moves the dragged item to the root. */}
         <div
           className="side-tree"
-          onDragOver={(ev) => ev.preventDefault()}
+          onDragOver={(ev) => {
+            // The row also carries a wiki-link payload (see onDragStart), so effectAllowed is
+            // copyMove — without pinning it here the cursor would offer 'copy' inside the tree,
+            // where the only thing a drop does is move.
+            ev.preventDefault()
+            ev.dataTransfer.dropEffect = 'move'
+          }}
           onDrop={(ev) => {
             ev.preventDefault()
             dropOn(null)
