@@ -2134,6 +2134,20 @@ export default function MapView({
     const map = mapRef.current
     if (!layers?.length || !map) return
     const l = layers[0]
+    // Locating SELECTS, which is what opens the inspector — and "show me this drawing" and "what
+    // is this drawing" were never two questions. Without it the map jumped somewhere and flashed a
+    // shape at you with nothing on screen saying what it was, so every route in (the sidebar's
+    // Show on map, the hierarchy panel's 📍, the map search, an entry's map history) ended one
+    // click short of the thing it was asked for.
+    //
+    // The flash stays: the map has just moved, and the selection outline alone does not say WHICH
+    // of the shapes now on screen you were sent to. It repaints from renderStyle when it is done
+    // (applyYear), so it hands the selected styling back rather than sitting on top of it.
+    const row = worldMapRef.current?.features.find((x) => x.id === fid)
+    if (row) {
+      setSelected(row)
+      setExtraSel([])
+    }
     const b = (l as L.Polygon).getBounds?.() ?? L.latLngBounds([(l as L.Marker).getLatLng()])
     /*
      * animate:false, and it has to be.
