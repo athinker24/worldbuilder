@@ -2431,12 +2431,18 @@ export default function MapView({
               setExtraSel((e) => (e.includes(f.id) ? e.filter((x) => x !== f.id) : [...e, f.id]))
             return
           }
+          // A click lands on a base polygon, and what the map SHOWS there is the realm that holds
+          // it — the duchy's own border is hidden under the mosaic (see applyYear), so selecting
+          // the county was selecting the one thing on screen the user was not pointing at. Roll up
+          // to the top of that year's chain instead; Alt+click keeps stepping down through the
+          // stack, which is the way back to the county and the reason this is skipped for it.
+          const target = ev.originalEvent?.altKey ? f : rollUpToRoot(f)
           logEvent('INFO', 'feature.selected', {
-            feature: f.id,
-            kind: featKind.current.get(f.id),
-            entity: f.entity_id ?? undefined
+            feature: target.id,
+            kind: featKind.current.get(target.id),
+            entity: target.entity_id ?? undefined
           })
-          setSelected(f)
+          setSelected(target)
           setExtraSel([])
         }
         // A shape can be clicked in either of two ways, because it is drawn in either of two
@@ -3615,6 +3621,36 @@ export default function MapView({
   const onActiveBoard = (fid: number): boolean => {
     const { list, active } = boardsRef.current
     return !list.length || resolveBoard(fid) === active
+  }
+
+  /**
+   * The drawing a plain click should really select: the top of this feature's chain in the year on
+   * screen, drawn on this board, largest piece if the realm has several.
+   *
+   * Only POLYGONS roll up. A pin or a road belongs to the thing it depicts and to nothing above it
+   * — a road through three counties is not the kingdom's road — and rolling one up would make the
+   * inspector unreachable for exactly the features that have no other way in.
+   *
+   * Returns the clicked feature unchanged when the chain top is itself, when it has no drawing
+   * here, or when its only drawings are out of the year / on another board. That fallback is the
+   * point: a click must always select SOMETHING, and the thing under the cursor is the honest
+   * answer when the realm above it has nothing on this map to select.
+   */
+  const rollUpToRoot = (f: Feature): Feature => {
+    if (f.entity_id === null || !featArea.current.has(f.id)) return f
+    const year = yearRef.current
+    const top = rootAtYear(f.entity_id, year, (id) => parentHist.current.get(id) ?? [])
+    if (top === f.entity_id) return f
+    let best: number | null = null
+    for (const [fid, eid] of featEnt.current) {
+      if (eid !== top || !featArea.current.has(fid) || !onActiveBoard(fid)) continue
+      const y = layerYears.current.get(fid)
+      if (y && !inYearRange(y.from, y.to, year)) continue
+      if (best === null || (featArea.current.get(fid) ?? 0) > (featArea.current.get(best) ?? 0))
+        best = fid
+    }
+    if (best === null) return f
+    return worldMapRef.current?.features.find((x) => x.id === best) ?? f
   }
 
   const persistBoards = (data: MapBoards): void => {
