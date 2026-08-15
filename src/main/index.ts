@@ -515,9 +515,16 @@ function newProject(): void {
 // including its unsaved-changes confirm. The mirror image of the single 'api' channel.
 const send = (cmd: string): void => mainWindow?.webContents.send('menu', cmd)
 
-// Main cannot import the renderer's i18n.tsx (a React module), so menu labels carry their own
-// small dictionary. English text is the key here too, same convention as i18n.tsx.
-const MENU_TR: Record<string, string> = {
+// Main cannot import the renderer's i18n.tsx (a React module), so this side carries its own small
+// dictionary. English text is the key here too, same convention as i18n.tsx.
+//
+// NOT menu-only, whatever the `ml` name suggests: the application menu is the bulk of it, but the
+// native dialogs (the open-failure messages, the log-folder warning) and the default `New map`
+// name come through the same table, because they are the other things main puts in front of a
+// user in their own language. Anything main SHOWS belongs here; anything the renderer shows
+// belongs in i18n.tsx, and the two never share a key by accident because neither can import the
+// other.
+const MAIN_TR: Record<string, string> = {
   File: 'Dosya',
   Edit: 'Düzen',
   View: 'Görünüm',
@@ -569,7 +576,7 @@ const MENU_TR: Record<string, string> = {
   'Check that the Worldbuilder folder in Documents can be written to.':
     'Belgeler içindeki Worldbuilder klasörünün yazılabilir olduğunu kontrol edin.'
 }
-const ml = (s: string): string => (readPrefs().language === 'tr' ? (MENU_TR[s] ?? s) : s)
+const ml = (s: string): string => (readPrefs().language === 'tr' ? (MAIN_TR[s] ?? s) : s)
 
 /** Every other Recent entry is a name the USER chose when they saved. `last-session-<stamp>.world`
  *  is the one kind nobody named — it exists so a session closed without saving is not invisible
