@@ -524,6 +524,71 @@ const LABEL_MIN = 5
  */
 const spanLabelSize = (axis: number, textLen: number, mapSpan: number): number =>
   Math.min(mapSpan * 0.045, Math.max(8, (axis * 0.8) / (0.62 * Math.max(4, textLen))))
+
+/**
+ * A stored geometry as the zoom-0 rings the WebGL layer draws and the hit test searches.
+ *
+ * Kept out of the WebGL layer and out of the Leaflet layer both: a polygon or path is not IN the
+ * map unless it is the one being edited, so there is nothing to read the shape back off. Two
+ * callers — the reload, which does this for every feature, and the single-feature geometry commit,
+ * which deliberately does not reload and so has to do for one what the reload does for all.
+ *
+ * A curved path is sampled from the SAME spline the DOM overlay draws, so the curve stays in one
+ * place and the hit test follows the line the user can actually see rather than its control points.
+ */
+const projectRings = (
+  map: L.Map,
+  geometry: string,
+  isPolygon: boolean,
+  curviness?: number
+): number[][][] => {
+  const gjc = (JSON.parse(geometry) as { coordinates: number[][] | number[][][] }).coordinates
+  const asRings = (isPolygon ? gjc : [gjc]) as number[][][]
+  const rings =
+    !isPolygon && curviness
+      ? [curvePoints(asRings[0], curviness).map((ll) => [ll.lng, ll.lat])]
+      : asRings
+  return rings.map((ring) =>
+    ring.map((pt) => {
+      const p = map.project(L.latLng(pt[1], pt[0]), 0)
+      return [p.x, p.y]
+    })
+  )
+}
+
+/**
+ * The geometry summary a derived region label is built from, or null when the feature is not a
+ * polygon. Same two callers as projectRings, for the same reason.
+ *
+ * Grid rounding (EPS=0.01) is the same tolerance as the weld's Chebyshev compare; snapping makes
+ * coordinates exactly equal, so cells hold. A vertex pair within EPS but across a cell boundary
+ * could in theory split a component — write the 4 neighbour cells too if that is ever seen.
+ *
+ * GeoJSON closes a ring by REPEATING its first vertex, and that duplicate is a real weight in
+ * everything downstream: it drags both the vertex-average centroid and the PCA mean toward one
+ * corner, which tilts a label that should read dead level — measured at -10.9° on a 1.5:1 rectangle
+ * and -3.6° on a 3:1. Every ring in the table is closed, so this was every derived label, always in
+ * the same direction. The open ring is what the rest of this wants anyway: ringsTouch wraps to
+ * close by itself, and ringArea already indexes modulo its length.
+ */
+const labelGeoOf = (
+  geometry: string
+): { keys: string[]; verts: number[][]; area: number; centroid: [number, number] } | null => {
+  const geom = JSON.parse(geometry) as { type: string; coordinates: number[][][] }
+  if (geom.type !== 'Polygon') return null
+  const closed = geom.coordinates[0]
+  const n = closed.length
+  const ring =
+    n > 1 && closed[0][0] === closed[n - 1][0] && closed[0][1] === closed[n - 1][1]
+      ? closed.slice(0, -1)
+      : closed
+  return {
+    keys: ring.map(([x, y]) => `${Math.round(x / 0.01)}_${Math.round(y / 0.01)}`),
+    verts: ring,
+    area: ringArea(ring),
+    centroid: ringCentroid(ring)
+  }
+}
 // The text is user input embedded into an html string → must be escaped (no XSS from a shared
 // world.db; same rationale as blocking raw HTML in markdown).
 const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
@@ -2254,31 +2319,9 @@ export default function MapView({
           })
         }
       })
-      // Geometry in zoom-0 space, for the WebGL layer to draw and for hit testing to search. Kept
-      // here rather than read back off the Leaflet layer because those layers are no longer in the
-      // map for polygons and paths — only the selected one ever is.
-      if (isPolygon || isLine) {
-        const gjc = (JSON.parse(f.geometry) as { coordinates: number[][] | number[][][] })
-          .coordinates
-        const asRings = (isPolygon ? gjc : [gjc]) as number[][][]
-        // A curved path is drawn from the SAME sampled spline the DOM overlay draws: the stored
-        // vertices are editable control points, never what is shown. Sampling here rather than in
-        // the WebGL layer keeps the curve in one place — and makes the hit test follow the line
-        // the user can actually see, which the raw vertices did not.
-        const rings =
-          isLine && style.curviness
-            ? [curvePoints(asRings[0], style.curviness).map((ll) => [ll.lng, ll.lat])]
-            : asRings
-        featRings.current.set(
-          f.id,
-          rings.map((ring) =>
-            ring.map((pt) => {
-              const p = map.project(L.latLng(pt[1], pt[0]), 0)
-              return [p.x, p.y]
-            })
-          )
-        )
-      }
+      // Geometry in zoom-0 space, for the WebGL layer to draw and for hit testing to search.
+      if (isPolygon || isLine)
+        featRings.current.set(f.id, projectRings(map, f.geometry, isPolygon, style.curviness))
       featKind.current.set(
         f.id,
         isPolygon ? 'polygon' : isLine ? 'line' : isLabel ? 'label' : 'pin'
@@ -2336,32 +2379,8 @@ export default function MapView({
           // too — for the base set, which is what it groups. `derived` already implies shows()
           // here, since anything it does not show was skipped at the top of the loop.
           if (derived || (f.entity_id !== null && baseSet.current.has(f.entity_id))) {
-            // Geometry summary for derived labels. Grid rounding (EPS=0.01) is the same
-            // tolerance as the weld's Chebyshev compare; snapping makes coordinates exactly
-            // equal, so cells hold. A vertex pair within EPS but across a cell
-            // boundary could in theory split a component — write the 4 neighbour cells too if seen.
-            const geom = JSON.parse(f.geometry) as { type: string; coordinates: number[][][] }
-            if (geom.type === 'Polygon') {
-              const closed = geom.coordinates[0]
-              // GeoJSON closes a ring by REPEATING its first vertex, and that duplicate is a real
-              // weight in everything below: it drags both the vertex-average centroid and the PCA
-              // mean toward one corner, which tilts the label's axis on a shape that should read
-              // dead level — measured at -10.9° on a 1.5:1 rectangle and -3.6° on a 3:1. Every
-              // ring in the table is closed, so this was every derived label, always in the same
-              // direction. The open ring is what the rest of this wants anyway: ringsTouch wraps
-              // to close by itself, and ringArea already indexes modulo its length.
-              const n = closed.length
-              const ring =
-                n > 1 && closed[0][0] === closed[n - 1][0] && closed[0][1] === closed[n - 1][1]
-                  ? closed.slice(0, -1)
-                  : closed
-              labelGeo.current.set(f.id, {
-                keys: ring.map(([x, y]) => `${Math.round(x / 0.01)}_${Math.round(y / 0.01)}`),
-                verts: ring,
-                area: ringArea(ring),
-                centroid: ringCentroid(ring)
-              })
-            }
+            const lg = labelGeoOf(f.geometry)
+            if (lg) labelGeo.current.set(f.id, lg)
           }
         }
         // Badge scaling ONLY for pins. A label is a Point too, but what it scales is its
@@ -2551,26 +2570,71 @@ export default function MapView({
           if (updates.length > 1) {
             await reloadFeatures('weld') // redraw the welded neighbours (recreates every label too)
           } else {
-            // No reload here (see snapshotUpdates), so a moved or reshaped polygon's own label —
-            // drawn independently of the layer now, not bound to it — would otherwise sit at its
-            // pre-edit position until something else forced a reload.
+            // NO RELOAD HERE (see snapshotUpdates), and everything below is the price of that: the
+            // reload is what normally refills the caches the drawing is rendered FROM, so for a
+            // single-feature edit they have to be refilled by hand or they keep describing the
+            // shape as it was before the drag.
+            //
+            // featRings is the one that shows. The Leaflet layer is only in the map while this
+            // feature is selected; every other moment the WebGL layer draws it, and it draws from
+            // here. Miss this and a road you just dragged a vertex into looks right until you
+            // deselect it and then springs back to its old shape — the database, the Leaflet layer
+            // and the picture all disagreeing, with only the picture visible.
+            const next = updates[0].next
+            if (isPolygon || isLine)
+              featRings.current.set(
+                f.id,
+                // The live row, not this closure's `f`: curviness is a style edit and style edits
+                // do not reload either (see repaint), so the closure's copy can be a version old.
+                projectRings(
+                  map,
+                  next,
+                  isPolygon,
+                  (
+                    JSON.parse(
+                      worldMapRef.current?.features.find((x) => x.id === f.id)?.style || '{}'
+                    ) as FeatureStyle
+                  ).curviness
+                )
+              )
+            if (isPolygon) {
+              // Which piece is the biggest decides which drawing a click on the realm selects
+              // (rollUpToRoot), so a reshape has to be reflected here as well.
+              const b = (layer as L.Polygon).getBounds()
+              featArea.current.set(
+                f.id,
+                (b.getEast() - b.getWest()) * (b.getNorth() - b.getSouth())
+              )
+            }
+            // A polygon's own name, drawn independently of the layer now rather than bound to it.
             const spec = polySpec.current.get(f.id)
             if (spec && isPolygon) {
               const c = (layer as L.Polygon).getCenter()
               const at = map.project(c, 0)
               polySpec.current.set(f.id, { ...spec, x: at.x, y: at.y })
-              applyYear(yearRef.current)
             }
-            // The same problem for a FREE LABEL, and it was missed: the glyphs are drawn from
-            // freeSpec, not from the layer, so dragging one moved its marker and its row in the
-            // database while the text stayed where it started — until something else forced a
-            // reload. What moves is the grab box; the text has to be told.
+            // And the summary the REALM's name is built from — reshaping one county moves and
+            // resizes the label over the whole duchy, so a stale entry here leaves the duchy's
+            // name sized to a border that no longer exists. derivedSig has to go with it: it is
+            // keyed by feature and owner, neither of which a reshape changes, so without this the
+            // rebuild would look at the new summary and decide nothing had happened.
+            if (isPolygon && labelGeo.current.has(f.id)) {
+              const lg = labelGeoOf(next)
+              if (lg) labelGeo.current.set(f.id, lg)
+              derivedSig.current = ''
+            }
+            // The same problem for a FREE LABEL, and it was missed for a long time: the glyphs are
+            // drawn from freeSpec, not from the layer, so dragging one moved its marker and its
+            // row in the database while the text stayed where it started. What moves is the grab
+            // box; the text has to be told.
             const fs = freeSpec.current.get(f.id)
             if (fs && isLabel) {
               const at = map.project((layer as L.Marker).getLatLng(), 0)
               freeSpec.current.set(f.id, { ...fs, x: at.x, y: at.y })
-              applyYear(yearRef.current)
             }
+            // One call for all of them. It used to be one per branch, which meant a pin drag —
+            // the case with no branch at all — redrew nothing.
+            applyYear(yearRef.current)
           }
         }
         // Snapshot synchronous, commit on the serial chain — reloads never clobber each other.
