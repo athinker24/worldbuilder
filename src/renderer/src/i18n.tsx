@@ -338,6 +338,8 @@ const TR: Record<string, string> = {
   Angle: 'Açı',
   Curve: 'Eğri',
   'Exported to {path}': '{path} konumuna aktarıldı',
+  'Exported to {path} — at screen size: the window could not grow, so there were no extra pixels to capture.':
+    '{path} konumuna aktarıldı — ekran boyutunda: pencere büyüyemedi, yakalanacak fazladan piksel yoktu.',
   Backup: 'Yedekleme',
   'A dated copy is kept daily, for 30 days. To restore, close the app and copy one over world.db.':
     'Günde bir tarihli kopya alınır, 30 gün saklanır. Geri yüklemek için uygulamayı kapat ve birini world.db üzerine kopyala.',

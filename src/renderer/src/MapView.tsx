@@ -1354,6 +1354,7 @@ export default function MapView({
     // which is the same reason Leaflet's own classes survive on it, and rendering the class would
     // have handed React an attribute Leaflet also writes.
     host.classList.add('exporting')
+    let got = 1
     try {
       if (scale > 1) {
         await api.beginHiResExport(before.width * (scale - 1), before.height * (scale - 1))
@@ -1367,7 +1368,7 @@ export default function MapView({
         // into the old box and the grown edges come out empty.
         map.invalidateSize(false)
         const grown = host.getBoundingClientRect()
-        const got = Math.min(grown.width / before.width, grown.height / before.height)
+        got = Math.min(grown.width / before.width, grown.height / before.height)
         // The map's own ceiling is a decision about how far a user may zoom, not about how large
         // a picture may be, so it is lifted for the capture and put back after.
         const target = z0 + Math.log2(Math.max(1, got))
@@ -1385,7 +1386,18 @@ export default function MapView({
         },
         path
       )
-      if (saved) alertDialog(t('Exported to {path}', { path: saved }))
+      // A refused grow yields a correct picture at the wrong size, and silence about it is what
+      // made this take two rounds to find: a 2× file identical to the 1× one looks like a feature
+      // that does nothing rather than a window that would not move. Said out loud instead.
+      if (saved)
+        alertDialog(
+          scale > 1 && got < 1.05
+            ? t(
+                'Exported to {path} — at screen size: the window could not grow, so there were no extra pixels to capture.',
+                { path: saved }
+              )
+            : t('Exported to {path}', { path: saved })
+        )
     } finally {
       // Whatever went wrong in between, the window comes back, the zoom comes back, and the map
       // gets its grid and its toolbars back. endHiResExport is idempotent and safe after a 1×
