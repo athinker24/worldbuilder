@@ -1017,6 +1017,18 @@ export default function MapView({
   const entColors = useRef(new Map<number, string>())
   const entNames = useRef(new Map<number, string>())
   const featArea = useRef(new Map<number, number>())
+  /**
+   * Entities whose drawing says "do not write my name on the map" (style.hideName).
+   *
+   * Keyed by ENTITY, not by feature, because a realm's name is not written by its own polygon in
+   * any view that matters: it is one derived label over the whole mosaic of what it holds, and
+   * rebuildDerivedLabels only ever knows which entity it is naming. So the checkbox on the duchy's
+   * drawing is read here, which is the same drawing a click on the duchy now selects.
+   *
+   * An entity with several drawings hides if ANY of them says so — a checkbox is a wish about a
+   * name, and there is only one name.
+   */
+  const hideNameEnt = useRef(new Set<number>())
   // Derived-mode labels (rank/paint): not DB features but transient markers built
   // in applyYear. labelGeo: base polygon geometry summary (fixed per reload generation; keys =
   // EPS-grid cell keys of the vertices — polygons sharing a vertex count as adjacent, geoman
@@ -2134,6 +2146,7 @@ export default function MapView({
     entColors.current.clear()
     entNames.current.clear()
     featArea.current.clear()
+    hideNameEnt.current.clear()
     labelGeo.current.clear()
     derivedSpecs.current = []
     dimValue.current.clear()
@@ -2226,10 +2239,13 @@ export default function MapView({
       const isPolygon = f.geometry.includes('"Polygon"')
       const isLine = f.geometry.includes('"LineString"')
       // Before the mode filter below: what is in the database is a fact about the feature, not
-      // about whether this view happens to draw it.
+      // about whether this view happens to draw it. "Do not write my name" is one of those facts —
+      // read past the filter, a realm hidden in the root view would have its name back the moment
+      // a rank mode skipped the drawing that said to hide it.
       featGeom.current.set(f.id, f.geometry)
-      if (derived && (f.entity_id === null || !derived.shows(f.entity_id) || !isPolygon)) continue
       const style = JSON.parse(f.style || '{}') as FeatureStyle
+      if (isPolygon && f.entity_id !== null && style.hideName) hideNameEnt.current.add(f.entity_id)
+      if (derived && (f.entity_id === null || !derived.shows(f.entity_id) || !isPolygon)) continue
       // A label has Point geometry like a pin — the discriminator is the text field in style
       const isLabel = !isPolygon && !isLine && style.text !== undefined
       const color = paint
@@ -2929,6 +2945,12 @@ export default function MapView({
       } else {
         const o = ownerOf(eid)
         if (o === null) continue
+        // "Show the name on the map", unticked on the realm's own drawing. It used to reach only
+        // that polygon's own label, which in every view that draws a mosaic is not the label the
+        // realm's name is written by — so on exactly the realms that have one, the checkbox did
+        // nothing. Skipping the whole group here is what makes it do something: the name has to
+        // be suppressible, because the answer to a name landing badly is a label placed by hand.
+        if (hideNameEnt.current.has(o)) continue
         // The prefix separates the three views' keys, which is what makes the signature below
         // notice a mode switch: a rung owner and a chain top can be the same entity id.
         key = (mode ? 'k' : 'r') + o
