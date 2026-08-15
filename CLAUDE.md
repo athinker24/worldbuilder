@@ -33,6 +33,42 @@ never a migration.
 
 ---
 
+## Splitting a file: the line, the ratio, and what must not move
+
+**Line count is not a reason.** `MapView.tsx` is the largest file here and has to stay one file:
+the renderer containment rule keeps `L.` in exactly one place, and everything at its module level
+depends on Leaflet. `db.ts`'s remaining bulk is held by a security gate, not by effort — see
+`src/main/CLAUDE.md`. A file is worth splitting when a block inside it is **one job with its own
+state that nothing else reads**, and not before.
+
+**Draw the line at WHERE THE DATA LIVES, not at the component tree.** Whatever a component
+fetches stays with the fetch and goes down as a prop; whatever only one panel's forms care about
+goes with the panel. That single rule produced `Sidebar.tsx`, `EntityRail.tsx` and the two pure
+modules beside `db.ts`, and it is why `folders` is a prop while `collapsed` is state: four screens
+colour by folder, and nobody has ever needed to know which folders are collapsed.
+
+**Measure the ratio before committing.** Lines removed against interface added: the sidebar bought
+650 lines for 20 props, the identity rail 1,030 for 24, `db.ts`'s pure half 316 for no plumbing at
+all — and the application menu was **measured and rejected** at 195 lines for seven injected
+dependencies. A split that costs more interface than it removes code is a rename with extra steps.
+Say so and stop; the investigation is not wasted, because the rejected menu split is what found
+that `MENU_TR` had never been menu-only and that two CLAUDE.md files disagreed about whether the
+save dialog was translated.
+
+**Prove the move instead of claiming it.** A pure move is checkable: `diff` the moved block against
+what it replaced (the sidebar's 496 lines and the rail's helpers came back byte-identical), and for
+anything the harnesses cover, compare the numbers on both sides — `db.ts` kept 303 assertions and
+`check-corrupt`'s 222/323/55/0/0 exactly. Re-export from the original module when the tests import
+from there: an unchanged public surface is what makes "no coverage was lost" a measurement.
+
+**Four things that must not move even when they could.** Module privacy that IS a gate (`__test.db`
+— the whole tree is walked to assert nothing reaches it). Anything importing Leaflet, by the
+containment rule. A `position: fixed` overlay, which discovers a transformed ancestor the moment it
+is re-parented (`FamilyTree` stayed in `EntityPage` for this; `Select.tsx` learned it the hard
+way). And a rule two callers must agree on — one copy, or it drifts on the first change.
+
+---
+
 ## Development commands
 
 - `npm run dev` — Electron dev server (with HMR)
