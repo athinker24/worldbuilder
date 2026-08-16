@@ -1006,6 +1006,21 @@ export default function MapView({
       }
     >()
   )
+  /**
+   * What applyYear actually PAINTED, as opposed to what the drawing carries.
+   *
+   * The two part company the moment a hierarchy exists. In the political mosaic a base polygon is
+   * painted in the colour of the top of its chain that year, and under a rank mode in the holder's
+   * — and both are built as a LOCAL copy of the canonical style inside applyYear's loop, deliberately
+   * not written back, because `renderStyle` is what the year has to be re-derived FROM. So the
+   * colour a user is looking at is, until here, in no variable that outlives the loop that drew it.
+   *
+   * Anything outside the map that needs "the colour on screen" reads this. Copying the resolution
+   * instead would be two callers agreeing on one rule, which drifts on the first change to either.
+   * Cleared per run: applyYear touches every feature it can see, so an entry left from a deleted
+   * one would be the only thing in here nobody rewrote.
+   */
+  const paintedStyle = useRef<typeof renderStyle.current>(new Map())
   // De-jure parent chain (rank view + conquest): entity → parent history, rank targets, feature → entity
   const parentHist = useRef(new Map<number, ParentRec[]>())
   const rungTargets = useRef(new Map<number, string>()) // entities at the rank → color
@@ -2200,11 +2215,16 @@ export default function MapView({
      *
      * Only the SELECTED feature is a Leaflet layer at all (`editingId` in applyYear; every other
      * shape is drawn by WebGL and is not in the map), which is why the selection above has to
-     * happen first for any of this to be painted. A feature with no canonical style is left alone
+     * happen first for any of this to be painted. A feature with no style at all is left alone
      * rather than guessed at: `renderStyle` is what applyYear repaints from, so anything missing
-     * from it is something this has no business painting — and nothing to restore it either.
+     * from both maps is something this has no business painting — and nothing to restore it either.
+     *
+     * `paintedStyle` FIRST, and that is the whole of the second correction. Give a county a parent
+     * and the mosaic paints it in its realm's colour; `renderStyle` still holds the blue it was
+     * drawn in, and marking a red duchy in dark blue is not marking it in its own colour at all.
+     * The fallback is for the window before the first applyYear, where the two agree anyway.
      */
-    const st = renderStyle.current.get(fid)
+    const st = paintedStyle.current.get(fid) ?? renderStyle.current.get(fid)
     if (st) {
       // fillColor carries `url(#fillpat-…)` on an image-filled polygon — a pattern reference, not a
       // colour, and outlineColor hands back anything that is not a plain hex untouched. `color` is
@@ -3347,6 +3367,7 @@ export default function MapView({
     // The root view's realm names come from rebuildDerivedLabels now, like every other view's.
     // A "carrier" pass used to run here instead — largest piece per root, label sized to THAT
     // piece's box — and that is what made a twelve-county duchy wear a one-county name.
+    paintedStyle.current.clear()
     for (const [fid, layers] of allLayers.current) {
       let visible = inYears(fid)
       // Board (drawing layer): a feature on an inactive board is never shown
@@ -3387,6 +3408,8 @@ export default function MapView({
         const c = eid !== undefined ? rungColor(eid) : '#666666'
         st = { ...st, color: outlineColor(c), fillColor: c, fillImg: undefined }
       }
+      // Every mode override is in by this point, so this is the style that reaches the screen.
+      if (st) paintedStyle.current.set(fid, st)
       // The zoom gate comes last: baseVisible = visibility APART from zoom (refreshZoomVis
       // reads it), then hide when outside the zoom range
       baseVisible.current.set(fid, visible)
