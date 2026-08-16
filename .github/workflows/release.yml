@@ -69,12 +69,23 @@ jobs:
       # action is deliberate: any external dependency granted contents:write is supply-chain
       # surface that could write to the repo if compromised.
       # shell: bash — the Windows runner defaults to PowerShell, which does not expand globs (*).
-      - name: Create draft release and attach artifacts
+      #
+      # Create only if there is nothing to update, and this is not defensive coding: `gh release
+      # create` on a tag that already has a DRAFT makes a SECOND draft rather than failing, because
+      # a draft carries no real tag yet and GitHub has nothing to collide on. Re-pushing v0.0.1 is
+      # how the releases page ended up listing the same version twice, with the same two files
+      # under each, and neither entry saying which one was current.
+      - name: Create or update the draft release
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME"
-          --notes "Setup exe to install; portable zip to run without installing."
-          dist/Worldbuilder-*-Setup.exe dist/Worldbuilder-*-portable.zip
+        run: |
+          FILES="dist/Worldbuilder-*-Setup.exe dist/Worldbuilder-*-portable.zip"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --clobber $FILES
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" \
+              --notes "Setup exe to install; portable zip to run without installing." \
+              $FILES
+          fi
