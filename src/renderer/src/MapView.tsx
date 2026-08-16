@@ -2176,32 +2176,31 @@ export default function MapView({
      * Until someone wants it enough to write it, a jump is honest and costs nothing.
      */
     map.fitBounds(b.pad(0.4), { maxZoom: 2, animate: false })
-    let n = 0
     /*
-     * One colour, pulsed — not two, alternating.
+     * One colour, lit ONCE — not two, alternating four times.
      *
      * The old flash ran gold → white → gold → white, and neither of those is a colour this app
      * uses to mean "here": the gold belongs to the temporary overlays that measure things (the
-     * ruler, the nav route), and the white belongs to nothing. Two hues swapping also read as a
-     * warning rather than a pointer. The accent is the colour every other "this is the one" in the
-     * interface is already drawn in, so the pulse is that colour going bright and dim, twice.
+     * ruler, the nav route), and the white belongs to nothing. Blinking made it worse — two hues
+     * trading places reads as a warning, and the map has just jumped, so the eye is already being
+     * asked to find its place. A single mark held still for the length the blinking took says the
+     * same thing without competing with the movement.
      *
-     * Read from the token rather than written here, because it is a different teal per theme and a
-     * literal would be wrong in one of them; `<html data-theme>` carries the switch (App.tsx), so
-     * the computed value on the root element is the live one. The fallback is the dark theme's,
-     * which is what a missing token would have been silently drawn as anyway.
+     * The colour is the accent — what every other "this is the one" in the interface is drawn in —
+     * put through `outlineColor`, which desaturates a quarter of the way to the colour's own grey
+     * and multiplies down: the calmer relative a polygon's own border already uses, so the mark
+     * belongs to the map rather than sitting on top of it. Read from the token rather than written
+     * here, because it is a different teal per theme and a literal would be wrong in one of them;
+     * `<html data-theme>` carries the switch (App.tsx), so the computed value on the root element
+     * is the live one. The fallback is the dark theme's, which is what a missing token would have
+     * been silently drawn as anyway.
      */
-    const hue =
+    const accent =
       getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#3ab0a0'
-    const flash = (): void => {
-      for (const ly of layers)
-        if ((ly as L.Path).setStyle)
-          (ly as L.Path).setStyle({ color: hue, opacity: n % 2 ? 0.3 : 1 })
-      n++
-      if (n < 4) setTimeout(flash, 180)
-      else applyYear(yearRef.current)
-    }
-    flash()
+    const mark = outlineColor(accent)
+    for (const ly of layers)
+      if ((ly as L.Path).setStyle) (ly as L.Path).setStyle({ color: mark, opacity: 1 })
+    setTimeout(() => applyYear(yearRef.current), 720)
   }
 
   // Reload generation: rapid successive edits (dragging a slider) start overlapping reloads;
