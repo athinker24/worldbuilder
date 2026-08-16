@@ -401,6 +401,22 @@ export default function Sidebar({
     setOpenGroups((prev) => new Set(prev).add('unplaced'))
     openEntity(id)
   }
+  /**
+   * A drag that ended without one of OUR drops has to forget what it was carrying.
+   *
+   * `dropOn` clearing the ref covers a drop inside the tree and nothing else, and since an entry
+   * row also drags out as a wiki link (see renderEntityRow) that is now a gesture people make on
+   * purpose: the drop lands in a textarea, `dropOn` never runs, and the ref keeps naming the entry.
+   * The next drop of ANYTHING on the tree — text dragged out of a note, a file from Explorer, both
+   * accepted because `onDragOver` preventDefaults every drag — would read that ref and move an
+   * entry nobody dragged, with a database write and an undo entry to match.
+   *
+   * `dragend` fires on the source whatever the drop did or where it happened, which is exactly the
+   * boundary the ref's lifetime should have had.
+   */
+  const endDrag = (): void => {
+    dragItem.current = null
+  }
   const dropOn = (target: string | null): void => {
     const d = dragItem.current
     dragItem.current = null
@@ -462,6 +478,7 @@ export default function Sidebar({
         ev.dataTransfer.setData('text/plain', `[[${e.name}]]`)
         ev.dataTransfer.effectAllowed = 'copyMove'
       }}
+      onDragEnd={endDrag}
       onClick={() => openEntity(e.id)}
       onContextMenu={(ev) => {
         ev.preventDefault()
@@ -555,6 +572,7 @@ export default function Sidebar({
             dragItem.current = { kind: 'folder', id: folder.id }
             ev.dataTransfer.effectAllowed = 'move'
           }}
+          onDragEnd={endDrag}
           onDragOver={(ev) => {
             // The row also carries a wiki-link payload (see onDragStart), so effectAllowed is
             // copyMove — without pinning it here the cursor would offer 'copy' inside the tree,

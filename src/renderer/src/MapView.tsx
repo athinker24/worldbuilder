@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import L from 'leaflet'
 import '@geoman-io/leaflet-geoman-free'
 import 'leaflet/dist/leaflet.css'
@@ -2143,11 +2144,20 @@ export default function MapView({
     // The flash stays: the map has just moved, and the selection outline alone does not say WHICH
     // of the shapes now on screen you were sent to. It repaints from renderStyle when it is done
     // (applyYear), so it hands the selected styling back rather than sitting on top of it.
+    //
+    // flushSync, and it is the whole point of the ordering: the inspector is a FLEX SIBLING of the
+    // map (see the panelOpen layout effect), so selecting takes ~380px of width away from the very
+    // box fitBounds is about to fit into. Left to React's own timing the fit happened first, at the
+    // old width, and the panel then opened over the right edge of it — with pan:false anchoring the
+    // top-left, the shape you were just sent to slid right and lost its right side behind the
+    // panel. Committing the selection here runs the layout effect's invalidateSize before the fit,
+    // so fitBounds measures the box the user will actually be looking at.
     const row = worldMapRef.current?.features.find((x) => x.id === fid)
-    if (row) {
-      setSelected(row)
-      setExtraSel([])
-    }
+    if (row)
+      flushSync(() => {
+        setSelected(row)
+        setExtraSel([])
+      })
     const b = (l as L.Polygon).getBounds?.() ?? L.latLngBounds([(l as L.Marker).getLatLng()])
     /*
      * animate:false, and it has to be.
