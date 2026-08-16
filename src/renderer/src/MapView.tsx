@@ -46,6 +46,7 @@ import {
   saveTimeline,
   FolderDef,
   folderColor,
+  litColor,
   outlineColor,
   personFolderIds,
   WorldMap
@@ -2177,30 +2178,30 @@ export default function MapView({
      */
     map.fitBounds(b.pad(0.4), { maxZoom: 2, animate: false })
     /*
-     * One colour, lit ONCE — not two, alternating four times.
+     * The mark is the drawing's OWN colour, lit once.
      *
-     * The old flash ran gold → white → gold → white, and neither of those is a colour this app
-     * uses to mean "here": the gold belongs to the temporary overlays that measure things (the
-     * ruler, the nav route), and the white belongs to nothing. Blinking made it worse — two hues
-     * trading places reads as a warning, and the map has just jumped, so the eye is already being
-     * asked to find its place. A single mark held still for the length the blinking took says the
-     * same thing without competing with the movement.
+     * Two earlier versions were wrong in the same way. Gold → white → gold → white borrowed the
+     * gold the temporary measuring overlays use (the ruler, the nav route) and a white that is in
+     * no palette here; the accent was at least the app's, but it was still the app answering with
+     * a colour of its own. What the user asked to be shown has a colour already, and it is the one
+     * thing on screen they can recognise it by — so the mark is that colour through `litColor`,
+     * which is `outlineColor`'s other direction. A polygon's stroke IS the darkened relative of its
+     * fill, so lighting the same hue is what separates the mark from the border underneath it.
      *
-     * The colour is the accent — what every other "this is the one" in the interface is drawn in —
-     * put through `outlineColor`, which desaturates a quarter of the way to the colour's own grey
-     * and multiplies down: the calmer relative a polygon's own border already uses, so the mark
-     * belongs to the map rather than sitting on top of it. Read from the token rather than written
-     * here, because it is a different teal per theme and a literal would be wrong in one of them;
-     * `<html data-theme>` carries the switch (App.tsx), so the computed value on the root element
-     * is the live one. The fallback is the dark theme's, which is what a missing token would have
-     * been silently drawn as anyway.
+     * Once, not blinking: the map has just jumped and the eye is already hunting for its place, so
+     * a strobing shape competes with the movement instead of ending it — and two hues trading
+     * places reads as a warning. One mark, held for as long as the blinking took.
+     *
+     * A feature with no canonical style is left alone rather than guessed at: `renderStyle` is
+     * what applyYear repaints from, so anything missing from it is something this has no business
+     * painting — and nothing to restore it either.
      */
-    const accent =
-      getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#3ab0a0'
-    const mark = outlineColor(accent)
-    for (const ly of layers)
-      if ((ly as L.Path).setStyle) (ly as L.Path).setStyle({ color: mark, opacity: 1 })
-    setTimeout(() => applyYear(yearRef.current), 720)
+    const st = renderStyle.current.get(fid)
+    if (st) {
+      const mark = litColor(st.color)
+      for (const ly of layers) if ((ly as L.Path).setStyle) (ly as L.Path).setStyle({ color: mark })
+      setTimeout(() => applyYear(yearRef.current), 720)
+    }
   }
 
   // Reload generation: rapid successive edits (dragging a slider) start overlapping reloads;
