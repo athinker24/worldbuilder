@@ -56,7 +56,8 @@ last because it is about all of them: it records how each one was verified.
 
 in note/content markdown the user's `<` are escaped — raw HTML cannot run — and URLs are sanitised
 **at parser level**: via `new Marked({renderer:{link,image}})`, href/src pass the `SAFE_URL`
-allow-list BEFORE any HTML exists (`EntityPage.safeMarked`). marked used to put `[t](javascript:…)`
+allow-list BEFORE any HTML exists (`safeMarked` in `markdown.ts`, module-private and reached only
+through `renderMarkdown`). marked used to put `[t](javascript:…)`
 straight into `<a href>`; clicked, the code ran in the renderer context (i.e. with `window.api`
 access). The previous output-regex version was correct today but would silently break if marked's
 output format changed — cut at the source, not filter. All attributes including title/alt go through
