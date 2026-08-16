@@ -263,31 +263,6 @@ export function outlineColor(fill: string): string {
   )
 }
 
-/**
- * The same colour, LIT: `outlineColor`'s other direction, and it lives here so the pair does not
- * get separated.
- *
- * Used to mark a drawing the map was just told to show. A mark has to be visible against the shape
- * it marks, and the shape's own stroke is already the darker relative of its fill — so going darker
- * again would land on the border it is trying to replace. Toward white keeps the hue, which is the
- * whole point: the drawing lights up as ITSELF rather than in some colour the app chose for it, and
- * a colour the user picked is still recognisably theirs while it is lit.
- *
- * Same non-hex escape as its counterpart: a pattern url or a css name is handed back untouched.
- */
-export function litColor(base: string): string {
-  const m = /^#?([\da-f]{6})$/i.exec(base.trim())
-  if (!m) return base
-  const n = parseInt(m[1], 16)
-  return (
-    '#' +
-    [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-      .map((v) => Math.round(v + (255 - v) * 0.5))
-      .map((v) => v.toString(16).padStart(2, '0'))
-      .join('')
-  )
-}
-
 export function autoColor(seed: string): string {
   let hash = 0
   for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0

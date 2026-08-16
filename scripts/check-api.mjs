@@ -208,7 +208,6 @@ const pure = [
   ['ringArea empty', () => A.ringArea([])],
   ['ringArea junk', () => A.ringArea([['a', 'b'], [1]])],
   ['outlineColor junk', () => A.outlineColor('url(#x)')],
-  ['litColor junk', () => A.litColor('url(#x)')],
   ['autoColor empty', () => A.autoColor('')],
   ['assetUrl traversal', () => A.assetUrl('../../world.db')],
   ['assetUrl backslash', () => A.assetUrl('assets\\..\\world.db')],

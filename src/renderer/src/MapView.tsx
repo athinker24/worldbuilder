@@ -46,7 +46,6 @@ import {
   saveTimeline,
   FolderDef,
   folderColor,
-  litColor,
   outlineColor,
   personFolderIds,
   WorldMap
@@ -2178,28 +2177,47 @@ export default function MapView({
      */
     map.fitBounds(b.pad(0.4), { maxZoom: 2, animate: false })
     /*
-     * The mark is the drawing's OWN colour, lit once.
+     * The mark is the drawing's own colour, a shade deeper, held once.
      *
-     * Two earlier versions were wrong in the same way. Gold → white → gold → white borrowed the
-     * gold the temporary measuring overlays use (the ruler, the nav route) and a white that is in
-     * no palette here; the accent was at least the app's, but it was still the app answering with
-     * a colour of its own. What the user asked to be shown has a colour already, and it is the one
-     * thing on screen they can recognise it by — so the mark is that colour through `litColor`,
-     * which is `outlineColor`'s other direction. A polygon's stroke IS the darkened relative of its
-     * fill, so lighting the same hue is what separates the mark from the border underneath it.
+     * Three versions were wrong before this one and they were all the same mistake. Gold → white →
+     * gold → white borrowed the gold the temporary measuring overlays use (the ruler, the nav
+     * route) and a white that is in no palette here. The accent was at least the app's colour, but
+     * it was still the app answering with a colour of its own. And lightening the drawing's colour
+     * was the right idea aimed the wrong way: half the distance to white takes the saturation with
+     * it, so a rust polygon marked in #bea29e and every mark, whatever the shape, arrived looking
+     * white. What is on screen already has a colour, and going DOWN from it keeps that colour
+     * recognisably itself.
+     *
+     * `outlineColor` is that shade — the same desaturate-a-quarter-and-darken a polygon's border
+     * already wears, so the mark is a relative of the drawing rather than a coat of paint over it.
+     * On the FILL, not just the stroke: the stroke is already this colour, so writing it there
+     * changes nothing anyone can see, while the fill normally sits at a quarter opacity and has
+     * somewhere to go. The region floods with a deeper version of itself and drains back.
      *
      * Once, not blinking: the map has just jumped and the eye is already hunting for its place, so
      * a strobing shape competes with the movement instead of ending it — and two hues trading
      * places reads as a warning. One mark, held for as long as the blinking took.
      *
-     * A feature with no canonical style is left alone rather than guessed at: `renderStyle` is
-     * what applyYear repaints from, so anything missing from it is something this has no business
-     * painting — and nothing to restore it either.
+     * Only the SELECTED feature is a Leaflet layer at all (`editingId` in applyYear; every other
+     * shape is drawn by WebGL and is not in the map), which is why the selection above has to
+     * happen first for any of this to be painted. A feature with no canonical style is left alone
+     * rather than guessed at: `renderStyle` is what applyYear repaints from, so anything missing
+     * from it is something this has no business painting — and nothing to restore it either.
      */
     const st = renderStyle.current.get(fid)
     if (st) {
-      const mark = litColor(st.color)
-      for (const ly of layers) if ((ly as L.Path).setStyle) (ly as L.Path).setStyle({ color: mark })
+      // fillColor carries `url(#fillpat-…)` on an image-filled polygon — a pattern reference, not a
+      // colour, and outlineColor hands back anything that is not a plain hex untouched. `color` is
+      // the closer stand-in there, the same substitution the WebGL hand-off makes.
+      const own = st.fillColor?.startsWith('url(') ? st.color : (st.fillColor ?? st.color)
+      const mark = outlineColor(own)
+      for (const ly of layers)
+        if ((ly as L.Path).setStyle)
+          (ly as L.Path).setStyle({
+            color: mark,
+            fillColor: mark,
+            fillOpacity: Math.min(0.85, (st.fillOpacity ?? 0.25) + 0.45)
+          })
       setTimeout(() => applyYear(yearRef.current), 720)
     }
   }
