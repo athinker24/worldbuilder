@@ -1,137 +1,131 @@
 # Worldbuilder
 
-A desktop app that keeps a fictional world's map, peoples, states, languages, dynasties and
-history in one place, all **linked together**.
+A desktop app for keeping a made up world in one place. Maps, entries, states, dynasties, a
+timeline.
 
-- Nested interactive maps (continent → city → building) with borders and pins drawn on top
-- Encyclopedia-style articles: free-form fields, templates, `[[links]]` between them
-- A layered political hierarchy (empire → kingdom → duchy → county), year-based conquest and
-  border changes
-- Map modes you **define yourself** — religion, language, culture, anything
-- A timeline: drag the year and the map returns to that day
-- Dynasty trees, a diplomacy web, atlas statistics
+The parts are linked. Draw a border on the map and it gets an entry. Give that entry a parent and
+the map starts drawing it as part of a realm. Move the year and the borders follow.
 
-Everything can be renamed, moved or deleted later — no fixed categories.
-Design rationale: [CLAUDE.md](CLAUDE.md).
+## What it does
 
----
+- Maps inside maps. A continent opens a city, a city opens a building.
+- Entries with free fields, and `[[links]]` between them.
+- A hierarchy you name yourself (empire, kingdom, duchy, or whatever you call them), plus conquests
+  that change borders by year.
+- A timeline. Drag the year and the map goes back to it.
+- Map modes for anything you track: religion, language, culture.
 
-## Installing (Windows)
+Nothing is locked in. Every type, name and category can be renamed, moved or deleted later, from
+inside the app.
 
-Download the latest release from the [**Releases**](../../releases) page. Two options, both
-open the same app:
+## Install (Windows)
 
-| File | What it does |
-| --- | --- |
-| **`Worldbuilder-…-Setup.exe`** | A normal installer. Asks where to install, creates desktop + Start Menu shortcuts, uninstalls like any app. No administrator rights needed. |
-| **`Worldbuilder-…-portable.zip`** | No installation. Extract to a folder and run `Worldbuilder.exe` inside. Works from a USB stick too. |
+Grab one of these two from the [Releases](../../releases) page. They run the same app, pick
+whichever suits you.
 
-Either way, double-clicking a `.world` file opens that world directly.
+**Installer, `Worldbuilder-…-Setup.exe`**
 
-### The "Windows protected your PC" warning
+1. Download it and run it.
+2. Choose a folder or leave the default.
+3. You get a desktop and Start Menu shortcut. No admin rights needed.
 
-Running the `.exe` will likely show a blue warning screen. **This is not a virus warning.** It
-appears because the app is not signed with a paid certificate; Windows shows it for any
-unrecognised publisher. To continue: **"More info" → "Run anyway"**. Once per file is enough.
+**Portable, `Worldbuilder-…-portable.zip`**
 
-If you would rather not run an unsigned `.exe`, that is entirely reasonable — the
-[build from source](#building-from-source) steps below let you inspect the code and build it
-yourself.
+1. Download it and extract it anywhere.
+2. Run `Worldbuilder.exe` inside the folder.
+3. Nothing gets installed. A USB stick works fine.
 
----
+Either way, double clicking a `.world` file opens that world.
 
-## Where your data lives
+### If Windows shows a blue warning
 
-Everything you create is saved **instantly** to:
+It says "Windows protected your PC". That is not a virus warning. It shows for any app without a
+paid signing certificate, and this one does not have one. Click **More info**, then **Run anyway**.
+Once per file is enough.
+
+If you would rather not run an unsigned exe, that is fair. Build it yourself, steps are at the
+bottom.
+
+### Other platforms
+
+Only Windows is tested. There is no macOS or Linux build.
+
+## Where your files go
+
+Everything saves as you work, into:
 
 ```
 Documents\Worldbuilder\
-├── world.db      → all your content (a SQLite database)
-├── assets\       → images you add (banners, map backgrounds)
-└── backups\      → automatic daily backups (kept for 30 days)
+├── world.db      all your content, a SQLite database
+├── assets\       images you add
+└── backups\      daily backups, kept 30 days
 ```
 
-No cloud, no account — everything stays on your own computer. To back up, copy that folder.
+No cloud and no account. To back up, copy that folder.
 
-A **`.world` file** is the whole world as one document: `Ctrl+S` packs everything (images
-included) into a single file you can send to someone or open on another computer.
-
----
+`Ctrl+S` packs the whole thing, images included, into a single `.world` file. That is the one you
+send to someone or carry to another computer.
 
 ## Shortcuts
 
-| Shortcut | What it does |
+| Key | What it does |
 | --- | --- |
-| `Ctrl+K` | Search everything (palette) |
-| `M` | Go to the map (the last one you were on) |
-| `Ctrl+S` / `Ctrl+Shift+S` | Save world / Save as |
-| `Ctrl+O` | Open world |
+| `Ctrl+K` | Search everything |
+| `M` | Go to the map |
+| `Ctrl+S` / `Ctrl+Shift+S` | Save / Save as |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
-| `F1` | The full shortcut list |
-| `Ctrl`+click | Select multiple drawings on the map |
-| `Ctrl+C` / `Ctrl+V` / `Ctrl+D` | Copy / paste / duplicate drawings |
-| `Shift`+wheel | Size of the selection (or the active tool's default) |
+| `Ctrl`+click | Select more than one drawing |
+| `F1` | The full list |
 
-The complete list lives on the **⌨ Shortcuts** page inside the app.
+## Opening a `.world` from someone else
 
----
-
-## `.world` files from other people
-
-The files are designed to be shared, so their contents are treated as **untrusted input**:
-note content cannot run HTML/JavaScript, embedded images cannot write outside the `assets\`
-folder, and corrupt data is repaired instead of locking the app up. Details:
+These files are meant to be shared, so the app treats their contents as untrusted. Note text cannot
+run HTML or JavaScript, embedded images cannot write outside `assets\`, and broken data gets
+repaired instead of hanging the app. The full list is in
 [docs/security-gates.md](docs/security-gates.md).
 
-Still — give a file from a stranger the same suspicion you would give an unknown program.
+Even so, treat a file from a stranger the way you would treat any program you did not write.
 
----
+## Build from source
 
-## Building from source
-
-Requires [Node.js](https://nodejs.org) 22 or newer.
+Needs [Node.js](https://nodejs.org) 22 or newer.
 
 ```bash
 npm install
-npm run dev          # dev server with hot reload
-npm run build:win    # produces the installer + zip under dist/
+npm run dev          # dev server, hot reload
+npm run build:win    # installer + zip, into dist/
 ```
 
-Other commands:
+Checks:
 
 ```bash
-npm run typecheck    # type checking
-npm run lint         # eslint
-node tests/db.test.ts # main-process test harness (schema + CRUD + undo + security asserts)
+npm run typecheck
+npm run lint
+node tests/db.test.ts   # schema, CRUD, undo, security asserts
 ```
 
-Releasing: `git tag v1.0.1 && git push --tags` → GitHub Actions builds and attaches the
-installer and zip to a draft release ([.github/workflows/release.yml](.github/workflows/release.yml)).
+To release: `git tag v1.0.1 && git push --tags`. GitHub Actions builds it and attaches the files to
+a draft release ([.github/workflows/release.yml](.github/workflows/release.yml)).
 
----
+Design notes and the reasoning behind the data model are in [CLAUDE.md](CLAUDE.md).
 
 ## Status
 
-A personal hobby project, evolving continuously. If something breaks or looks wrong,
+A hobby project, still changing. If something breaks or looks wrong,
 [open an issue](../../issues).
 
 ## License
 
-**MIT** — see [LICENSE](LICENSE). Use it, change it, redistribute it, sell what you make from it.
-The installer shows the licence as a page you must accept, and it ships as `legal\LICENSE.txt`
-beside the executable in the portable zip too.
+MIT, see [LICENSE](LICENSE). Use it, change it, sell what you make with it.
 
-The world you build with it — your `.world` files, maps and entries — is **entirely yours**. The
-licence covers the software and claims nothing over your content; you may publish or sell it
-freely. [legal/NOTICE.txt](legal/NOTICE.txt) says that and the other things a licence does not:
-back up your work, and treat a `.world` from a stranger like any other downloaded document.
+What you build with it stays yours. The licence covers the software and claims nothing over your
+worlds, maps or entries.
 
-- [legal/PRIVACY.txt](legal/PRIVACY.txt) — the app makes no network requests, has no accounts and
-  collects nothing. It also says what the log records, and what is stripped from a `.world` you
-  share.
-- [legal/THIRD-PARTY-NOTICES.txt](legal/THIRD-PARTY-NOTICES.txt) — the open source components the
-  app is built from, each under its own licence, reproduced in full. Generated by
-  `node scripts/gen-notices.mjs`; run it after changing dependencies, or the release gate will fail.
+- [legal/PRIVACY.txt](legal/PRIVACY.txt): no network requests, no accounts, nothing collected. Also
+  says what the log keeps and what gets stripped out of a `.world` you share.
+- [legal/NOTICE.txt](legal/NOTICE.txt): the things a licence does not say. Back up your work, and be
+  careful with files from strangers.
+- [legal/THIRD-PARTY-NOTICES.txt](legal/THIRD-PARTY-NOTICES.txt): the open source parts this is
+  built on, each under its own licence.
 
-These, plus a short alpha-testing note, live in `legal\` beside the executable and are opened from
-**Help ▸** inside the app, in both distributions.
+All three ship next to the executable and open from the **Help** menu.
