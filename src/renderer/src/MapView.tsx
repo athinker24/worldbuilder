@@ -2177,10 +2177,26 @@ export default function MapView({
      */
     map.fitBounds(b.pad(0.4), { maxZoom: 2, animate: false })
     let n = 0
+    /*
+     * One colour, pulsed — not two, alternating.
+     *
+     * The old flash ran gold → white → gold → white, and neither of those is a colour this app
+     * uses to mean "here": the gold belongs to the temporary overlays that measure things (the
+     * ruler, the nav route), and the white belongs to nothing. Two hues swapping also read as a
+     * warning rather than a pointer. The accent is the colour every other "this is the one" in the
+     * interface is already drawn in, so the pulse is that colour going bright and dim, twice.
+     *
+     * Read from the token rather than written here, because it is a different teal per theme and a
+     * literal would be wrong in one of them; `<html data-theme>` carries the switch (App.tsx), so
+     * the computed value on the root element is the live one. The fallback is the dark theme's,
+     * which is what a missing token would have been silently drawn as anyway.
+     */
+    const hue =
+      getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#3ab0a0'
     const flash = (): void => {
       for (const ly of layers)
         if ((ly as L.Path).setStyle)
-          (ly as L.Path).setStyle({ color: n % 2 ? '#ffd700' : '#ffffff' })
+          (ly as L.Path).setStyle({ color: hue, opacity: n % 2 ? 0.3 : 1 })
       n++
       if (n < 4) setTimeout(flash, 180)
       else applyYear(yearRef.current)
